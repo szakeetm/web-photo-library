@@ -6,6 +6,9 @@
 	import favicon from '#lib/assets/favicon.svg';
 	import Icon from '#lib/components/Icon.svelte';
 	import { app } from '#lib/state.svelte.ts';
+	import { uploads } from '#lib/uploadsInstance.svelte.ts';
+	import DropZone from '#lib/components/DropZone.svelte';
+	import UploadSheet from '#lib/components/UploadSheet.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -28,6 +31,7 @@
 
 	onMount(async () => {
 		await app.init();
+		uploads.resume();
 		if (!app.libraryConfigured && !page.url.pathname.startsWith('/settings')) goto('/settings');
 	});
 </script>
@@ -45,6 +49,9 @@
 		</div>
 	</div>
 {/if}
+
+<DropZone />
+<UploadSheet />
 
 <div class="shell">
 	<nav class="sidebar" aria-label="Sections">
