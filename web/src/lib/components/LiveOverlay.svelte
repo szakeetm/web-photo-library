@@ -6,8 +6,9 @@
 	//
 	// Loading: the clip is fetched only for the current slide, once it has been current for 500 ms (or at
 	// once when a hold starts sooner), and dropped (download aborted) when the slide stops being current.
-	// Anything but a playable answer (404, 202 while converting, 409) makes the <video> fail: the badge
-	// goes inert and holds do nothing.
+	// The clip is fetched whole and played from a blob URL, so "ready" is certain (iOS often won't
+	// preload a <video>): the badge's icon spins until then. Anything but a playable answer (404, 202
+	// while converting, 409) or a <video> error fails: the badge goes inert and holds do nothing.
 	import { untrack } from 'svelte';
 	import { motionUrl, type CatalogAsset } from '#lib/api.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -33,6 +34,8 @@
 	let armed = $state(false);
 	/** The clip can't be played (no motion, still converting, unplayable, or the download failed). */
 	let failed = $state(false);
+	/** The clip is downloaded and can play. */
+	let ready = $state(false);
 	/** A frame of the playing clip is on screen (fades in over the still). */
 	let shown = $state(false);
 
@@ -55,15 +58,29 @@
 		if (playing && usable) armed = true;
 	});
 
-	// Set and drop the source imperatively: removing the attribute and calling load() aborts the download.
+	// Download the clip, then hand it to the <video>; drop both when the slide stops being current.
 	$effect(() => {
 		const v = video;
 		if (!v || !armed) return;
-		v.src = motionUrl(asset.id);
+		const ctl = new AbortController();
+		let url = '';
+		fetch(motionUrl(asset.id), { signal: ctl.signal })
+			.then(async (res) => {
+				if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+				url = URL.createObjectURL(await res.blob());
+				v.src = url;
+				ready = true;
+			})
+			.catch((e: Error) => {
+				if (e.name !== 'AbortError') failed = true;
+			});
 		return () => {
+			ctl.abort();
 			v.pause();
 			v.removeAttribute('src');
 			v.load();
+			if (url) URL.revokeObjectURL(url);
+			ready = false;
 			shown = false;
 		};
 	});
@@ -76,7 +93,7 @@
 	// Play from the start with sound while `playing`; stop (and fade back) otherwise.
 	$effect(() => {
 		const v = video;
-		if (!v || !armed) return;
+		if (!v || !armed || !ready) return;
 		const want = playing && usable;
 		untrack(() => (want ? start(v) : stop(v)));
 	});
@@ -100,6 +117,7 @@
 	function onError() {
 		if (!video?.getAttribute('src')) return; // the source was dropped on purpose
 		failed = true;
+		ready = false;
 		shown = false;
 	}
 
@@ -137,8 +155,9 @@
 			type="button"
 			class="live-badge"
 			class:inert={!net.online || failed}
+			class:loading={net.online && !failed && !ready}
 			tabindex="-1"
-			title={!net.online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : 'Live Photo: hold the photo to play'}
+			title={!net.online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : !ready ? 'Live Photo (loading…)' : 'Live Photo: hold the photo to play'}
 			aria-label="Live Photo"
 			onpointerenter={onEnter}
 			onpointerleave={onLeave}
@@ -206,6 +225,14 @@
 		-webkit-touch-callout: none;
 		-webkit-user-select: none;
 		user-select: none;
+	}
+	.live-badge.loading svg {
+		animation: live-spin 1.2s linear infinite;
+	}
+	@keyframes live-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 	.live-badge.inert {
 		opacity: 0.4;

@@ -11,6 +11,7 @@
 	import { tick, untrack } from 'svelte';
 	import { api, originalUrl, videoUrl, type CatalogAsset } from '#lib/api.ts';
 	import { net } from '#lib/net.svelte.ts';
+	import { guardDownloadLink } from '#lib/download.ts';
 	import { formatDuration } from '#lib/video.ts';
 
 	let { asset, active }: { asset: CatalogAsset; active: boolean } = $props();
@@ -244,7 +245,7 @@
 	<div class="note">
 		<div>{phase === 'unplayable' ? "Can't play this video here" : "Couldn't prepare this video"}</div>
 		{#if error}<div class="detail">{error}</div>{/if}
-		<a class="btn" href={originalUrl(asset.id)} download={asset.name}>Download original</a>
+		<a class="btn" href={originalUrl(asset.id)} download={asset.name} onclick={guardDownloadLink}>Download original</a>
 	</div>
 {/if}
 

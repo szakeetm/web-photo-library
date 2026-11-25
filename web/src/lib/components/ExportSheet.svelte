@@ -2,6 +2,7 @@
 	// Export: original, or the edit rendered at full resolution on the Mac. Phones get the share sheet
 	// (needs a fresh tap once the file is ready); desktops download.
 	import { CLIENT_API_VERSION, exportUrl, originalUrl, type CatalogAsset } from '#lib/api.ts';
+	import { guardDownloadLink, iosStandalone, saveBlob } from '#lib/download.ts';
 
 	let { asset, onClose }: { asset: CatalogAsset; onClose: () => void } = $props();
 
@@ -25,10 +26,13 @@
 			if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
 			const blob = await res.blob();
 			file = new File([blob], filename(res, fallback), { type: blob.type });
-			if (touch && navigator.canShare?.({ files: [file] })) {
+			if ((touch || iosStandalone) && navigator.canShare?.({ files: [file] })) {
 				phase = 'ready';
+			} else if (iosStandalone) {
+				// A download would trap the Home Screen app in iOS's file preview.
+				throw new Error("This file can't be shared from here.");
 			} else {
-				download(file);
+				saveBlob(file);
 				onClose();
 			}
 		} catch (e) {
@@ -36,16 +40,6 @@
 			error = (e as Error).message;
 			phase = 'error';
 		}
-	}
-
-	function download(f: File) {
-		const a = document.createElement('a');
-		a.href = URL.createObjectURL(f);
-		a.download = f.name;
-		document.body.appendChild(a);
-		a.click();
-		a.remove();
-		setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 	}
 
 	async function share() {
@@ -81,7 +75,7 @@
 		{/if}
 		{#if asset.dur != null}
 			<!-- Videos can be hundreds of MB: let the browser download them instead of reading them into memory. -->
-			<a class="opt" href={originalUrl(asset.id)} download={asset.name} onclick={onClose}>
+			<a class="opt" href={originalUrl(asset.id)} download={asset.name} onclick={(e) => { guardDownloadLink(e); onClose(); }}>
 				Original <span>unchanged file</span>
 			</a>
 		{:else}
@@ -98,7 +92,9 @@
 		<h3>Ready</h3>
 		<p class="muted">{file?.name}</p>
 		<button class="btn primary" onclick={share}>Share…</button>
-		<button class="btn cancel" onclick={() => file && download(file)}>Save to Files</button>
+		{#if !iosStandalone}
+			<button class="btn cancel" onclick={() => file && saveBlob(file)}>Save to Files</button>
+		{/if}
 		<button class="btn cancel" onclick={cancel}>Close</button>
 	{:else}
 		<h3>Export failed</h3>
