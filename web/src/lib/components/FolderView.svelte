@@ -66,7 +66,7 @@
 	async function toggleDownload() {
 		if (!folder) return;
 		if (ownPin) {
-			if (confirm(`Remove the downloaded copy of “${title}” from this device?\nThe photos stay on the server.`)) await pins.remove(folderPinId(folder));
+			await pins.remove(folderPinId(folder));
 			return;
 		}
 		const count = folderAssetIds(folder, app.folders, app.assets).length;

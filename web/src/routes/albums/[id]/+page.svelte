@@ -29,7 +29,7 @@
 	async function toggleDownload() {
 		if (!album) return;
 		if (pin) {
-			if (confirm(`Remove the downloaded copy of “${album.title}” from this device?\nThe album stays on the server.`)) await pins.remove(album.id);
+			await pins.remove(album.id);
 		} else if (confirmDownload(album.title, items.length)) {
 			await pins.download(album);
 		}
