@@ -18,6 +18,7 @@ public struct ProbeResult: Sendable, Equatable {
     public var shutter: Double?
     public var focal: Double?
     public var orientation: Int
+    public var contentId: String? = nil   // Apple Live Photo id (MakerNote key 17)
 }
 
 public enum ImageProbe {
@@ -71,7 +72,13 @@ public enum ImageProbe {
             lens: exif[kCGImagePropertyExifLensModel] as? String,
             iso: num(exif[kCGImagePropertyExifISOSpeedRatings]), aperture: num(exif[kCGImagePropertyExifFNumber]),
             shutter: num(exif[kCGImagePropertyExifExposureTime]), focal: num(exif[kCGImagePropertyExifFocalLength]),
-            orientation: orientation)
+            orientation: orientation, contentId: appleContentId(props))
+    }
+
+    /// Live Photo content id: `kCGImagePropertyMakerAppleDictionary["17"]`.
+    static func appleContentId(_ props: [CFString: Any]) -> String? {
+        let maker = props[kCGImagePropertyMakerAppleDictionary] as? [AnyHashable: Any]
+        return maker?["17"] as? String
     }
 
     /// "yyyy:MM:dd HH:mm:ss" → wall-clock components.

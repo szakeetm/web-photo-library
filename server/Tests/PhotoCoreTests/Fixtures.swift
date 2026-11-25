@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import AVFoundation
 
 enum Fixtures {
     static func tempDir() -> URL {
@@ -40,5 +41,49 @@ enum Fixtures {
         if let orientation { props[kCGImagePropertyOrientation] = orientation }
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
         precondition(CGImageDestinationFinalize(dest))
+    }
+
+    /// Writes a short solid-colour video with optional QuickTime content id, creation date and ISO 6709 location.
+    static func writeVideo(to url: URL, width: Int, height: Int, codec: AVVideoCodecType = .h264,
+                           seconds: Double = 1, rotate90: Bool = false, contentId: String? = nil,
+                           creationDate: String? = nil, location: String? = nil) async throws {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: url)
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: codec, AVVideoWidthKey: width, AVVideoHeightKey: height])
+        if rotate90 { input.transform = CGAffineTransform(rotationAngle: .pi / 2) }
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height])
+        writer.add(input)
+        func item(_ id: AVMetadataIdentifier, _ value: String) -> AVMutableMetadataItem {
+            let m = AVMutableMetadataItem()
+            m.identifier = id
+            m.dataType = kCMMetadataBaseDataType_UTF8 as String
+            m.value = value as NSString
+            return m
+        }
+        var meta: [AVMetadataItem] = []
+        if let contentId { meta.append(item(.quickTimeMetadataContentIdentifier, contentId)) }
+        if let creationDate { meta.append(item(.quickTimeMetadataCreationDate, creationDate)) }
+        if let location { meta.append(item(.quickTimeMetadataLocationISO6709, location)) }
+        writer.metadata = meta
+        precondition(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        let fps = 10
+        for i in 0..<Int(seconds * Double(fps)) {
+            var pb: CVPixelBuffer?
+            CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &pb)
+            let buf = pb!
+            CVPixelBufferLockBaseAddress(buf, [])
+            memset(CVPixelBufferGetBaseAddress(buf), 0x80, CVPixelBufferGetBytesPerRow(buf) * height)
+            CVPixelBufferUnlockBaseAddress(buf, [])
+            while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 5_000_000) }
+            adaptor.append(buf, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: CMTimeScale(fps)))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        if writer.status != .completed { throw writer.error ?? CocoaError(.fileWriteUnknown) }
     }
 }
