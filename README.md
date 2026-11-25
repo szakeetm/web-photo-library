@@ -105,7 +105,8 @@ tools/face-model/make.sh   # needs uv (brew install uv); ~1 GB of downloads, the
 
 It converts [facenet-pytorch](https://github.com/timesler/facenet-pytorch)'s FaceNet
 (Inception-ResNet-v1 trained on VGGFace2, MIT-licensed weights) to Core ML and installs it in the
-data location (`~/Library/Application Support/PhotoServer/models/FaceNet.mlpackage`, 45 MB). Then
+data location (`<data location>/models/FaceNet.mlpackage`, 45 MB; by default
+`~/Library/Application Support/PhotoServer`). Then
 choose **Settings → Find faces**; later scans pick up new photos on their own. To remove it again:
 delete that `.mlpackage`, `tools/face-model/.venv` (Python environment, ~0.5 GB), and the
 download caches `~/.cache/uv` and `~/.cache/torch`.
