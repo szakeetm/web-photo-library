@@ -91,6 +91,37 @@ public final class AppDatabase: Sendable {
                 t.column("op", .text).notNull()
             }
         }
+        m.registerMigration("v2-roots") { db in
+            // file/folder rows belong to a root (library | uploads); paths are unique per root.
+            try db.execute(sql: """
+                CREATE TABLE folder_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    relPath TEXT NOT NULL,
+                    parentId INTEGER REFERENCES folder(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    root TEXT NOT NULL DEFAULT 'library',
+                    UNIQUE(root, relPath));
+                INSERT INTO folder_new (id, relPath, parentId, name, root) SELECT id, relPath, parentId, name, 'library' FROM folder;
+                CREATE TABLE file_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    assetId TEXT NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
+                    relPath TEXT NOT NULL,
+                    folderId INTEGER NOT NULL REFERENCES folder(id) ON DELETE CASCADE,
+                    size INTEGER NOT NULL,
+                    mtime DOUBLE NOT NULL,
+                    sidecarRelPath TEXT,
+                    root TEXT NOT NULL DEFAULT 'library',
+                    UNIQUE(root, relPath));
+                INSERT INTO file_new (id, assetId, relPath, folderId, size, mtime, sidecarRelPath, root)
+                    SELECT id, assetId, relPath, folderId, size, mtime, sidecarRelPath, 'library' FROM file;
+                DROP TABLE file;
+                DROP TABLE folder;
+                ALTER TABLE folder_new RENAME TO folder;
+                ALTER TABLE file_new RENAME TO file;
+                CREATE INDEX file_assetId ON file(assetId);
+                CREATE INDEX file_folderId ON file(folderId);
+                """)
+        }
         return m
     }
 }

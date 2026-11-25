@@ -16,7 +16,7 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 1
+public let catalogFormat = 2
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -27,6 +27,7 @@ public struct CatalogSnapshot: Codable, Sendable {
 
 public struct FolderNode: Codable, Sendable, Equatable {
     public var id: Int64
+    public var root: String
     public var parentId: Int64?
     public var name: String
     public var relPath: String
@@ -80,14 +81,14 @@ public final class CatalogService: Sendable {
 
     static func folders(_ d: Database) throws -> [FolderNode] {
         let rows = try Row.fetchAll(d, sql: """
-            SELECT fo.id, fo.parentId, fo.name, fo.relPath,
+            SELECT fo.id, fo.root, fo.parentId, fo.name, fo.relPath,
                    (SELECT COUNT(DISTINCT f.assetId) FROM file f JOIN asset a ON a.id = f.assetId
                      WHERE f.folderId = fo.id AND a.missingSince IS NULL) AS count,
                    (SELECT a.id FROM file f JOIN asset a ON a.id = f.assetId
                      WHERE f.folderId = fo.id AND a.missingSince IS NULL ORDER BY a.takenAt DESC LIMIT 1) AS coverId
-            FROM folder fo ORDER BY fo.relPath
+            FROM folder fo ORDER BY fo.root, fo.relPath
             """)
-        return rows.map { FolderNode(id: $0["id"], parentId: $0["parentId"], name: $0["name"], relPath: $0["relPath"],
+        return rows.map { FolderNode(id: $0["id"], root: $0["root"], parentId: $0["parentId"], name: $0["name"], relPath: $0["relPath"],
                                      count: $0["count"], coverId: $0["coverId"]) }
     }
 
@@ -102,10 +103,13 @@ public final class CatalogService: Sendable {
     /// Absolute URL of an original that still matches what was indexed (size + mtime), so derivatives
     /// are never built from a file that changed since the last scan.
     public func sourceURL(id: String) throws -> URL? {
-        guard let root = try settings.get(.libraryPath) else { return nil }
-        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("relPath")).fetchAll($0) }
-        let base = URL(fileURLWithPath: root)
+        let bases: [String: URL] = [
+            Roots.library: try settings.get(.libraryPath).map { URL(fileURLWithPath: $0) },
+            Roots.uploads: try settings.get(.uploadsPath).map { URL(fileURLWithPath: $0) },
+        ].compactMapValues { $0 }
+        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("root"), Column("relPath")).fetchAll($0) }
         for row in rows {
+            guard let base = bases[row.root] else { continue }
             let url = base.appendingPathComponent(row.relPath)
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                   (attrs[.size] as? NSNumber)?.int64Value == row.size,

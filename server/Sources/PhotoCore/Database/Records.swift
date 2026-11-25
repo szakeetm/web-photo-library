@@ -44,6 +44,7 @@ public struct FileRow: Codable, Sendable, Equatable, FetchableRecord, MutablePer
     public var size: Int64
     public var mtime: Double
     public var sidecarRelPath: String?
+    public var root: String = Roots.library
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
@@ -54,6 +55,7 @@ public struct Folder: Codable, Sendable, Equatable, FetchableRecord, MutablePers
     public var relPath: String
     public var parentId: Int64?
     public var name: String
+    public var root: String = Roots.library
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

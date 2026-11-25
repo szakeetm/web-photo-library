@@ -1,5 +1,6 @@
 import Testing
 import GRDB
+import Foundation
 @testable import PhotoCore
 
 @Suite struct DatabaseTests {
@@ -26,5 +27,23 @@ import GRDB
                 _ = try FileRow(id: nil, assetId: "h2", relPath: "x.jpg", folderId: 1, size: 1, mtime: 0, sidecarRelPath: nil).inserted(d)
             }
         }
+    }
+
+    @Test func v1DatabaseMigratesKeepingRows() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("v1-\(UUID().uuidString).sqlite")
+        let queue = try DatabaseQueue(path: url.path)
+        try AppDatabase.migrator.migrate(queue, upTo: "v1")
+        try queue.write { d in
+            try d.execute(sql: "INSERT INTO folder (id, relPath, parentId, name) VALUES (1, '', NULL, ''), (2, 'Trip', 1, 'Trip')")
+            try d.execute(sql: "INSERT INTO asset (id, width, height, mime, takenAt, dateSource, favorite) VALUES ('h1', 1, 1, 'x', '2021-01-01', 'exif', 1)")
+            try d.execute(sql: "INSERT INTO file (assetId, relPath, folderId, size, mtime) VALUES ('h1', 'Trip/a.jpg', 2, 10, 1.5)")
+        }
+        try queue.close()
+        let db = try AppDatabase(path: url.path)
+        let files = try db.writer.read { try FileRow.fetchAll($0) }
+        let folders = try db.writer.read { try Folder.fetchAll($0) }
+        #expect(files.count == 1 && files[0].root == "library" && files[0].folderId == 2)
+        #expect(folders.count == 2 && folders.allSatisfy { $0.root == "library" })
+        #expect(try db.writer.read { try Asset.fetchOne($0, key: "h1")?.favorite } == true)
     }
 }

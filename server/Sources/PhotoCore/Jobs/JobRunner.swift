@@ -119,6 +119,13 @@ public final class JobRunner: @unchecked Sendable {
         }
     }
 
+    /// Configured roots, library first.
+    private func roots() throws -> [(String, URL)] {
+        var out = [(Roots.library, try libraryRoot())]
+        if let up = try settings.get(.uploadsPath), !up.isEmpty { out.append((Roots.uploads, URL(fileURLWithPath: up))) }
+        return out
+    }
+
     private func libraryRoot() throws -> URL {
         guard let path = try settings.get(.libraryPath), !path.isEmpty else {
             throw JobError.noLibrary
@@ -129,15 +136,23 @@ public final class JobRunner: @unchecked Sendable {
     private func execute(id: Int64, kind: JobKind) throws -> String {
         let cancelled = { [self] in isCancelled(id) }
         switch kind {
-        case .detectChanges:
-            let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ, excluding: excluding)
-            let r = try scanner.detectChanges(progress: progressReporter(id, phase: "scan"), isCancelled: cancelled)
-            let failures = try generateDerivatives(id: id, isCancelled: cancelled)
-            return summary(r, renderFailures: failures)
-        case .reindex:
-            let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ, excluding: excluding)
-            let r = try scanner.reindex(progress: progressReporter(id, phase: "metadata"), isCancelled: cancelled)
-            return summary(r)
+        case .detectChanges, .reindex:
+            // The library must be readable; the uploads folder is optional and its problems are only reported.
+            var total = ScanReport()
+            var notes: [String] = []
+            for (name, url) in try roots() {
+                let scanner = LibraryScanner(db: db, root: url, rootName: name, serverTZ: serverTZ, excluding: excluding)
+                do {
+                    let r = kind == .reindex
+                        ? try scanner.reindex(progress: progressReporter(id, phase: "metadata"), isCancelled: cancelled)
+                        : try scanner.detectChanges(progress: progressReporter(id, phase: "scan"), isCancelled: cancelled)
+                    total.merge(r)
+                } catch ScanError.rootUnreadable(let path) where name == Roots.uploads {
+                    notes.append("Uploads folder is not readable (\(path)); its photos were left untouched.")
+                }
+            }
+            let failures = kind == .detectChanges ? try generateDerivatives(id: id, isCancelled: cancelled) : []
+            return ([summary(total, renderFailures: failures)] + notes).joined(separator: "\n")
         case .rebuildCaches:
             try derivatives().clear()
             try db.writer.write { try $0.execute(sql: "UPDATE asset SET blurhash = NULL") }
@@ -177,15 +192,18 @@ public final class JobRunner: @unchecked Sendable {
     /// Preview + thumbnail (+ BlurHash) per photo, newest first, one decode of the original each.
     @discardableResult
     private func generateDerivatives(id: Int64, isCancelled: @escaping () -> Bool) throws -> [String] {
-        let root = try libraryRoot()
+        let bases = Dictionary(uniqueKeysWithValues: try roots())
         let store = derivatives()
         let rows = try db.writer.read { d in
             try Row.fetchAll(d, sql: """
-                SELECT a.id, a.blurhash, MIN(f.relPath) AS relPath FROM asset a JOIN file f ON f.assetId = a.id
+                SELECT a.id, a.blurhash, MIN(f.root || char(0) || f.relPath) AS loc FROM asset a JOIN file f ON f.assetId = a.id
                 WHERE a.missingSince IS NULL GROUP BY a.id ORDER BY a.takenAt DESC
                 """)
         }
-        let items: [(id: String, rel: String, hasBH: Bool)] = rows.map { ($0["id"], $0["relPath"], ($0["blurhash"] as String?) != nil) }
+        let items: [(id: String, url: URL?, rel: String, hasBH: Bool)] = rows.map { r in
+            let parts = (r["loc"] as String).split(separator: "\u{0}", maxSplits: 1).map(String.init)
+            return (r["id"], bases[parts[0]].map { $0.appendingPathComponent(parts[1]) }, parts[1], (r["blurhash"] as String?) != nil)
+        }
         let report = progressReporter(id, phase: "images")
         let counter = Counter()
         let failures = FailedDirs()
@@ -193,7 +211,8 @@ public final class JobRunner: @unchecked Sendable {
             if isCancelled() { return }
             let item = items[i]
             do {
-                let made = try store.ensureAll(id: item.id, source: root.appendingPathComponent(item.rel), format: .heic)
+                guard let source = item.url else { throw ScanError.rootUnreadable(item.rel) }
+                let made = try store.ensureAll(id: item.id, source: source, format: .heic)
                 if !item.hasBH, let img = try? DerivativeStore.downscaled(source: made.thumb, maxPixel: 64) {
                     let bh = BlurHash.encode(cgImage: img)
                     try? db.writer.write {

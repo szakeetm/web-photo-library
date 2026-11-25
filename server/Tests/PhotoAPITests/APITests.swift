@@ -298,4 +298,25 @@ import UniformTypeIdentifiers
         func enter() { current += 1; max = Swift.max(max, current) }
         func leave() { current -= 1 }
     }
+
+    @Test func uploadsFolderSettingValidated() async throws {
+        let e = try env()
+        let up = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString)")
+        try await e.app.test(.router) { client in
+            // created if missing, then returned in settings
+            try await client.execute(uri: "/api/settings", method: .put, body: ByteBuffer(string: #"{"uploadsPath":"\#(up.path)"}"#)) { res in
+                #expect(res.status == .ok)
+                #expect(String(buffer: res.body).contains(up.lastPathComponent))
+            }
+            #expect(FileManager.default.fileExists(atPath: up.path))
+            // inside the library → refused
+            try await client.execute(uri: "/api/settings", method: .put, body: ByteBuffer(string: #"{"uploadsPath":"\#(e.root.appendingPathComponent("up").path)"}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+            // library inside the uploads folder → refused
+            try await client.execute(uri: "/api/settings", method: .put, body: ByteBuffer(string: #"{"libraryPath":"\#(up.path)"}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+        }
+    }
 }

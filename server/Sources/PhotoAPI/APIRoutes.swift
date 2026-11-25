@@ -48,9 +48,9 @@ struct APIRoutes {
         let ok: Bool; let version: String; let apiVersion: Int
         let webVersion: String?; let libraryConfigured: Bool
     }
-    struct SettingsBody: Codable { var libraryPath: String?; var ownerLogin: String? }
+    struct SettingsBody: Codable { var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String? }
     struct SettingsResponse: Encodable {
-        let libraryPath: String?; let ownerLogin: String?
+        let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
         let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
     }
     struct MoveBody: Decodable { let path: String }
@@ -82,7 +82,29 @@ struct APIRoutes {
                 if PathOverlap.overlaps(p, services.paths.dataDir.path) {
                     return errorResponse(.badRequest, "The library can't contain the app's data location (\(services.paths.dataDir.path)), or be inside it.")
                 }
+                if let up = try services.settings.get(.uploadsPath), PathOverlap.overlaps(p, up) {
+                    return errorResponse(.badRequest, "The library and the uploads folder can't contain each other.")
+                }
                 try services.settings.set(.libraryPath, p)
+            }
+            if let u = body.uploadsPath {
+                if u.isEmpty {
+                    try services.settings.set(.uploadsPath, nil)
+                } else {
+                    if PathOverlap.overlaps(u, services.paths.dataDir.path) {
+                        return errorResponse(.badRequest, "The uploads folder can't contain the app's data location, or be inside it.")
+                    }
+                    if let lib = try services.settings.get(.libraryPath), PathOverlap.overlaps(u, lib) {
+                        return errorResponse(.badRequest, "The uploads folder must be outside the library (the library is never written to).")
+                    }
+                    do { try FileManager.default.createDirectory(atPath: u, withIntermediateDirectories: true) } catch {
+                        return errorResponse(.badRequest, "Cannot create \(u).")
+                    }
+                    guard FileManager.default.isWritableFile(atPath: u) else {
+                        return errorResponse(.badRequest, "The uploads folder is not writable: \(u).")
+                    }
+                    try services.settings.set(.uploadsPath, u)
+                }
             }
             if let o = body.ownerLogin { try services.settings.set(.ownerLogin, o.isEmpty ? nil : o) }
             return try settingsResponse()
@@ -95,6 +117,9 @@ struct APIRoutes {
                 return errorResponse(.conflict, "Wait for running jobs to finish first.")
             }
             let target = URL(fileURLWithPath: body.path, isDirectory: true)
+            if let up = try services.settings.get(.uploadsPath), PathOverlap.overlaps(up, target.path) {
+                return errorResponse(.badRequest, "The data location can't be inside the uploads folder (or contain it).")
+            }
             do {
                 try await blocking {
                     try DataMover.move(db: services.db, from: services.paths, to: target, bootstrapDir: services.bootstrapDir,
@@ -195,7 +220,7 @@ struct APIRoutes {
             let attrs = try? FileManager.default.attributesOfItem(atPath: services.paths.databaseURL.path + suffix)
             return sum + ((attrs?[.size] as? NSNumber)?.int64Value ?? 0)
         }
-        return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), ownerLogin: try s.get(.ownerLogin),
+        return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), uploadsPath: try s.get(.uploadsPath), ownerLogin: try s.get(.ownerLogin),
                                          dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
                                          databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing))
     }

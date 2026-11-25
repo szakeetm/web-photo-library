@@ -9,6 +9,11 @@ public struct ScanReport: Codable, Sendable, Equatable {
     public var skipped = 0
     public var skippedOther = 0
     public var errors: [String] = []
+
+    mutating func merge(_ o: ScanReport) {
+        added += o.added; updated += o.updated; removed += o.removed; unchanged += o.unchanged
+        skipped += o.skipped; skippedOther += o.skippedOther; errors += o.errors
+    }
 }
 
 final class FailedDirs: @unchecked Sendable {
@@ -17,14 +22,21 @@ final class FailedDirs: @unchecked Sendable {
     func add(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
 }
 
+public enum Roots {
+    public static let library = "library"
+    public static let uploads = "uploads"
+}
+
 public enum ScanError: Error, Equatable, CustomStringConvertible {
     case rootUnreadable(String)
     case cancelled
+    case notAnImage(String)
 
     public var description: String {
         switch self {
         case .rootUnreadable(let p): "Library folder is not readable: \(p). Check that it exists and that PhotoServer has Full Disk Access."
         case .cancelled: "Cancelled"
+        case .notAnImage(let why): why
         }
     }
 }
@@ -38,15 +50,18 @@ public final class LibraryScanner: @unchecked Sendable {
 
     let db: AppDatabase
     let root: URL
+    /// Which root this scanner owns rows for ("library" or "uploads").
+    let rootName: String
     let serverTZ: TimeZone
     let hasher: (URL) throws -> String
     /// Directories never indexed (e.g. the app's own data folder if it sits under the library).
     let excluding: [String]
 
-    public init(db: AppDatabase, root: URL, serverTZ: TimeZone = .current, excluding: [URL] = [],
-                hasher: @escaping (URL) throws -> String = FileHasher.sha256) {
+    public init(db: AppDatabase, root: URL, rootName: String = Roots.library, serverTZ: TimeZone = .current,
+                excluding: [URL] = [], hasher: @escaping (URL) throws -> String = FileHasher.sha256) {
         self.db = db
         self.root = root.standardizedFileURL
+        self.rootName = rootName
         self.serverTZ = serverTZ
         self.excluding = excluding.map { PathOverlap.normalized($0.path) }
         self.hasher = hasher
@@ -67,7 +82,7 @@ public final class LibraryScanner: @unchecked Sendable {
         report.skippedOther = others
         let folderIds = try ensureFolders(dirs)
         var existing: [String: FileRow] = [:]
-        for row in try db.writer.read({ try FileRow.fetchAll($0) }) { existing[row.relPath] = row }
+        for row in try db.writer.read({ try FileRow.filter(Column("root") == rootName).fetchAll($0) }) { existing[row.relPath] = row }
         var dirEntries: [String: Set<String>] = [:]
         var seen = Set<String>()
 
@@ -80,45 +95,18 @@ public final class LibraryScanner: @unchecked Sendable {
                 report.unchanged += 1
                 continue
             }
-            guard let probe = ImageProbe.probe(url: c.url) else {
+            switch try indexCandidate(c, old: old, folderId: folderIds[parentRel(c.relPath)]!, dirEntries: &dirEntries) {
+            case .indexed:
+                if old == nil { report.added += 1 } else { report.updated += 1 }
+            case .skipped(let why):
                 report.skipped += 1
-                report.errors.append("Unreadable image: \(c.relPath)")
-                continue
+                report.errors.append(why)
             }
-            let id: String
-            do { id = try hasher(c.url) } catch {
-                report.skipped += 1
-                report.errors.append("Cannot read \(c.relPath): \(error.localizedDescription)")
-                continue
-            }
-            let dirRel = parentRel(c.relPath)
-            let sidecarRel = sidecarPath(for: c, dirRel: dirRel, cache: &dirEntries)
-            let sidecar = sidecarRel.flatMap { try? Data(contentsOf: root.appendingPathComponent($0)) }.flatMap(SidecarParser.parse)
-            let meta = MetadataResolver.resolve(probe: probe, sidecar: sidecar,
-                                                fileMTime: Date(timeIntervalSince1970: c.mtime), serverTZ: serverTZ)
-            let folderId = folderIds[dirRel]!
-
-            try db.writer.write { d in
-                try self.upsertAsset(d, id: id, probe: probe, meta: meta)
-                if var row = old {
-                    let previous = row.assetId
-                    row.assetId = id; row.size = c.size; row.mtime = c.mtime; row.sidecarRelPath = sidecarRel; row.folderId = folderId
-                    try row.update(d)
-                    if previous != id { try self.relink(d, from: previous, to: id) }
-                    try ChangeLog.record(d, entity: "asset", id: id, op: "upsert")
-                } else {
-                    var row = FileRow(id: nil, assetId: id, relPath: c.relPath, folderId: folderId, size: c.size,
-                                      mtime: c.mtime, sidecarRelPath: sidecarRel)
-                    try row.insert(d)
-                    try ChangeLog.record(d, entity: "asset", id: id, op: "upsert")
-                }
-            }
-            if old == nil { report.added += 1 } else { report.updated += 1 }
         }
         progress(candidates.count, candidates.count)
 
         // Files that disappeared — but never those under folders we failed to read.
-        for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(library root)" : d); its photos were left untouched.") }
+        for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(\(rootName) root)" : d); its photos were left untouched.") }
         let gone = existing.values.filter { row in
             !seen.contains(row.relPath) && !failedDirs.contains { d in d.isEmpty || row.relPath.hasPrefix(d + "/") }
         }
@@ -135,12 +123,63 @@ public final class LibraryScanner: @unchecked Sendable {
         return report
     }
 
+    enum IndexOutcome { case indexed(String), skipped(String) }
+
+    /// Probes, hashes and records one file (new or changed). Shared by scans and uploads.
+    func indexCandidate(_ c: Candidate, old: FileRow?, folderId: Int64, dirEntries: inout [String: Set<String>]) throws -> IndexOutcome {
+        guard let probe = ImageProbe.probe(url: c.url) else { return .skipped("Unreadable image: \(c.relPath)") }
+        let id: String
+        do { id = try hasher(c.url) } catch {
+            return .skipped("Cannot read \(c.relPath): \(error.localizedDescription)")
+        }
+        let sidecarRel = sidecarPath(for: c, dirRel: parentRel(c.relPath), cache: &dirEntries)
+        let sidecar = sidecarRel.flatMap { try? Data(contentsOf: root.appendingPathComponent($0)) }.flatMap(SidecarParser.parse)
+        let meta = MetadataResolver.resolve(probe: probe, sidecar: sidecar,
+                                            fileMTime: Date(timeIntervalSince1970: c.mtime), serverTZ: serverTZ)
+        try db.writer.write { d in
+            try self.upsertAsset(d, id: id, probe: probe, meta: meta)
+            if var row = old {
+                let previous = row.assetId
+                row.assetId = id; row.size = c.size; row.mtime = c.mtime; row.sidecarRelPath = sidecarRel; row.folderId = folderId
+                try row.update(d)
+                if previous != id { try self.relink(d, from: previous, to: id) }
+            } else {
+                var row = FileRow(id: nil, assetId: id, relPath: c.relPath, folderId: folderId, size: c.size,
+                                  mtime: c.mtime, sidecarRelPath: sidecarRel, root: self.rootName)
+                try row.insert(d)
+            }
+            try ChangeLog.record(d, entity: "asset", id: id, op: "upsert")
+        }
+        return .indexed(id)
+    }
+
+    /// Indexes a single file inside this root (used right after an upload). Returns the asset id.
+    public func indexFile(relPath: String) throws -> String {
+        let url = root.appendingPathComponent(relPath)
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        let c = Candidate(relPath: relPath, url: url, size: (attrs[.size] as? NSNumber)?.int64Value ?? 0,
+                          mtime: (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
+        var dirs = [""]
+        var acc = ""
+        for part in parentRel(relPath).split(separator: "/") {
+            acc = acc.isEmpty ? String(part) : acc + "/" + part
+            dirs.append(acc)
+        }
+        let folderIds = try ensureFolders(dirs)
+        let old = try db.writer.read { try FileRow.filter(Column("root") == rootName && Column("relPath") == relPath).fetchOne($0) }
+        var entries: [String: Set<String>] = [:]
+        switch try indexCandidate(c, old: old, folderId: folderIds[parentRel(relPath)]!, dirEntries: &entries) {
+        case .indexed(let id): return id
+        case .skipped(let why): throw ScanError.notAnImage(why)
+        }
+    }
+
     // MARK: - Re-index
 
     /// Re-reads metadata (sidecar / EXIF / file date) for every file without rehashing.
     public func reindex(progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> ScanReport {
         guard FileManager.default.isReadableFile(atPath: root.path) else { throw ScanError.rootUnreadable(root.path) }
-        let rows = try db.writer.read { try FileRow.order(Column("relPath")).fetchAll($0) }
+        let rows = try db.writer.read { try FileRow.filter(Column("root") == rootName).order(Column("relPath")).fetchAll($0) }
         var report = ScanReport()
         var done = Set<String>()
         var dirEntries: [String: Set<String>] = [:]
@@ -245,11 +284,11 @@ public final class LibraryScanner: @unchecked Sendable {
     func ensureFolders(_ dirs: [String]) throws -> [String: Int64] {
         try db.writer.write { d in
             var ids: [String: Int64] = [:]
-            for row in try Folder.fetchAll(d) { ids[row.relPath] = row.id }
+            for row in try Folder.filter(Column("root") == rootName).fetchAll(d) { ids[row.relPath] = row.id }
             for rel in dirs.sorted(by: { $0.split(separator: "/").count < $1.split(separator: "/").count || ($0.split(separator: "/").count == $1.split(separator: "/").count && $0 < $1) }) where ids[rel] == nil {
                 let parent = rel.isEmpty ? nil : ids[parentRel(rel)]
                 let name = rel.isEmpty ? "" : String(rel.split(separator: "/").last!)
-                var f = Folder(id: nil, relPath: rel, parentId: parent, name: name)
+                var f = Folder(id: nil, relPath: rel, parentId: parent, name: name, root: rootName)
                 try f.insert(d)
                 ids[rel] = f.id
                 try ChangeLog.record(d, entity: "folder", id: String(f.id!), op: "upsert")
@@ -260,7 +299,7 @@ public final class LibraryScanner: @unchecked Sendable {
 
     func pruneEmptyFolders(keeping dirs: Set<String>) throws {
         try db.writer.write { d in
-            let stale = try Folder.fetchAll(d).filter { !dirs.contains($0.relPath) }
+            let stale = try Folder.filter(Column("root") == rootName).fetchAll(d).filter { !dirs.contains($0.relPath) }
             for f in stale.sorted(by: { $0.relPath.count > $1.relPath.count }) {
                 let count = try FileRow.filter(Column("folderId") == f.id!).fetchCount(d)
                 if count == 0 {

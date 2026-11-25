@@ -13,6 +13,8 @@ public struct SettingKey<T: Codable & Sendable>: Sendable {
 extension SettingKey where T == String? {
     public static let libraryPath = SettingKey("libraryPath", default: nil)
     public static let ownerLogin = SettingKey("ownerLogin", default: nil)
+    /// Writable folder for uploads (phone-uploads/, desktop-uploads/); separate from the read-only library.
+    public static let uploadsPath = SettingKey("uploadsPath", default: nil)
 }
 
 extension SettingKey where T == Int? {
