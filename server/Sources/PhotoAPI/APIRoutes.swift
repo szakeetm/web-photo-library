@@ -64,6 +64,9 @@ struct APIRoutes {
     struct SearchResult: Encodable { let ids: [String] }
     struct MoveResponse: Encodable { let dataDir: String; let restarting: Bool }
     struct Jobs: Encodable { let current: JobRow?; let recent: [JobRow] }
+    struct SaveEdit: Decodable { let recipe: EditRecipe }
+    struct Edited: Encodable { let asset: CatalogAsset }
+    struct AutoRecipe: Encodable { let recipe: EditRecipe }
     struct Enqueued: Encodable { let id: Int64 }
 
     func register(on router: Router<BasicRequestContext>) {
@@ -193,6 +196,12 @@ struct APIRoutes {
             let snap = try await blocking { try services.catalog.catalog() }
             return try json(snap)
         }
+        api.get("catalog/changes") { req, _ in
+            let since = req.uri.queryParameters.get("since", as: Int64.self) ?? -1
+            let catalogId = req.uri.queryParameters.get("catalog")
+            let delta = try await blocking { try services.catalog.changes(since: since, catalogId: catalogId) }
+            return try json(delta)
+        }
         api.get("folders") { _, _ in try json(try services.catalog.folderTree()) }
 
         api.get("assets/:id") { _, ctx in
@@ -242,6 +251,48 @@ struct APIRoutes {
             return try json(SearchResult(ids: ids))
         }
 
+        // Editing
+        api.get("assets/:id/edits") { _, ctx in
+            guard let id = validId(ctx), let h = try services.edits.history(id: id) else { throw HTTPError(.notFound) }
+            return try json(h)
+        }
+        api.post("assets/:id/edits") { req, ctx in
+            guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            let body: SaveEdit
+            do { body = try await req.decode(as: SaveEdit.self, context: ctx) } catch {
+                return errorResponse(.badRequest, "Invalid edit.")
+            }
+            let edits = services.edits
+            return try await editCall {
+                let asset = try await renderLimiter.run { try await blocking { try edits.save(id: id, recipe: body.recipe) } }
+                return try json(Edited(asset: asset))
+            }
+        }
+        api.post("assets/:id/revert") { _, ctx in
+            guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            let edits = services.edits
+            return try await editCall { try json(Edited(asset: try await blocking { try edits.revert(id: id) })) }
+        }
+        api.post("assets/:id/auto-enhance") { _, ctx in
+            guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            let edits = services.edits
+            return try await editCall { try json(AutoRecipe(recipe: try await blocking { try edits.autoEnhance(id: id) })) }
+        }
+        api.get("assets/:id/export") { req, ctx in
+            guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            let format = req.uri.queryParameters.get("fmt").flatMap(ImageFormat.init(rawValue:)) ?? .jpeg
+            let edits = services.edits
+            return try await editCall {
+                let (url, name) = try await renderLimiter.run { try await blocking { try edits.export(id: id, format: format) } }
+                let body = try await fileIO.loadFile(path: url.path, context: ctx)
+                return Response(status: .ok, headers: [
+                    .contentType: format.mimeType,
+                    .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(name))",
+                    .cacheControl: "private, no-store",
+                ], body: body)
+            }
+        }
+
         api.head("assets/:id") { _, ctx in
             guard let id = validId(ctx), try services.catalog.catalogAsset(id: id) != nil else { throw HTTPError(.notFound) }
             return Response(status: .ok)
@@ -252,11 +303,9 @@ struct APIRoutes {
         api.get("assets/:id/original") { _, ctx in
             guard let id = validId(ctx), let url = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
             let body = try await fileIO.loadFile(path: url.path, context: ctx)
-            let name = url.lastPathComponent
-            let encoded = name.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(.init(charactersIn: "-_.~"))) ?? "photo"
             return Response(status: .ok, headers: [
                 .contentType: contentType(forExtension: url.pathExtension),
-                .contentDisposition: "attachment; filename*=UTF-8''\(encoded)",
+                .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(url.lastPathComponent))",
                 .cacheControl: "private, max-age=3600",
             ], body: body)
         }
@@ -324,6 +373,23 @@ struct APIRoutes {
         }
     }
 
+    func percentEncoded(_ name: String) -> String {
+        name.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(.init(charactersIn: "-_.~"))) ?? "photo"
+    }
+
+    func editCall(_ work: () async throws -> Response) async throws -> Response {
+        do { return try await work() } catch EditError.notFound {
+            return errorResponse(.notFound, EditError.notFound.description)
+        } catch EditError.sourceUnavailable {
+            return errorResponse(.conflict, EditError.sourceUnavailable.description)
+        } catch let e as EditRecipe.Invalid {
+            if case .schema = e { return errorResponse(.conflict, e.description, updateRequired: true) }
+            return errorResponse(.badRequest, e.description)
+        } catch let e as EditRenderError {
+            return errorResponse(.internalServerError, e.description)
+        }
+    }
+
     func albumCall(_ work: () throws -> Response) throws -> Response {
         do { return try work() } catch AlbumError.notFound {
             return errorResponse(.notFound, AlbumError.notFound.description)
@@ -341,11 +407,26 @@ struct APIRoutes {
         guard let id = validId(ctx) else { throw HTTPError(.notFound) }
         let format = req.uri.queryParameters.get("fmt").flatMap(ImageFormat.init(rawValue:)) ?? .heic
         let ev = req.uri.queryParameters.get("e", as: Int.self) ?? 0
-        guard ev == 0 else { throw HTTPError(.notFound) }  // edited renders arrive with the editor milestone
-        guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+        guard ev >= 0 else { throw HTTPError(.notFound) }
         let store = services.derivatives()
-        let url = try await renderLimiter.run {
-            try await blocking { try store.ensure(id: id, source: source, kind: kind, editVersion: ev, format: format) }
+        let url: URL
+        if ev > 0, store.exists(id: id, kind: kind, editVersion: ev, format: format) {
+            url = store.url(id: id, kind: kind, editVersion: ev, format: format)
+        } else {
+            guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            if ev > 0 {
+                // Edited renders are regenerated from the stored recipe (e.g. after the caches were cleared).
+                guard let recipe = try services.edits.recipe(id: id, version: ev) else { throw HTTPError(.notFound) }
+                let edits = services.edits
+                try await renderLimiter.run {
+                    try await blocking { try edits.ensureRendered(id: id, version: ev, recipe: recipe, source: source, formats: [format]) }
+                }
+                url = store.url(id: id, kind: kind, editVersion: ev, format: format)
+            } else {
+                url = try await renderLimiter.run {
+                    try await blocking { try store.ensure(id: id, source: source, kind: kind, editVersion: ev, format: format) }
+                }
+            }
         }
         let body = try await fileIO.loadFile(path: url.path, context: ctx)
         return Response(status: .ok, headers: [

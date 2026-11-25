@@ -1,0 +1,61 @@
+// On-device database (IndexedDB), shared by the page and the service worker.
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import type { CatalogAsset, CatalogAlbum, FolderNode } from './api';
+
+export interface CatalogMeta {
+	format: number;
+	catalogId: string;
+	seq: number;
+}
+
+/** One cached image (thumbnail or preview) in Cache Storage. */
+export interface ImageEntry {
+	/** Same-origin path + query, e.g. `/api/thumb/<id>?e=0&fmt=heic`. */
+	url: string;
+	bytes: number;
+	lastAccess: number;
+	/** Downloaded albums that keep this image (never evicted while non-empty). */
+	pins: number[];
+}
+
+export interface PinRecord {
+	albumId: number;
+	title: string;
+	state: 'downloading' | 'done';
+	total: number;
+	done: number;
+	bytes: number;
+	updatedAt: number;
+}
+
+interface PhotosDB extends DBSchema {
+	meta: { key: string; value: unknown };
+	assets: { key: string; value: CatalogAsset };
+	images: { key: string; value: ImageEntry; indexes: { lastAccess: number } };
+	pins: { key: number; value: PinRecord };
+}
+
+export type DB = IDBPDatabase<PhotosDB>;
+
+let dbPromise: Promise<DB> | undefined;
+
+export function db(): Promise<DB> {
+	dbPromise ??= openDB<PhotosDB>('photos', 1, {
+		upgrade(d) {
+			d.createObjectStore('meta');
+			d.createObjectStore('assets', { keyPath: 'id' });
+			d.createObjectStore('images', { keyPath: 'url' }).createIndex('lastAccess', 'lastAccess');
+			d.createObjectStore('pins', { keyPath: 'albumId' });
+		}
+	});
+	return dbPromise;
+}
+
+/** Tests: forget the open connection (fake-indexeddb is reset between tests). */
+export async function resetDbForTests() {
+	const open = dbPromise;
+	dbPromise = undefined;
+	(await open)?.close();
+}
+
+export type { CatalogAsset, CatalogAlbum, FolderNode };

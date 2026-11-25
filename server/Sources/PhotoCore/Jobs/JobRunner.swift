@@ -167,6 +167,7 @@ public final class JobRunner: @unchecked Sendable {
                 let ids = try String.fetchAll(d, sql: "SELECT id FROM asset WHERE missingSince IS NOT NULL")
                 for a in ids { try ChangeLog.record(d, entity: "asset", id: a, op: "delete") }
                 try d.execute(sql: "DELETE FROM album_asset WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
+                try d.execute(sql: "DELETE FROM edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
                 return ids
             }
@@ -195,7 +196,18 @@ public final class JobRunner: @unchecked Sendable {
     /// Preview + thumbnail (+ BlurHash) for one asset, e.g. right after an upload.
     public func render(assetId: String, source: URL, store: DerivativeStore? = nil, needsBlurHash: Bool = true) throws {
         let store = store ?? derivatives()
-        let made = try store.ensureAll(id: assetId, source: source, format: .heic)
+        var made = try store.ensureAll(id: assetId, source: source, format: .heic)
+        // An edited photo also gets its current edit's preview + thumbnail; the placeholder follows the edit.
+        let edit = try db.writer.read { d -> (Int, EditRecipe)? in
+            guard let v = try Int.fetchOne(d, sql: "SELECT editVersion FROM asset WHERE id = ?", arguments: [assetId]), v > 0,
+                  let r = try EditService.recipe(d, id: assetId, version: v) else { return nil }
+            return (v, r)
+        }
+        if let (version, recipe) = edit {
+            try EditService(db: db, catalog: CatalogService(db: db, settings: settings), derivatives: { store })
+                .ensureRendered(id: assetId, version: version, recipe: recipe, source: source, formats: [.heic])
+            made.thumb = store.url(id: assetId, kind: .thumb, editVersion: version, format: .heic)
+        }
         if needsBlurHash, let img = try? DerivativeStore.downscaled(source: made.thumb, maxPixel: 64) {
             let bh = BlurHash.encode(cgImage: img)
             try db.writer.write {

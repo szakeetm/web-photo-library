@@ -412,7 +412,7 @@ import UniformTypeIdentifiers
                 #expect(res.status == .badRequest)
             }
         }
-        #expect(apiVersion == 2)
+        #expect(apiVersion == 3)
     }
 
     @Test func concurrentSameContentUploadsWriteOneCopy() async throws {

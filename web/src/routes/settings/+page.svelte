@@ -3,6 +3,8 @@
 	import { api, type Job, type JobKind, type Settings } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
+	import DeviceStorage from '#lib/components/DeviceStorage.svelte';
+	import { net } from '#lib/net.svelte.ts';
 
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
@@ -35,6 +37,7 @@
 	let wasRunning = false;
 	let lastSeenJob = 0;
 	async function poll() {
+		if (!net.online) return;
 		try {
 			const j = await api.jobs();
 			current = j.current ?? j.recent.find((r) => r.state === 'queued') ?? null;
@@ -64,7 +67,7 @@
 	}
 
 	onMount(() => {
-		loadSettings().catch((e) => (message = { text: String(e.message ?? e), error: true }));
+		loadSettings().catch((e) => net.online && (message = { text: String(e.message ?? e), error: true }));
 		poll();
 		const t = setInterval(poll, 1000);
 		return () => clearInterval(t);
@@ -176,6 +179,9 @@
 		<p class="msg" class:error={message.error}>{message.text}</p>
 	{/if}
 
+	{#if !net.online}
+		<p class="msg">The server can't be reached, so its settings are hidden. Photos saved on this device are below.</p>
+	{:else}
 	<section>
 		<h3>Library</h3>
 		<div class="row">
@@ -277,9 +283,11 @@
 			<button class="btn">Save</button>
 		</form>
 	</section>
+	{/if}
 
 	<section>
 		<h3>This device</h3>
+		<DeviceStorage />
 		<div class="row">
 			<div class="label">
 				{#if installed}

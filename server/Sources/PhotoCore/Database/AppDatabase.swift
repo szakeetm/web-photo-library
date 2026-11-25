@@ -141,6 +141,24 @@ public final class AppDatabase: Sendable {
                 CREATE VIRTUAL TABLE search_index USING fts5(assetId UNINDEXED, text, tokenize = 'unicode61 remove_diacritics 2');
                 """)
         }
+        m.registerMigration("v4-catalog-id") { db in
+            // Identifies this database to offline replicas (stored JSON-encoded like every setting).
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO setting (key, value) VALUES ('catalogId', '"' || lower(hex(randomblob(16))) || '"')
+                """)
+        }
+        m.registerMigration("v5-edits") { db in
+            // Append-only edit history; the current version is asset.editVersion (0 = unedited).
+            // No foreign key: edits survive while a photo is missing; purge removes them.
+            try db.execute(sql: """
+                CREATE TABLE edit (
+                    assetId TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    recipe TEXT NOT NULL,
+                    createdAt DATETIME NOT NULL,
+                    PRIMARY KEY (assetId, version));
+                """)
+        }
         return m
     }
 }

@@ -3,14 +3,20 @@
 export type ImageFmt = 'heic' | 'jpeg';
 
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
-export const CLIENT_API_VERSION = 2;
+export const CLIENT_API_VERSION = 3;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 2;
+export const CATALOG_FORMAT = 3;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
 export function onServerApiVersion(fn: typeof versionListener) {
 	versionListener = fn;
+}
+
+/** Called when a request fails without reaching the server (offline, server down). */
+let networkListener: (() => void) | undefined;
+export function onNetworkError(fn: typeof networkListener) {
+	networkListener = fn;
 }
 
 export interface CatalogAsset {
@@ -55,10 +61,23 @@ export interface CatalogAlbum {
 
 export interface CatalogSnapshot {
 	format: number;
+	catalogId: string;
 	seq: number;
 	assets: CatalogAsset[];
 	folders: FolderNode[];
 	albums: CatalogAlbum[];
+}
+
+export interface CatalogDelta {
+	format: number;
+	catalogId: string;
+	seq: number;
+	/** The replica can't be updated: download the snapshot instead. */
+	reset: boolean;
+	assets: CatalogAsset[];
+	deleted: string[];
+	folders?: FolderNode[];
+	albums?: CatalogAlbum[];
 }
 
 export interface AlbumSummary {
@@ -126,6 +145,17 @@ export interface DirListing {
 	entries: { name: string; path: string; readable: boolean }[];
 }
 
+export interface EditVersion {
+	version: number;
+	recipe: import('./editor/recipe').Recipe;
+	createdAt: string;
+}
+
+export interface EditHistory {
+	current: number;
+	versions: EditVersion[];
+}
+
 export type JobKind = 'detect-changes' | 'reindex' | 'rebuild-caches' | 'purge-missing' | 'import-takeout-albums';
 
 export class ApiError extends Error {
@@ -138,7 +168,19 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(path, {
+	let res: Response;
+	try {
+		res = await send(path, init);
+	} catch (e) {
+		// A cancelled request says nothing about the server; a timeout or network failure does.
+		if (!(e instanceof DOMException && e.name === 'AbortError')) networkListener?.();
+		throw e;
+	}
+	return handle<T>(res);
+}
+
+function send(path: string, init?: RequestInit) {
+	return fetch(path, {
 		...init,
 		headers: {
 			'X-Client-API-Version': String(CLIENT_API_VERSION),
@@ -146,8 +188,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 			...init?.headers
 		}
 	});
+}
+
+async function handle<T>(res: Response): Promise<T> {
 	const serverApi = Number(res.headers.get('X-API-Version'));
 	if (serverApi) versionListener?.(serverApi, res.status === 426);
+	// Tailscale answers 502 when the Mac is reachable but the server isn't running.
+	else if (res.status >= 502 && res.status <= 504) networkListener?.();
 	if (!res.ok) {
 		let message = res.statusText;
 		try {
@@ -164,11 +211,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export const thumbUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/thumb/${id}?e=${ev}&fmt=${fmt}`;
 export const previewUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/preview/${id}?e=${ev}&fmt=${fmt}`;
 export const originalUrl = (id: string) => `/api/assets/${id}/original`;
+/** Full-resolution render of the current edit (made on demand on the Mac). */
+export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;
 
 export const api = {
 	health: (signal?: AbortSignal) =>
 		call<ServerInfo>('/api/health', { signal }),
 	catalog: () => call<CatalogSnapshot>('/api/catalog'),
+	changes: (since: number, catalogId: string) =>
+		call<CatalogDelta>(`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}`),
 	asset: (id: string) => call<AssetDetail>(`/api/assets/${id}`),
 	settings: () => call<Settings>('/api/settings'),
 	saveSettings: (s: { libraryPath?: string; uploadsPath?: string; ownerLogin?: string }) =>
@@ -189,6 +240,12 @@ export const api = {
 		call<AlbumSummary>(`/api/albums/${id}/assets`, { method: 'POST', body: JSON.stringify(change) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
+	edits: (id: string) => call<EditHistory>(`/api/assets/${id}/edits`),
+	saveEdit: (id: string, recipe: import('./editor/recipe').Recipe) =>
+		call<{ asset: CatalogAsset }>(`/api/assets/${id}/edits`, { method: 'POST', body: JSON.stringify({ recipe }) }),
+	revertEdit: (id: string) => call<{ asset: CatalogAsset }>(`/api/assets/${id}/revert`, { method: 'POST' }),
+	autoEnhance: (id: string) =>
+		call<{ recipe: import('./editor/recipe').Recipe }>(`/api/assets/${id}/auto-enhance`, { method: 'POST' }),
 	search: (q: string, signal?: AbortSignal) =>
 		call<{ ids: string[] }>(`/api/search?q=${encodeURIComponent(q)}`, { signal })
 };

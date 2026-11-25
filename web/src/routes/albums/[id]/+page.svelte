@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { api } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
+	import { pins } from '#lib/pins.svelte.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
@@ -21,6 +23,17 @@
 	const album = $derived(app.albums.find((a) => a.id === id));
 	const items = $derived(album ? album.assetIds.filter((i) => app.byId.has(i)) : []);
 	const sections = $derived([{ key: `album-${id}`, label: null, items }]);
+	const pin = $derived(pins.records[id]);
+	const fmtBytes = (n: number) => (n < 1e9 ? `${(n / 1e6).toFixed(0)} MB` : `${(n / 1e9).toFixed(1)} GB`);
+
+	async function toggleDownload() {
+		if (!album) return;
+		if (pin) {
+			if (confirm(`Remove the downloaded copy of “${album.title}” from this device?\nThe album stays on the server.`)) await pins.remove(album.id);
+		} else {
+			await pins.download(album);
+		}
+	}
 
 	async function rename() {
 		if (!album) return;
@@ -37,7 +50,18 @@
 	}
 </script>
 
-<TitleBar title={album?.title ?? 'Album'} subtitle={album ? `${items.length}` : undefined} back="/albums">
+<TitleBar
+	title={album?.title ?? 'Album'}
+	subtitle={album
+		? `${items.length}` +
+			(pin?.state === 'downloading'
+				? ` · ${net.online ? 'Downloading' : 'Download paused'} ${pin.done} of ${pin.total}`
+				: pin?.state === 'done'
+					? ` · Downloaded${pin.bytes ? ` (${fmtBytes(pin.bytes)})` : ''}`
+					: '')
+		: undefined}
+	back="/albums"
+>
 	{#snippet actions()}
 		{#if album}
 			{#if items.length}
@@ -49,8 +73,10 @@
 				<button class="icon-btn" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}><Icon name="more" /></button>
 				{#if menu}
 					<div class="menu" role="menu">
-						<button role="menuitem" onclick={() => { menu = false; rename(); }}>Rename</button>
-						<button role="menuitem" class="danger" onclick={() => { menu = false; remove(); }}>Delete Album</button>
+						<button role="menuitem" disabled={!pin && !net.online} onclick={() => { menu = false; toggleDownload(); }}
+							>{pin ? 'Remove Download' : 'Download to This Device'}</button>
+						<button role="menuitem" disabled={!net.online} onclick={() => { menu = false; rename(); }}>Rename</button>
+						<button role="menuitem" class="danger" disabled={!net.online} onclick={() => { menu = false; remove(); }}>Delete Album</button>
 					</div>
 				{/if}
 			</div>
@@ -94,6 +120,9 @@
 	}
 	.menu button:hover {
 		background: var(--bg-elevated);
+	}
+	.menu button:disabled {
+		opacity: 0.4;
 	}
 	.menu .danger {
 		color: var(--danger);

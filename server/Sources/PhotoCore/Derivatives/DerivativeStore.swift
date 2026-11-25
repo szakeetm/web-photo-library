@@ -112,6 +112,32 @@ public final class DerivativeStore: @unchecked Sendable {
         return img
     }
 
+    /// Stores an edited render as the version's preview, plus a thumbnail made from it.
+    public func storeEdited(_ preview: CGImage, id: String, version: Int, format: ImageFormat) throws {
+        let p = url(id: id, kind: .preview, editVersion: version, format: format)
+        let t = url(id: id, kind: .thumb, editVersion: version, format: format)
+        let keyLock = lockFor(p.path)
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        try write(preview, to: p, format: format)
+        try write(try Self.downscaled(image: preview, maxPixel: DerivativeKind.thumb.maxPixel), to: t, format: format)
+    }
+
+    /// `image` scaled to fit `maxPixel` on its long edge (never upscaled), high-quality resampling.
+    public static func downscaled(image: CGImage, maxPixel: Int) throws -> CGImage {
+        let long = max(image.width, image.height)
+        guard long > maxPixel else { return image }
+        let s = Double(maxPixel) / Double(long)
+        let w = max(1, Int((Double(image.width) * s).rounded())), h = max(1, Int((Double(image.height) * s).rounded()))
+        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.displayP3)!
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { throw DerivativeError.encodeFailed("resize") }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let out = ctx.makeImage() else { throw DerivativeError.encodeFailed("resize") }
+        return out
+    }
+
     private func write(_ image: CGImage, to target: URL, format: ImageFormat) throws {
         let dir = target.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

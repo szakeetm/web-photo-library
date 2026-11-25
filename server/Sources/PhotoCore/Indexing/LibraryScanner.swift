@@ -356,8 +356,8 @@ public final class LibraryScanner: @unchecked Sendable {
             new.favoriteUserSet = new.favoriteUserSet || old.favoriteUserSet
         }
         if new.description == nil { new.description = old.description }
-        if new.editVersion == 0 { new.editVersion = old.editVersion }
         try new.update(d)
+        try EditService.relink(d, from: oldId, to: newId, sizeChanged: old.width != new.width || old.height != new.height)
         // Albums follow the photo to its new content.
         try d.execute(sql: """
             INSERT OR IGNORE INTO album_asset (albumId, assetId, position)

@@ -2,6 +2,7 @@
 	// Bottom bar for a multi-photo selection.
 	import { originalUrl } from '#lib/api.ts';
 	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum } from '#lib/state.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
 	import Icon from './Icon.svelte';
@@ -41,18 +42,18 @@
 	<span class="count">{selection.count ? `${selection.count} selected` : 'Select photos'}</span>
 	<button class="link" onclick={() => selection.selectAll(order)}>All</button>
 	<div class="actions">
-		<button class="icon-btn" disabled={!selection.count || busy} title={favNext ? 'Favourite' : 'Unfavourite'}
+		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title={favNext ? 'Favourite' : 'Unfavourite'}
 			aria-label={favNext ? 'Favourite' : 'Unfavourite'}
 			onclick={() => run(() => setFavorite(ids, favNext))}>
 			<span class="heart" class:filled={!favNext}><Icon name="heart" /></span>
 		</button>
-		<button class="icon-btn" disabled={!selection.count || busy} title="Add to album" aria-label="Add to album"
+		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Add to album" aria-label="Add to album"
 			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
 		{#if albumId != null}
-			<button class="icon-btn danger" disabled={!selection.count || busy} title="Remove from album" aria-label="Remove from album"
+			<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Remove from album" aria-label="Remove from album"
 				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
 		{/if}
-		<button class="icon-btn" disabled={!selection.count} title="Download originals" aria-label="Download originals"
+		<button class="icon-btn" disabled={!selection.count || !net.online} title="Download originals" aria-label="Download originals"
 			onclick={download}><Icon name="download" /></button>
 	</div>
 </div>

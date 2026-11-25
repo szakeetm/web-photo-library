@@ -16,10 +16,12 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 2
+public let catalogFormat = 3
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
+    /// Random id of this database: a replica made from another database (e.g. after a reset) must be discarded.
+    public var catalogId: String
     public var seq: Int64
     public var assets: [CatalogAsset]
     public var folders: [FolderNode]
@@ -34,6 +36,19 @@ public struct FolderNode: Codable, Sendable, Equatable {
     public var relPath: String
     public var count: Int
     public var coverId: String?
+}
+
+/// Changes since a sequence number: upserted and deleted assets, plus the (small) folder and album lists
+/// whenever anything changed. `reset` means the client must download the full snapshot instead.
+public struct CatalogDelta: Codable, Sendable {
+    public var format = catalogFormat
+    public var catalogId: String
+    public var seq: Int64
+    public var reset: Bool
+    public var assets: [CatalogAsset]
+    public var deleted: [String]
+    public var folders: [FolderNode]?
+    public var albums: [CatalogAlbum]?
 }
 
 public struct AssetDetail: Codable, Sendable {
@@ -57,14 +72,25 @@ public final class CatalogService: Sendable {
     }()
 
     static func catalogAssets(_ d: Database, id: String? = nil) throws -> [CatalogAsset] {
+        try catalogAssets(d, ids: id.map { [$0] })
+    }
+
+    /// Present assets, all of them or only `ids`.
+    static func catalogAssets(_ d: Database, ids: [String]?) throws -> [CatalogAsset] {
+        var filter = ""
+        var args: StatementArguments = []
+        if let ids {
+            filter = "AND a.id IN (SELECT value FROM json_each(?))"
+            args = [String(decoding: try JSONEncoder().encode(ids), as: UTF8.self)]
+        }
         let rows = try Row.fetchAll(d, sql: """
             SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
                    GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
             FROM asset a JOIN file f ON f.assetId = a.id
-            WHERE a.missingSince IS NULL \(id == nil ? "" : "AND a.id = ?")
+            WHERE a.missingSince IS NULL \(filter)
             GROUP BY a.id
             ORDER BY a.takenAt DESC, a.id
-            """, arguments: id.map { [$0] } ?? [])
+            """, arguments: args)
         return rows.map { r -> CatalogAsset in
                 let folders = ((r["folders"] as String?) ?? "").split(separator: ",").compactMap { Int64($0) }
                 let rel: String = r["relPath"]
@@ -82,9 +108,40 @@ public final class CatalogService: Sendable {
     public func catalog() throws -> CatalogSnapshot {
         try db.writer.read { d in
             let assets = try Self.catalogAssets(d)
-            let seq = try Int64.fetchOne(d, sql: "SELECT MAX(seq) FROM change_log") ?? 0
-            return CatalogSnapshot(seq: seq, assets: assets, folders: try Self.folders(d),
+            let seq = try Self.currentSeq(d)
+            return CatalogSnapshot(catalogId: try Self.catalogId(d), seq: seq, assets: assets, folders: try Self.folders(d),
                                    albums: try AlbumService(db: db, settings: settings).catalogAlbums(d))
+        }
+    }
+
+    static func currentSeq(_ d: Database) throws -> Int64 {
+        try Int64.fetchOne(d, sql: "SELECT MAX(seq) FROM change_log") ?? 0
+    }
+
+    static func catalogId(_ d: Database) throws -> String {
+        let raw = try String.fetchOne(d, sql: "SELECT value FROM setting WHERE key = 'catalogId'") ?? "\"\""
+        return (try? JSONDecoder().decode(String.self, from: Data(raw.utf8))) ?? ""
+    }
+
+    /// Everything that changed after `since` in the database identified by `catalogId`.
+    public func changes(since: Int64, catalogId clientCatalog: String?) throws -> CatalogDelta {
+        try db.writer.read { d in
+            let id = try Self.catalogId(d)
+            let seq = try Self.currentSeq(d)
+            guard clientCatalog == id, since >= 0, since <= seq else {
+                return CatalogDelta(catalogId: id, seq: seq, reset: true, assets: [], deleted: [])
+            }
+            guard since < seq else {
+                return CatalogDelta(catalogId: id, seq: seq, reset: false, assets: [], deleted: [])
+            }
+            let rows = try Row.fetchAll(d, sql: "SELECT DISTINCT entity, entityId FROM change_log WHERE seq > ?", arguments: [since])
+            let assetIds = Array(Set(rows.filter { $0["entity"] == "asset" }.map { $0["entityId"] as String }))
+            let present = try Self.catalogAssets(d, ids: assetIds)
+            let presentIds = Set(present.map(\.id))
+            return CatalogDelta(catalogId: id, seq: seq, reset: false, assets: present,
+                                deleted: assetIds.filter { !presentIds.contains($0) }.sorted(),
+                                folders: try Self.folders(d),
+                                albums: try AlbumService(db: db, settings: settings).catalogAlbums(d))
         }
     }
 

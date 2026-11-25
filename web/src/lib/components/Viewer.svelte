@@ -5,7 +5,10 @@
 	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite } from '#lib/state.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
+	import ExportSheet from './ExportSheet.svelte';
+	import Editor from '#lib/editor/Editor.svelte';
 
 	let {
 		ids,
@@ -24,6 +27,11 @@
 	let detail = $state<AssetDetail | null>(null);
 	let animating = $state(false);
 	let closing = $state(false);
+	let editing = $state(false);
+	let exporting = $state(false);
+	const canEdit = typeof navigator !== 'undefined' && 'gpu' in navigator;
+	/** Displayed pixel size of loaded previews (an edit's crop changes the aspect). */
+	let dims = $state(new Map<string, { w: number; h: number }>());
 
 	// gesture state
 	let dx = $state(0);
@@ -61,11 +69,18 @@
 	});
 
 	$effect(() => {
-		if (scale >= 1.6 && originalShowable) fullRes = true;
+		// The original would hide an edit: deep zoom only swaps in the original for unedited photos.
+		if (scale >= 1.6 && originalShowable && asset?.ev === 0) fullRes = true;
 	});
 
+	function openEditor() {
+		if (!asset || !net.online || !canEdit) return;
+		resetZoom();
+		editing = true;
+	}
+
 	function toggleFavorite() {
-		if (asset) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
+		if (asset && net.online) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
 	}
 
 	function resetZoom() {
@@ -81,13 +96,14 @@
 		animating = false;
 	}
 
-	async function go(delta: number) {
+	/** Next/previous photo. Swipes slide; keys and buttons switch instantly. */
+	async function go(delta: number, slide = false) {
 		const next = index + delta;
 		if (next < 0 || next >= ids.length) {
-			await animateTo(() => (dx = 0));
+			if (dx !== 0) await animateTo(() => (dx = 0));
 			return;
 		}
-		await animateTo(() => (dx = -delta * pitch));
+		if (slide) await animateTo(() => (dx = -delta * pitch));
 		dx = 0;
 		resetZoom();
 		onChange(ids[next]);
@@ -105,9 +121,10 @@
 	function fittedRect(): { x: number; y: number; w: number; h: number } {
 		const a = asset;
 		if (!a) return { x: 0, y: 0, w: vw, h: vh };
-		const s = Math.min(vw / a.w, vh / a.h);
-		const w = a.w * s;
-		const h = a.h * s;
+		const d = dims.get(`${a.id}/${a.ev}`) ?? { w: a.w, h: a.h };
+		const s = Math.min(vw / d.w, vh / d.h);
+		const w = d.w * s;
+		const h = d.h * s;
 		return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
 	}
 
@@ -151,13 +168,16 @@
 			vh = window.innerHeight;
 		};
 		const onKey = (e: KeyboardEvent) => {
+			if (editing || exporting) return;
 			if (e.key === 'ArrowRight') go(1);
 			else if (e.key === 'ArrowLeft') go(-1);
+			else if (e.key === 'Escape' && infoOpen) infoOpen = false;
 			else if (e.key === 'Escape' || e.key === ' ') {
 				e.preventDefault();
 				close();
 			} else if (e.key === 'i') infoOpen = !infoOpen;
 			else if (e.key === 'f') toggleFavorite();
+			else if (e.key === 'e') openEditor();
 		};
 		window.addEventListener('resize', onResize);
 		window.addEventListener('keydown', onKey);
@@ -270,8 +290,8 @@
 		const elapsed = performance.now() - start.t;
 		if (axis === 'x') {
 			const v = dx / Math.max(1, elapsed);
-			if (dx < -vw * 0.2 || v < -0.5) go(1);
-			else if (dx > vw * 0.2 || v > 0.5) go(-1);
+			if (dx < -vw * 0.2 || v < -0.5) go(1, true);
+			else if (dx > vw * 0.2 || v > 0.5) go(-1, true);
 			else animateTo(() => (dx = 0));
 		} else if (axis === 'y') {
 			if (dy > 120 || dy / Math.max(1, elapsed) > 0.6) close();
@@ -384,7 +404,11 @@
 							src={previewUrl(a.id, a.ev, app.fmt)}
 							alt={a.name}
 							draggable="false"
-							onload={() => (ready = new Set(ready).add(a.id))}
+							onload={(e) => {
+								ready = new Set(ready).add(a.id);
+								const img = e.currentTarget as HTMLImageElement;
+								dims = new Map(dims).set(`${a.id}/${a.ev}`, { w: img.naturalWidth, h: img.naturalHeight });
+							}}
 						/>
 						{#if s.o === 0 && fullRes}
 							<img class="high" src={originalUrl(a.id)} alt="" draggable="false" />
@@ -403,12 +427,16 @@
 				<div class="sub muted">{index + 1} of {ids.length}</div>
 			{/if}
 		</div>
-		<button class="icon-btn heart" class:filled={asset?.fav} onclick={toggleFavorite}
+		<button class="icon-btn heart" class:filled={asset?.fav} onclick={toggleFavorite} disabled={!net.online}
 			aria-label={asset?.fav ? 'Unfavourite' : 'Favourite'} aria-pressed={asset?.fav ?? false}><Icon name="heart" /></button>
 		<button class="icon-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
 			><Icon name="info" /></button
 		>
-		<a class="icon-btn" href={originalUrl(id)} download aria-label="Download original"><Icon name="download" /></a>
+		{#if net.online}
+			<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
+				title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"} aria-label="Edit"><Icon name="edit" /></button>
+			<button class="icon-btn" onclick={() => (exporting = true)} title="Export / share" aria-label="Export"><Icon name="share" /></button>
+		{/if}
 	</header>
 
 	{#if ids.length > 1}
@@ -420,8 +448,17 @@
 		>
 	{/if}
 
+	{#if editing && asset}
+		<Editor {asset} onClose={() => (editing = false)} />
+	{/if}
+	{#if exporting && asset}
+		<ExportSheet {asset} onClose={() => (exporting = false)} />
+	{/if}
+
 	{#if infoOpen && asset}
 		<aside class="info">
+			<button class="icon-btn info-close" onclick={() => (infoOpen = false)} aria-label="Close info" title="Close (Esc)"
+				><Icon name="close" /></button>
 			<h3>{asset.name}</h3>
 			<dl>
 				<dt>Taken</dt>
@@ -621,9 +658,17 @@
 			border-radius: 0;
 			padding-top: calc(env(safe-area-inset-top) + 64px);
 		}
+		.info-close {
+			top: calc(env(safe-area-inset-top) + 56px);
+		}
+	}
+	.info-close {
+		position: absolute;
+		top: 10px;
+		right: 10px;
 	}
 	.info h3 {
-		margin: 0 0 12px;
+		margin: 0 40px 12px 0;
 		font-size: 16px;
 		word-break: break-all;
 	}

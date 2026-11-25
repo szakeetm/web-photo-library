@@ -1,0 +1,76 @@
+import Testing
+import Foundation
+import CryptoKit
+@testable import PhotoCore
+
+/// The edit pipeline's reference outputs. The web app's tests compare its WebGPU renders against the
+/// same files, so preview (browser) and export (server) match by construction.
+/// Regenerate after an intended shader change: UPDATE_GOLDENS=1 scripts/test-server.sh --filter EditRender
+@Suite struct EditRenderTests {
+    static let shaders = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../shaders").standardizedFileURL
+    static let tolerance = 1  // per channel, of 255
+
+    @Test func generatedMetalIsCurrent() throws {
+        let wgsl = try Data(contentsOf: Self.shaders.appendingPathComponent("edit.wgsl"))
+        let hash = SHA256.hash(data: wgsl).map { String(format: "%02x", $0) }.joined()
+        #expect(hash == editShaderSourceHash, "shaders/edit.wgsl changed: run scripts/gen-shaders.sh")
+    }
+
+    @Test func rendersMatchGoldens() throws {
+        let renderer = try EditRenderer.shared()
+        let fixtures = Self.shaders.appendingPathComponent("fixtures")
+        let src = [UInt8](try Data(contentsOf: fixtures.appendingPathComponent("fixture-96x64.rgba")))
+        let recipes = try JSONDecoder().decode([String: EditRecipe].self, from: Data(contentsOf: fixtures.appendingPathComponent("recipes.json")))
+        let update = ProcessInfo.processInfo.environment["UPDATE_GOLDENS"] == "1"
+        var manifest: [String: [Int]] = [:]
+        for (name, recipe) in recipes.sorted(by: { $0.key < $1.key }) {
+            let out = try renderer.render(rgba: src, width: 96, height: 64, recipe: try recipe.validated())
+            let golden = fixtures.appendingPathComponent("golden/\(name).rgba")
+            manifest[name] = [out.width, out.height]
+            if update {
+                try Data(out.pixels).write(to: golden)
+                continue
+            }
+            let expected = [UInt8](try Data(contentsOf: golden))
+            #expect(expected.count == out.pixels.count, "\(name): size")
+            guard expected.count == out.pixels.count else { continue }
+            let maxDiff = zip(expected, out.pixels).map { abs(Int($0) - Int($1)) }.max() ?? 0
+            #expect(maxDiff <= Self.tolerance, "\(name): max channel difference \(maxDiff)")
+        }
+        if update {
+            let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys, .prettyPrinted]
+            try enc.encode(manifest).write(to: fixtures.appendingPathComponent("golden/sizes.json"))
+        }
+    }
+
+    @Test func identityKeepsPixels() throws {
+        let renderer = try EditRenderer.shared()
+        let src = [UInt8](try Data(contentsOf: Self.shaders.appendingPathComponent("fixtures/fixture-96x64.rgba")))
+        let out = try renderer.render(rgba: src, width: 96, height: 64, recipe: EditRecipe())
+        let maxDiff = zip(src, out.pixels).map { abs(Int($0) - Int($1)) }.max() ?? 0
+        #expect(out.width == 96 && out.height == 64 && maxDiff <= 1)
+    }
+
+    @Test func geometryOutputSizes() {
+        var r = EditRecipe()
+        r.rotate = 1
+        #expect(r.outputSize(sourceWidth: 400, sourceHeight: 300) == (300, 400))
+        r.crop = .init(x: 0, y: 0, w: 0.5, h: 0.25)
+        #expect(r.outputSize(sourceWidth: 400, sourceHeight: 300) == (150, 100))
+        #expect(EditRecipe.lumaSize(sourceWidth: 4000, sourceHeight: 3000) == (256, 192))
+    }
+
+    @Test func validationRejectsOutOfRange() throws {
+        var r = EditRecipe()
+        r.exposure = 5
+        #expect(throws: EditRecipe.Invalid.self) { try r.validated() }
+        r = EditRecipe(); r.schema = 99
+        #expect(throws: EditRecipe.Invalid.self) { try r.validated() }
+        r = EditRecipe(); r.curve = [[0.5, 0], [0.2, 1]]
+        #expect(throws: EditRecipe.Invalid.self) { try r.validated() }
+        r = EditRecipe(); r.crop = .init(x: 0.5, y: 0, w: 0.6, h: 1)
+        #expect(throws: EditRecipe.Invalid.self) { try r.validated() }
+        r = EditRecipe(); r.exposure = 0; r.rotate = 0; r.curve = [[0, 0], [1, 1]]
+        #expect(r.isIdentity && r.normalized() == EditRecipe())
+    }
+}

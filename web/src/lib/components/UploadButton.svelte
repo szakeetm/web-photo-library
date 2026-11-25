@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { app } from '#lib/state.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
 	import { uploads, uploadUI, currentSource, imageAccept } from '#lib/uploadsInstance.svelte.ts';
 	import Icon from './Icon.svelte';
 
@@ -23,7 +24,7 @@
 </script>
 
 <input bind:this={input} type="file" accept={imageAccept} multiple hidden onchange={chosen} />
-<button class="icon-btn up" onclick={pick} title="Upload photos" aria-label="Upload photos">
+<button class="icon-btn up" onclick={pick} disabled={!net.online} title="Upload photos" aria-label="Upload photos">
 	<Icon name="upload" />
 	{#if uploads.active}<span class="badge">{uploads.active}</span>{/if}
 </button>

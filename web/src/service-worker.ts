@@ -1,0 +1,104 @@
+/// <reference types="@sveltejs/kit" />
+/// <reference no-default-lib="true"/>
+/// <reference lib="esnext" />
+/// <reference lib="webworker" />
+// Offline support: the app shell is precached so the app launches without a network; thumbnails and
+// previews are cached as they are viewed (and by downloaded albums). Everything else under /api goes
+// to the network. A new worker waits until the app's "Update now" activates it.
+import { immutable, assets } from '$app/manifest';
+import { version } from '$app/env';
+import { IMAGE_CACHE, imageKey, isCacheableImage, recordImage, touchImages } from '#lib/imageCache.ts';
+
+const sw = self as unknown as ServiceWorkerGlobalScope;
+const SHELL = `shell-${version}`;
+const SHELL_FILES = ['/', ...immutable.map((f) => `/${f.path}`), ...assets.map((f) => `/${f.path}`)];
+const shellSet = new Set(SHELL_FILES);
+const NAV_TIMEOUT_MS = 2500;
+
+sw.addEventListener('install', (event) => {
+	event.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)));
+});
+
+sw.addEventListener('activate', (event) => {
+	event.waitUntil(
+		(async () => {
+			for (const key of await caches.keys()) {
+				if (key.startsWith('shell-') && key !== SHELL) await caches.delete(key);
+			}
+			await sw.clients.claim();
+		})()
+	);
+});
+
+sw.addEventListener('message', (event) => {
+	if (event.data === 'skipWaiting') sw.skipWaiting();
+});
+
+// Last-access updates are batched: grids request hundreds of thumbnails at once.
+const touched = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
+function touch(key: string) {
+	touched.add(key);
+	flushTimer ??= setTimeout(() => {
+		flushTimer = undefined;
+		const keys = [...touched];
+		touched.clear();
+		touchImages(keys).catch(() => {});
+	}, 2000);
+}
+
+async function image(request: Request): Promise<Response> {
+	const key = imageKey(request.url);
+	const cache = await caches.open(IMAGE_CACHE);
+	const hit = await cache.match(request.url);
+	if (hit) {
+		touch(key);
+		return hit;
+	}
+	try {
+		const res = await fetch(request);
+		if (res.ok) {
+			const blob = await res.clone().blob();
+			await cache.put(request.url, res.clone());
+			await recordImage(key, blob.size);
+		}
+		return res;
+	} catch {
+		return new Response(null, { status: 504, statusText: 'Offline' });
+	}
+}
+
+/** Pages: the network first (so a reload picks up a new build), the cached shell when it is slow or down. */
+async function navigate(request: Request): Promise<Response> {
+	const shell = await caches.open(SHELL);
+	try {
+		const res = await Promise.race([
+			fetch(request),
+			new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), NAV_TIMEOUT_MS))
+		]);
+		if (res.ok) return res;
+		return (await shell.match('/')) ?? res;
+	} catch {
+		const cached = await shell.match('/');
+		if (cached) return cached;
+		throw new Error('offline and no cached app');
+	}
+}
+
+sw.addEventListener('fetch', (event) => {
+	const { request } = event;
+	if (request.method !== 'GET') return;
+	const url = new URL(request.url);
+	if (url.origin !== sw.location.origin) return;
+
+	if (request.mode === 'navigate') {
+		event.respondWith(navigate(request));
+	} else if (isCacheableImage(url.pathname)) {
+		// Downloads made by the page manage the cache themselves.
+		if (request.headers.has('X-Client-Cache')) return;
+		event.respondWith(image(request));
+	} else if (shellSet.has(url.pathname) && url.pathname !== '/') {
+		event.respondWith(caches.match(request).then((hit) => hit ?? fetch(request)));
+	}
+	// Everything else (API, version.json) goes straight to the network.
+});

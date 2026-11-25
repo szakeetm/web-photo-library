@@ -14,6 +14,7 @@ public final class Services: @unchecked Sendable {
     public let settings: SettingsStore
     public let catalog: CatalogService
     public let albums: AlbumService
+    public let edits: EditService
     public let jobs: JobRunner
     private let lock = NSLock()
     private var store: DerivativeStore?
@@ -34,9 +35,12 @@ public final class Services: @unchecked Sendable {
         settings = SettingsStore(db: db)
         catalog = CatalogService(db: db, settings: settings)
         albums = AlbumService(db: db, settings: settings)
+        let box = StoreBox()
+        edits = EditService(db: db, catalog: catalog, derivatives: { box.get() })
         var getStore: (() -> DerivativeStore)!
         jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir])
         getStore = { [unowned self] in self.derivatives() }
+        box.get = getStore
         if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }
     }
 
@@ -47,4 +51,9 @@ public final class Services: @unchecked Sendable {
         store = s
         return s
     }
+}
+
+/// Late-bound access to the derivative store for services created before `self` is complete.
+final class StoreBox: @unchecked Sendable {
+    var get: () -> DerivativeStore = { fatalError("derivative store not ready") }
 }

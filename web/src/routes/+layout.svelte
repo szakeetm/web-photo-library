@@ -5,6 +5,9 @@
 	import { page, updated } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import { app } from '#lib/state.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
+	import { pins } from '#lib/pins.svelte.ts';
+	import { applyUpdate, registerServiceWorker } from '#lib/sw.ts';
 	import { uploads } from '#lib/uploadsInstance.svelte.ts';
 	import DropZone from '#lib/components/DropZone.svelte';
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
@@ -28,8 +31,12 @@
 	const exact = (href: string) => page.url.pathname === href || page.url.pathname.startsWith(href + '/');
 	const sidebarAlbums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 
+	let updating = $state(false);
+
 	onMount(async () => {
+		registerServiceWorker();
 		await app.init();
+		pins.start();
 		uploads.resume();
 		if (!app.libraryConfigured && !page.url.pathname.startsWith('/settings')) goto('/settings');
 	});
@@ -41,7 +48,8 @@
 		<div class="update-card">
 			<h2 id="update-title">Update required</h2>
 			<p class="muted">A new version of Photos is installed on the server. Update to continue.</p>
-			<button class="btn primary" onclick={() => location.reload()}>Update now</button>
+			<button class="btn primary" disabled={updating} onclick={() => { updating = true; applyUpdate(); }}
+				>{updating ? 'Updating…' : 'Update now'}</button>
 		</div>
 	</div>
 {/if}
@@ -68,7 +76,11 @@
 		<a class="bottom" href="/settings" class:active={exact('/settings')}><Icon name="settings" size={20} /> Settings</a>
 	</nav>
 	<main>
-		{#if app.error}
+		{#if !net.online}
+			<div class="banner offline" role="status">
+				Offline — showing what's saved on this device. Editing, favourites and albums are paused.
+			</div>
+		{:else if app.error}
 			<div class="banner">Can't reach the server: {app.error}</div>
 		{/if}
 		{@render children()}
@@ -147,6 +159,15 @@
 		color: black;
 		padding: 8px 16px;
 		font-size: 13px;
+	}
+	.banner.offline {
+		position: sticky;
+		top: 0;
+		z-index: 25;
+		background: var(--bg-elevated);
+		color: var(--fg-secondary);
+		border-bottom: 0.5px solid var(--separator);
+		padding-top: calc(8px + env(safe-area-inset-top));
 	}
 	@media (min-width: 768px) {
 		.tabbar {
