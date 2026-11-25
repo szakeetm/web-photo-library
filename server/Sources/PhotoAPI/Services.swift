@@ -16,6 +16,7 @@ public final class Services: @unchecked Sendable {
     public let albums: AlbumService
     public let edits: EditService
     public let jobs: JobRunner
+    public let videos: VideoConversions
     private let lock = NSLock()
     private var store: DerivativeStore?
 
@@ -39,8 +40,11 @@ public final class Services: @unchecked Sendable {
         edits = EditService(db: db, catalog: catalog, derivatives: { box.get() })
         var getStore: (() -> DerivativeStore)!
         jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir], dataDir: paths.dataDir)
+        videos = VideoConversions(db: db, catalog: catalog, cacheDir: paths.cacheDir, ffmpeg: FFmpeg.locate())
         getStore = { [unowned self] in self.derivatives() }
         box.get = getStore
+        jobs.onPurge = { [videos] ids in ids.forEach(videos.remove(id:)) }
+        jobs.onClearCaches = { [videos] in try videos.clear() }
         if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }
     }
 

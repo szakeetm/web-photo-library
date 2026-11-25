@@ -28,6 +28,10 @@ public final class JobRunner: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = Set<Int64>()
     private let gate = DispatchSemaphore(value: 1)
+    /// Called with the ids of purged assets (Purge missing), e.g. to delete their video previews.
+    public var onPurge: (([String]) -> Void)?
+    /// Called by Rebuild caches after thumbnails and previews are cleared, e.g. to delete video previews.
+    public var onClearCaches: (() throws -> Void)?
 
     public init(db: AppDatabase, settings: SettingsStore, derivatives: @escaping () -> DerivativeStore,
                 serverTZ: TimeZone = .current, excluding: [URL] = [], dataDir: URL? = nil) {
@@ -170,6 +174,7 @@ public final class JobRunner: @unchecked Sendable {
             return ([summary(total, renderFailures: failures)] + notes).joined(separator: "\n")
         case .rebuildCaches:
             try derivatives().clear()
+            try onClearCaches?()
             try db.writer.write { try $0.execute(sql: "UPDATE asset SET blurhash = NULL") }
             let failures = try generateDerivatives(id: id, isCancelled: cancelled)
             return failures.isEmpty ? "Caches rebuilt" : "Caches rebuilt\n" + renderFailureText(failures)
@@ -186,6 +191,7 @@ public final class JobRunner: @unchecked Sendable {
             }
             let store = derivatives()
             for a in ids { store.remove(id: a) }
+            onPurge?(ids)
             return "Purged \(ids.count) missing photos"
         case .faces:
             return try scanFaces(id: id, isCancelled: cancelled)
