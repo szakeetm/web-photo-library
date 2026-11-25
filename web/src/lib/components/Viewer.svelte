@@ -268,8 +268,21 @@
 			else if (e.key === 'f') toggleFavorite();
 			else if (e.key === 'e') openEditor();
 		};
+		// Leaving the app or window mid-hold (or mid-hover) may never deliver pointerup/leave: stop there.
+		const onLeave = () => {
+			if (!holding && !livePlaying && !holdTimer) return;
+			stopLive();
+			pointers.clear();
+			axis = null;
+			if (dx !== 0 || dy !== 0) animateTo(() => ((dx = 0), (dy = 0)));
+		};
+		const onVisibility = () => {
+			if (document.visibilityState === 'hidden') onLeave();
+		};
 		window.addEventListener('resize', onResize);
 		window.addEventListener('keydown', onKey);
+		window.addEventListener('blur', onLeave);
+		document.addEventListener('visibilitychange', onVisibility);
 		stage.addEventListener('gesturestart', onGestureStart, { passive: false });
 		stage.addEventListener('gesturechange', onGestureChange, { passive: false });
 		return () => {
@@ -278,6 +291,8 @@
 			document.documentElement.style.overflow = '';
 			window.removeEventListener('resize', onResize);
 			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('blur', onLeave);
+			document.removeEventListener('visibilitychange', onVisibility);
 		};
 	});
 
@@ -289,7 +304,7 @@
 	let tapTimer: ReturnType<typeof setTimeout> | undefined;
 
 	// Live Photo: a single press held 300 ms without moving (and not zoomed) plays the motion until
-	// release. While it plays, moves don't page and other fingers are ignored; the release doesn't
+	// release. While it plays, moves don't page; another finger ends it (and starts afresh); the release doesn't
 	// toggle the chrome. `livePlaying` is also set by hovering the LIVE badge (LiveOverlay).
 	let livePlaying = $state(false);
 	let holding = false;
@@ -338,7 +353,13 @@
 	function onPointerDown(e: PointerEvent) {
 		if ((e.target as HTMLElement).closest('button, a, input, .info, .video-controls')) return;
 		if (isVideo && pointers.size > 0) return; // videos don't zoom: a second finger is ignored
-		if (holding && livePlaying) return; // a hold plays the motion: other fingers are ignored
+		if (holding) {
+			// The holding pointer is still down (or its pointerup was lost, e.g. the app was backgrounded
+			// mid-hold): a new pointer ends the hold and starts afresh, so the stage can never wedge.
+			stopLive();
+			pointers.clear();
+			axis = null;
+		}
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 		if (pointers.size === 2) {
