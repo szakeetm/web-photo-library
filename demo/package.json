@@ -1,0 +1,9 @@
+{
+	"name": "photo-server-demo",
+	"private": true,
+	"type": "module",
+	"description": "Takes the README screenshots from the demo library",
+	"devDependencies": {
+		"playwright": "^1.65.1"
+	}
+}

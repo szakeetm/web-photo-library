@@ -14,11 +14,15 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 |---|---|
 | ![Library timeline on desktop](docs/screenshots/desktop-library.jpg) | ![Library timeline on iPhone](docs/screenshots/mobile-library.jpg) |
 | ![Photo viewer on desktop](docs/screenshots/desktop-viewer.jpg) | ![Photo viewer on iPhone](docs/screenshots/mobile-viewer.jpg) |
+| ![Photo editor on desktop](docs/screenshots/desktop-editor.jpg) | ![Photo editor on iPhone](docs/screenshots/mobile-editor.jpg) |
 | ![Albums on desktop](docs/screenshots/desktop-albums.jpg) | ![Albums on iPhone](docs/screenshots/mobile-albums.jpg) |
 | ![Search on desktop](docs/screenshots/desktop-search.jpg) | ![Selecting photos in an album on iPhone](docs/screenshots/mobile-select.jpg) |
 | ![Uploading by drag and drop on desktop](docs/screenshots/desktop-upload.jpg) | ![A folder on iPhone](docs/screenshots/mobile-folder.jpg) |
 | ![Folders on desktop](docs/screenshots/desktop-folders.jpg) | |
 | ![Settings on desktop](docs/screenshots/desktop-settings.jpg) | |
+
+Screenshots use the stock-photo demo library in [`demo/`](demo/) ([credits](docs/screenshots/CREDITS.md));
+regenerate them with `demo/take-screenshots.sh`.
 
 ## What it does today
 
@@ -93,6 +97,7 @@ Screen**. Optionally set your Tailscale login under Settings → Access so only 
 
 ```sh
 scripts/test-server.sh        # server tests (Swift Testing)
+demo/take-screenshots.sh      # README screenshots from the demo library (after a release build)
 cd web && npm test            # web unit tests
 cd web && npm run dev         # Vite dev server, proxies /api to 127.0.0.1:8787
 PHOTOSERVER_HOME=/tmp/ps2 PORT=8799 WEB_ROOT=/tmp/web2 server/.build/release/PhotoServer   # second instance

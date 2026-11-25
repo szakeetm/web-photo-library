@@ -1,0 +1,90 @@
+# Screenshot photo credits
+
+Demo library photos are from [Unsplash](https://unsplash.com) (via picsum.photos), used under the [Unsplash License](https://unsplash.com/license). Dates, places and albums are made up.
+
+- `Coast Trip/IMG_4184.jpg` — Paul Jarvis, <https://unsplash.com/photos/I_9ILwtsl_k>
+- `Coast Trip/IMG_4191.jpg` — Paul Jarvis, <https://unsplash.com/photos/3MtiSMdnoCo>
+- `Coast Trip/IMG_4198.jpg` — Paul Jarvis, <https://unsplash.com/photos/IQ1kOQTJrOQ>
+- `Coast Trip/IMG_4212.jpg` — Paul Jarvis, <https://unsplash.com/photos/gkT4FfgHO5o>
+- `Coast Trip/IMG_4359.jpg` — Austin Neill, <https://unsplash.com/photos/erTjj730fMk>
+- `Coast Trip/IMG_4429.jpg` — Christopher Sardegna, <https://unsplash.com/photos/uDUiRS8YroY>
+- `Coast Trip/IMG_4506.jpg` — Tony Naccarato, <https://unsplash.com/photos/-kEr-QltARg>
+- `Coast Trip/IMG_4576.jpg` — Cristian Moscoso, <https://unsplash.com/photos/2SfRAWkinpU>
+- `Coast Trip/IMG_4618.jpg` — Isaak Dury, <https://unsplash.com/photos/YhZbnxqtooM>
+- `Coast Trip/IMG_4639.jpg` — May Pamintuan, <https://unsplash.com/photos/j9nfqTi5T5o>
+- `Coast Trip/IMG_4968.jpg` — Anton Sulsky, <https://unsplash.com/photos/fj0tFloTPGQ>
+- `Coast Trip/IMG_4208.jpg` — Mouly Kumar, <https://unsplash.com/photos/TuOiIpkIea8>
+- `Coast Trip/IMG_4278.jpg` — Christopher Sardegna, <https://unsplash.com/photos/x_jTtMOOMd4>
+- `Coast Trip/IMG_4285.jpg` — Christopher Sardegna, <https://unsplash.com/photos/4f7r1LuPYj8>
+- `Coast Trip/IMG_4453.jpg` — Angelina Odemchuk, <https://unsplash.com/photos/lp0IFw6YqZg>
+- `Coast Trip/IMG_4593.jpg` — Beto Galetto, <https://unsplash.com/photos/RL0l7Zk5PxU>
+- `Coast Trip/IMG_4621.jpg` — Diogo Tavares, <https://unsplash.com/photos/PFZTiiJnjag>
+- `Dolomites/IMG_4170.jpg` — Paul Jarvis, <https://unsplash.com/photos/6J--NXulQCs>
+- `Dolomites/IMG_4177.jpg` — Paul Jarvis, <https://unsplash.com/photos/Cm7oKel-X2Q>
+- `Dolomites/IMG_4205.jpg` — Paul Jarvis, <https://unsplash.com/photos/NYDo21ssGao>
+- `Dolomites/IMG_4296.jpg` — Jerry Adney, <https://unsplash.com/photos/_WiFMBRT7Aw>
+- `Dolomites/IMG_4303.jpg` — Go Wild, <https://unsplash.com/photos/V0yAek6BgGk>
+- `Dolomites/IMG_4422.jpg` — Jeffrey Kam, <https://unsplash.com/photos/Nzw3HHsNHYU>
+- `Dolomites/IMG_4562.jpg` — Nicholas Swanson, <https://unsplash.com/photos/agnhLQWqr1Q>
+- `Dolomites/IMG_4653.jpg` — Dorothy Lin, <https://unsplash.com/photos/TIr6EwYMRUM>
+- `Dolomites/IMG_4926.jpg` — Rick Waalders, <https://unsplash.com/photos/d-Cr8MEW5Uc>
+- `Dolomites/IMG_4947.jpg` — Radio Pink, <https://unsplash.com/photos/p-bkdO43shE>
+- `Dolomites/IMG_4996.jpg` — Matteo Minelli, <https://unsplash.com/photos/hlnucYOsL-c>
+- `Dolomites/IMG_4362.jpg` — Romain Briaux, <https://unsplash.com/photos/yD3PXDV7Sjc>
+- `Dolomites/IMG_4439.jpg` — Danka & Peter, <https://unsplash.com/photos/tvicgTdh7Fg>
+- `Dolomites/IMG_4537.jpg` — Alex Talmon, <https://unsplash.com/photos/6iat9p85VnQ>
+- `Dolomites/IMG_4586.jpg` — Sylwia Bartyzel, <https://unsplash.com/photos/FC9mIjVT-Yw>
+- `City Weekend/IMG_4401.jpg` — Oleg Chursin, <https://unsplash.com/photos/IoCWq07GaG4>
+- `City Weekend/IMG_4443.jpg` — Margaret Barley, <https://unsplash.com/photos/Qo51KwK1dKg>
+- `City Weekend/IMG_4499.jpg` — Nicholas Swanson, <https://unsplash.com/photos/SyBYM8R6VU4>
+- `City Weekend/IMG_4688.jpg` — Johnny Lam, <https://unsplash.com/photos/63qfL0TciY8>
+- `City Weekend/IMG_4716.jpg` — Barcelona, <https://unsplash.com/photos/muC_6gTMLR4>
+- `City Weekend/IMG_4954.jpg` — Vadim Sherbakov, <https://unsplash.com/photos/xS_RzdD5CFE>
+- `City Weekend/IMG_4138.jpg` — Charlie Foster, <https://unsplash.com/photos/Osl4I3IS9Cw>
+- `City Weekend/IMG_4341.jpg` — Linh Nguyen, <https://unsplash.com/photos/oFAVqfTSby8>
+- `City Weekend/IMG_4348.jpg` — Linh Nguyen, <https://unsplash.com/photos/agkblvPff5U>
+- `City Weekend/IMG_4516.jpg` — Wojtek Witkowski, <https://unsplash.com/photos/1fpyA_z2woY>
+- `City Weekend/IMG_4551.jpg` — Vadim Sherbakov, <https://unsplash.com/photos/d6ebY-faOO0>
+- `City Weekend/IMG_4565.jpg` — Matthew Skinner, <https://unsplash.com/photos/t05kfHeygbE>
+- `City Weekend/IMG_4481.jpg` — müllermarc, <https://unsplash.com/photos/k7bQqdUf954>
+- `City Weekend/IMG_4131.jpg` — Dietmar Becker, <https://unsplash.com/photos/8Zt0xOOK4nI>
+- `Photos from 2024/IMG_4219.jpg` — Paul Jarvis, <https://unsplash.com/photos/Ven2CV8IJ5A>
+- `Photos from 2024/IMG_4226.jpg` — Paul Jarvis, <https://unsplash.com/photos/Ps2n0rShqaM>
+- `Photos from 2024/IMG_4478.jpg` — Nicholas Swanson, <https://unsplash.com/photos/d19by2PLaPc>
+- `Photos from 2024/IMG_4534.jpg` — Daniel Genser, <https://unsplash.com/photos/PzPbh-faPgU>
+- `Photos from 2024/IMG_4590.jpg` — Dorothy Lin, <https://unsplash.com/photos/OokBLPrkCNk>
+- `Photos from 2024/IMG_4667.jpg` — Sander Weeteling, <https://unsplash.com/photos/rlxZqmc6D_I>
+- `Photos from 2024/IMG_4674.jpg` — Rula Sibai, <https://unsplash.com/photos/-vq7mi4oF0s>
+- `Photos from 2024/IMG_4821.jpg` — Ilham Rahmansyah, <https://unsplash.com/photos/DwTZwZYi9Ww>
+- `Photos from 2024/IMG_4842.jpg` — Arvee Marie, <https://unsplash.com/photos/YnfGtpt2gf4>
+- `Photos from 2024/IMG_4849.jpg` — Lukas Schweizer, <https://unsplash.com/photos/9VWOr22LhVI>
+- `Photos from 2024/IMG_4870.jpg` — Kenneth Thewissen, <https://unsplash.com/photos/D76DklsG-5U>
+- `Photos from 2024/IMG_4884.jpg` — Zugr, <https://unsplash.com/photos/kmF_Aq8gkp0>
+- `Photos from 2024/IMG_4912.jpg` — Anton Sulsky, <https://unsplash.com/photos/YcfCXxo7rpc>
+- `Photos from 2024/IMG_4194.jpg` — Vadim Sherbakov, <https://unsplash.com/photos/KSyemQIWwP8>
+- `Photos from 2025/IMG_4264.jpg` — Steven Spassov, <https://unsplash.com/photos/tVIqMgGlAG0>
+- `Photos from 2025/IMG_4313.jpg` — Shyamanta Baruah, <https://unsplash.com/photos/kxqvE41_07k>
+- `Photos from 2025/IMG_4355.jpg` — Linh Nguyen, <https://unsplash.com/photos/xjXz8GKXcTI>
+- `Photos from 2025/IMG_4369.jpg` — petradr, <https://unsplash.com/photos/WqK_xV_hbug>
+- `Photos from 2025/IMG_4383.jpg` — Noel Lopez, <https://unsplash.com/photos/BjelfpszQDw>
+- `Photos from 2025/IMG_4390.jpg` — Noel Lopez, <https://unsplash.com/photos/LbS_k_c3BYA>
+- `Photos from 2025/IMG_4418.jpg` — Linh Nguyen, <https://unsplash.com/photos/YYegjUYIVeg>
+- `Photos from 2025/IMG_4474.jpg` — Andrea Boldizsar, <https://unsplash.com/photos/BwgKUh9tN84>
+- `Photos from 2025/IMG_4502.jpg` — Simon Pape, <https://unsplash.com/photos/2kc8bigeqEI>
+- `Photos from 2025/IMG_4530.jpg` — James Forbes, <https://unsplash.com/photos/jrzvClypPq8>
+- `Photos from 2025/IMG_4625.jpg` — Jassy Onyae, <https://unsplash.com/photos/1gBUXhf0PtA>
+- `Photos from 2025/IMG_4632.jpg` — Alexander Shustov, <https://unsplash.com/photos/OxzhYtL-00Y>
+- `Photos from 2025/IMG_4646.jpg` — Paul Evans, <https://unsplash.com/photos/CtkDsu4w-Rs>
+- `Photos from 2025/IMG_4310.jpg` — Shyamanta Baruah, <https://unsplash.com/photos/aeVA-j1y2BY>
+- `Photos from 2026/IMG_4579.jpg` — Kholodnitskiy Maksim, <https://unsplash.com/photos/n6TWNDfyPwk>
+- `Photos from 2026/IMG_4600.jpg` — Elias Carlsson, <https://unsplash.com/photos/wSb8d-ke5-4>
+- `Photos from 2026/IMG_4614.jpg` — Glen Carrie, <https://unsplash.com/photos/xlAmGyZE7Zg>
+- `Photos from 2026/IMG_4628.jpg` — Tiago Gerken, <https://unsplash.com/photos/vCqmY3bfqfo>
+- `Photos from 2026/IMG_4642.jpg` — Philipp Reiner, <https://unsplash.com/photos/qPJ6eRAMmCM>
+- `Photos from 2026/IMG_4541.jpg` — Justin Leibow, <https://unsplash.com/photos/ZJsseAxEcqM>
+- `Photos from 2026/IMG_4814.jpg` — Ben Moore, <https://unsplash.com/photos/pJILiyPdrXI>
+- `Photos from 2026/IMG_4425.jpg` — petradr, <https://unsplash.com/photos/8hgm6mKK04U>
+- `Photos from 2026/IMG_4222.jpg` — Florian Klauer, <https://unsplash.com/photos/GG0jOrmwqtw>
+- `Photos from 2026/IMG_4275.jpg` — Alejandro Escamilla, <https://unsplash.com/photos/Iuq0EL4EINY>
+- `Photos from 2026/IMG_4513.jpg` — Art Wave, <https://unsplash.com/photos/algEQavPY4M>
+- `Photos from 2026/IMG_4856.jpg` — Florian Klauer, <https://unsplash.com/photos/t1mqA3V3-7g>
