@@ -225,7 +225,10 @@ public final class AlbumService: Sendable {
                        COALESCE(a.description, '') || ' ' ||
                        COALESCE((SELECT group_concat(f.relPath, ' ') FROM file f WHERE f.assetId = a.id), '') || ' ' ||
                        COALESCE((SELECT group_concat(al.title, ' ') FROM album_asset aa JOIN album al ON al.id = aa.albumId
-                                  WHERE aa.assetId = a.id), '')
+                                  WHERE aa.assetId = a.id), '') || ' ' ||
+                       COALESCE((SELECT p.name || ' ' || COALESCE(p.region, '') || ' ' || p.country FROM place p WHERE p.id = a.placeId), '') || ' ' ||
+                       COALESCE((SELECT group_concat(DISTINCT pe.name) FROM face fc JOIN person pe ON pe.id = fc.personId
+                                  WHERE fc.assetId = a.id AND pe.hidden = 0 AND pe.name IS NOT NULL), '')
                 FROM asset a WHERE a.missingSince IS NULL
                 """)
         }

@@ -1,5 +1,5 @@
 import { version } from '$app/env';
-import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type FolderNode, type ImageFmt, type ServerInfo } from './api';
+import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo } from './api';
 import { supportsHeic } from './heic';
 import { sortByLocalTime } from './dates';
 import { net } from './net.svelte';
@@ -18,6 +18,11 @@ class AppState {
 	assets = $state.raw<CatalogAsset[]>([]);
 	folders = $state.raw<FolderNode[]>([]);
 	albums = $state.raw<CatalogAlbum[]>([]);
+	/** People with at least one photo (named first); hidden ones included (flag). */
+	people = $state.raw<CatalogPerson[]>([]);
+	places = $state.raw<CatalogPlace[]>([]);
+	placeById = $derived(new Map(this.places.map((p) => [p.id, p])));
+	personById = $derived(new Map(this.people.map((p) => [p.id, p])));
 	uploadsConfigured = $state(false);
 	byId = $derived(new Map(this.assets.map((a) => [a.id, a])));
 	fmt = $state<ImageFmt>('jpeg');
@@ -53,6 +58,8 @@ class AppState {
 				this.assets = sortByLocalTime(replica.assets);
 				this.folders = replica.folders;
 				this.albums = replica.albums;
+				this.people = replica.people;
+				this.places = replica.places;
 				this.loaded = true;
 			}
 		} catch {
@@ -101,6 +108,8 @@ class AppState {
 					if (delta.assets.length || delta.deleted.length) this.assets = sortByLocalTime(mergeAssets(this.assets, delta));
 					if (delta.folders) this.folders = delta.folders;
 					if (delta.albums) this.albums = delta.albums;
+					if (delta.people) this.people = delta.people;
+					if (delta.places) this.places = delta.places;
 					this.meta = { format: delta.format, catalogId: delta.catalogId, seq: delta.seq };
 					await saveDelta(delta).catch(() => {});
 				}
@@ -113,6 +122,8 @@ class AppState {
 				this.assets = sortByLocalTime(snap.assets);
 				this.folders = snap.folders;
 				this.albums = snap.albums;
+				this.people = snap.people;
+				this.places = snap.places;
 				this.meta = { format: snap.format, catalogId: snap.catalogId, seq: snap.seq };
 				await saveSnapshot(snap).catch(() => {});
 			}

@@ -21,7 +21,7 @@
 		{ href: '/search', label: 'Search', icon: 'search' },
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
-	const albumsSection = ['/albums', '/favorites', '/folders', '/uploads'];
+	const albumsSection = ['/albums', '/favorites', '/folders', '/uploads', '/people', '/places'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'
@@ -66,6 +66,8 @@
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
 		{/if}
+		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
+		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
 		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
 		<div class="albumlist">

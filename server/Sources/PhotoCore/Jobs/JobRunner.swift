@@ -7,6 +7,10 @@ public enum JobKind: String, Sendable, CaseIterable {
     case rebuildCaches = "rebuild-caches"
     case purgeMissing = "purge-missing"
     case importTakeoutAlbums = "import-takeout-albums"
+    /// Find faces in photos not scanned yet, then group them into people.
+    case faces
+    /// Re-group faces into people from scratch (unnamed groups only).
+    case recluster
 }
 
 /// Runs library jobs one at a time on a background queue; state is persisted in the `job` table.
@@ -16,6 +20,9 @@ public final class JobRunner: @unchecked Sendable {
     let derivatives: () -> DerivativeStore
     let serverTZ: TimeZone
     let excluding: [URL]
+    /// Where the face model lives (<data location>/models); nil disables faces (tests).
+    let dataDir: URL?
+    private var analyzer: FaceAnalyzer?
     private let queue = DispatchQueue(label: "photo.jobs", qos: .utility)
     private let group = DispatchGroup()
     private let lock = NSLock()
@@ -23,8 +30,9 @@ public final class JobRunner: @unchecked Sendable {
     private let gate = DispatchSemaphore(value: 1)
 
     public init(db: AppDatabase, settings: SettingsStore, derivatives: @escaping () -> DerivativeStore,
-                serverTZ: TimeZone = .current, excluding: [URL] = []) {
+                serverTZ: TimeZone = .current, excluding: [URL] = [], dataDir: URL? = nil) {
         self.db = db
+        self.dataDir = dataDir
         self.excluding = excluding
         self.settings = settings
         self.derivatives = derivatives
@@ -153,6 +161,9 @@ public final class JobRunner: @unchecked Sendable {
                 }
             }
             let failures = kind == .detectChanges ? try generateDerivatives(id: id, isCancelled: cancelled) : []
+            let placed = try PlaceService(db: db).geocodePending()
+            if placed > 0 { notes.append("\(placed) photo\(placed == 1 ? "" : "s") placed on the map.") }
+            if kind == .detectChanges { enqueueFacesIfNeeded() }
             if kind == .detectChanges, let pending = try? AlbumService(db: db, settings: settings).pendingTakeoutAlbums(), pending > 0 {
                 notes.append("\(pending) Google Takeout album\(pending == 1 ? "" : "s") can be imported (Settings → Import Takeout albums).")
             }
@@ -168,16 +179,66 @@ public final class JobRunner: @unchecked Sendable {
                 for a in ids { try ChangeLog.record(d, entity: "asset", id: a, op: "delete") }
                 try d.execute(sql: "DELETE FROM album_asset WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
+                try d.execute(sql: "DELETE FROM face WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
                 return ids
             }
             let store = derivatives()
             for a in ids { store.remove(id: a) }
             return "Purged \(ids.count) missing photos"
+        case .faces:
+            return try scanFaces(id: id, isCancelled: cancelled)
+        case .recluster:
+            let n = try FaceService(db: db).cluster()
+            return "\(n) group\(n == 1 ? "" : "s") of faces found"
         case .importTakeoutAlbums:
             let r = try AlbumService(db: db, settings: settings).importTakeoutAlbums()
             return "\(r.created) albums created, \(r.updated) updated"
         }
+    }
+
+    /// Queues a face scan when faces are on, the model is installed and photos are waiting.
+    public func enqueueFacesIfNeeded() {
+        guard let dataDir, FaceAnalyzer.modelInstalled(dataDir: dataDir),
+              (try? settings.get(.facesEnabled)) ?? true,
+              let pending = try? FaceService(db: db).pendingAssets(limit: 1), !pending.isEmpty else { return }
+        let queued = recent(limit: 10).contains { $0.kind == JobKind.faces.rawValue && ($0.state == "queued" || $0.state == "running") }
+        if !queued { enqueue(.faces) }
+    }
+
+    private func scanFaces(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {
+        guard (try? settings.get(.facesEnabled)) ?? true else { return "Face recognition is turned off." }
+        guard let dataDir else { throw FaceError.modelMissing("no data location") }
+        if analyzer == nil { analyzer = try FaceAnalyzer(dataDir: dataDir) }
+        let analyzer = analyzer!
+        let faces = FaceService(db: db)
+        let catalog = CatalogService(db: db, settings: settings)
+        let store = derivatives()
+        let ids = try faces.pendingAssets()
+        let report = progressReporter(id, phase: "faces")
+        var found = 0
+        for (i, assetId) in ids.enumerated() {
+            if isCancelled() { throw ScanError.cancelled }
+            autoreleasepool {
+                do {
+                    var preview = store.url(id: assetId, kind: .preview, format: .heic)
+                    if !FileManager.default.fileExists(atPath: preview.path) {
+                        guard let src = try catalog.sourceURL(id: assetId) else { return }
+                        preview = try store.ensure(id: assetId, source: src, kind: .preview, format: .heic)
+                    }
+                    let image = try DerivativeStore.downscaled(source: preview, maxPixel: DerivativeKind.preview.maxPixel)
+                    let detected = try analyzer.analyze(image)
+                    found += detected.count
+                    try faces.store(assetId: assetId, faces: detected)
+                } catch {
+                    // unreadable photo: mark it scanned so it isn't retried forever
+                    try? faces.store(assetId: assetId, faces: [])
+                }
+            }
+            report(i + 1, ids.count)
+        }
+        let groups = try faces.cluster()
+        return "\(ids.count) photos scanned, \(found) faces found, \(groups) unnamed group\(groups == 1 ? "" : "s")"
     }
 
     private func renderFailureText(_ names: [String]) -> String {

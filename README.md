@@ -4,9 +4,9 @@ A self-hosted, Apple Photos–style photo library. A Mac serves a **read-only** 
 images (including Google Photos Takeout exports) to a web app that works on desktop and as an
 iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com).
 
-> Status: **milestone 4 of 6** — indexing, timeline, folders, viewer, albums, favourites,
-> search, uploads, installable app, offline mode, non-destructive editing. Faces and places are
-> designed ([spec](docs/superpowers/specs/2026-11-25-photo-server-design.md)) and on the way.
+> Status: **all 6 milestones** of the [spec](docs/superpowers/specs/2026-11-25-photo-server-design.md) —
+> indexing, timeline, folders, viewer, albums, favourites, search, uploads, installable app,
+> offline mode, non-destructive editing, people (face recognition) and places (map).
 
 ## Screenshots
 
@@ -18,10 +18,14 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 | ![Albums on desktop](docs/screenshots/desktop-albums.jpg) | ![Albums on iPhone](docs/screenshots/mobile-albums.jpg) |
 | ![Search on desktop](docs/screenshots/desktop-search.jpg) | ![Selecting photos in an album on iPhone](docs/screenshots/mobile-select.jpg) |
 | ![Uploading by drag and drop on desktop](docs/screenshots/desktop-upload.jpg) | ![A folder on iPhone](docs/screenshots/mobile-folder.jpg) |
+| ![People on desktop](docs/screenshots/desktop-people.jpg) | ![People on iPhone](docs/screenshots/mobile-people.jpg) |
+| ![The people in a photo, in the info panel](docs/screenshots/desktop-viewer-people.jpg) | ![Places by country and city on iPhone](docs/screenshots/mobile-places-list.jpg) |
+| ![Photos on a map on desktop](docs/screenshots/desktop-places.jpg) | ![Photos on a map on iPhone](docs/screenshots/mobile-places.jpg) |
 | ![Folders on desktop](docs/screenshots/desktop-folders.jpg) | |
 | ![Settings on desktop](docs/screenshots/desktop-settings.jpg) | |
 
-Screenshots use the stock-photo demo library in [`demo/`](demo/) ([credits](docs/screenshots/CREDITS.md));
+Screenshots use the stock-photo demo library in [`demo/`](demo/) (the people are NASA astronauts in
+public-domain NASA photos; [credits](docs/screenshots/CREDITS.md));
 regenerate them with `demo/take-screenshots.sh`.
 
 ## What it does today
@@ -55,6 +59,17 @@ regenerate them with `demo/take-screenshots.sh`.
   (`shaders/edit.wgsl`) runs in the browser (WebGPU) and on the Mac (Metal, via naga). Edited
   thumbnails/previews are rendered on the Mac, so viewing never needs WebGPU; **Export** renders
   the edit at full resolution (JPEG/HEIC, original metadata kept) for the share sheet or a download.
+- **People.** Faces are found and recognised on the Mac (Apple Vision for detection, a FaceNet
+  model on the Neural Engine for recognition; nothing leaves the Mac) and grouped into people
+  automatically. Name a group, combine two groups that are the same person, remove a face that
+  isn't them (it is never added back), choose the cover, or hide someone. The info panel shows
+  the faces in a photo — click one to see all photos of that person, or name someone new. New
+  photos are scanned after each library scan (~1 minute for 550 photos). Search finds names.
+- **Places.** Photo locations become place names (city, region, country) offline, from a bundled
+  [GeoNames](https://www.geonames.org) table (CC BY 4.0). A map with photo pins that split as you
+  zoom (tap one to see its photos), and a list by country and city. Search finds place names.
+  Map tiles come from [OpenFreeMap](https://openfreemap.org) (style changeable in Settings);
+  tiles you have seen keep working offline.
 - **Installable** to the iPhone Home Screen (Share → Add to Home Screen) or the Dock / app list.
 - **Everything configured in the browser:** library folder (server-side folder picker), refresh
   jobs (Detect changes, Re-index, Rebuild caches, Purge missing), data location with “Move…”.
@@ -65,6 +80,7 @@ regenerate them with `demo/take-screenshots.sh`.
 
 - A Mac with Apple Silicon (macOS 15+), Swift 6 (Xcode or Command Line Tools), Node 20+.
 - For editing: a browser with WebGPU (Safari on iOS / macOS 26, current Chrome).
+- For people: the face recognition model, built once with `tools/face-model/make.sh` (below).
 - Tailscale on the Mac and your devices for remote access.
 
 ## Run it
@@ -80,6 +96,19 @@ cd server && swift build -c release && .build/release/PhotoServer
 Open <http://127.0.0.1:8787>, choose your library folder in **Settings**, and it starts indexing.
 If the folder is in Documents, Desktop or on an external drive, give the server binary (or your
 terminal) **Full Disk Access** in System Settings → Privacy & Security.
+
+### Face recognition model (once)
+
+```sh
+tools/face-model/make.sh   # needs uv (brew install uv); ~1 GB of downloads, then ~2 min
+```
+
+It converts [facenet-pytorch](https://github.com/timesler/facenet-pytorch)'s FaceNet
+(Inception-ResNet-v1 trained on VGGFace2, MIT-licensed weights) to Core ML and installs it in the
+data location (`~/Library/Application Support/PhotoServer/models/FaceNet.mlpackage`, 45 MB). Then
+choose **Settings → Find faces**; later scans pick up new photos on their own. To remove it again:
+delete that `.mlpackage`, `tools/face-model/.venv` (Python environment, ~0.5 GB), and the
+download caches `~/.cache/uv` and `~/.cache/torch`.
 
 ### From your iPhone (Tailscale)
 
@@ -103,6 +132,7 @@ cd web && npm run dev         # Vite dev server, proxies /api to 127.0.0.1:8787
 PHOTOSERVER_HOME=/tmp/ps2 PORT=8799 WEB_ROOT=/tmp/web2 server/.build/release/PhotoServer   # second instance
 WEB_OUT=/tmp/web2 npm run build   # (in web/) a test build that doesn't replace what the running server serves
 scripts/gen-shaders.sh        # after editing shaders/edit.wgsl: regenerate the server's Metal code (needs naga)
+tools/geonames/build.sh       # refresh the bundled offline place table from GeoNames
 ```
 
 **Edit pipeline parity.** `shaders/edit.wgsl` is the only implementation of the edit maths.

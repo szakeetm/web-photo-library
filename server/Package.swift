@@ -15,7 +15,8 @@ let package = Package(
     targets: [
         .target(
             name: "PhotoCore",
-            dependencies: [.product(name: "GRDB", package: "GRDB.swift")]
+            dependencies: [.product(name: "GRDB", package: "GRDB.swift")],
+            resources: [.copy("Places/geonames.deflate")]
         ),
         .target(
             name: "PhotoAPI",

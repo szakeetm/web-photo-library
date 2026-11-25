@@ -80,6 +80,11 @@ export function rotateClockwise(r: Recipe): Recipe {
 	return { ...r, rotate: ((r.rotate ?? 0) + 1) % 4, crop, flipH: r.flipV, flipV: r.flipH };
 }
 
+/** A quarter turn counter-clockwise (three clockwise turns). */
+export function rotateCounterClockwise(r: Recipe): Recipe {
+	return rotateClockwise(rotateClockwise(rotateClockwise(r)));
+}
+
 export function flipHorizontal(r: Recipe): Recipe {
 	const c = r.crop ?? FULL;
 	return { ...r, flipH: !r.flipH, straighten: -(r.straighten ?? 0) || undefined, crop: { ...c, x: 1 - c.x - c.w } };

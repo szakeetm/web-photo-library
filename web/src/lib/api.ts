@@ -3,9 +3,9 @@
 export type ImageFmt = 'heic' | 'jpeg';
 
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
-export const CLIENT_API_VERSION = 3;
+export const CLIENT_API_VERSION = 4;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 3;
+export const CATALOG_FORMAT = 4;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
@@ -30,6 +30,40 @@ export interface CatalogAsset {
 	ev: number; // edit version
 	folders: number[];
 	name: string;
+	/** [lat, lon] */
+	loc?: [number, number] | null;
+	/** place id */
+	pl?: number | null;
+	/** person ids */
+	pp?: number[] | null;
+}
+
+export interface CatalogPerson {
+	id: number;
+	name: string | null;
+	coverFaceId: number | null;
+	count: number;
+	hidden: boolean;
+}
+
+export interface CatalogPlace {
+	id: number;
+	name: string;
+	region: string | null;
+	country: string;
+	cc: string;
+	lat: number;
+	lon: number;
+}
+
+export interface FaceInfo {
+	id: number;
+	assetId: string;
+	personId: number | null;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
 }
 
 export interface ServerInfo {
@@ -39,6 +73,7 @@ export interface ServerInfo {
 	webVersion: string | null;
 	libraryConfigured: boolean;
 	uploadsConfigured: boolean;
+	mapStyleURL: string;
 }
 
 export interface FolderNode {
@@ -66,6 +101,8 @@ export interface CatalogSnapshot {
 	assets: CatalogAsset[];
 	folders: FolderNode[];
 	albums: CatalogAlbum[];
+	people: CatalogPerson[];
+	places: CatalogPlace[];
 }
 
 export interface CatalogDelta {
@@ -78,6 +115,8 @@ export interface CatalogDelta {
 	deleted: string[];
 	folders?: FolderNode[];
 	albums?: CatalogAlbum[];
+	people?: CatalogPerson[];
+	places?: CatalogPlace[];
 }
 
 export interface AlbumSummary {
@@ -114,6 +153,8 @@ export interface Asset {
 export interface AssetDetail {
 	asset: Asset;
 	files: string[];
+	faces: FaceInfo[];
+	place: CatalogPlace | null;
 }
 
 export interface Settings {
@@ -124,6 +165,11 @@ export interface Settings {
 	cacheBytes: number;
 	databaseBytes: number;
 	dataLocationMissing: boolean;
+	facesEnabled: boolean;
+	faceModelInstalled: boolean;
+	faceModelPath: string;
+	mapStyleURL: string | null;
+	defaultMapStyleURL: string;
 }
 
 export interface Job {
@@ -156,7 +202,7 @@ export interface EditHistory {
 	versions: EditVersion[];
 }
 
-export type JobKind = 'detect-changes' | 'reindex' | 'rebuild-caches' | 'purge-missing' | 'import-takeout-albums';
+export type JobKind = 'detect-changes' | 'reindex' | 'rebuild-caches' | 'purge-missing' | 'import-takeout-albums' | 'faces' | 'recluster';
 
 export class ApiError extends Error {
 	constructor(
@@ -208,10 +254,13 @@ async function handle<T>(res: Response): Promise<T> {
 	return res.json() as Promise<T>;
 }
 
+/** The server's derivative revision (DerivativeStore.revision): images are cached as immutable, so a new
+ *  revision (2: HDR gain maps) needs new URLs. */
 export const thumbUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/thumb/${id}?e=${ev}&fmt=${fmt}`;
 export const previewUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/preview/${id}?e=${ev}&fmt=${fmt}`;
 export const originalUrl = (id: string) => `/api/assets/${id}/original`;
 /** Full-resolution render of the current edit (made on demand on the Mac). */
+export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
 export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;
 
 export const api = {
@@ -222,7 +271,7 @@ export const api = {
 		call<CatalogDelta>(`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}`),
 	asset: (id: string) => call<AssetDetail>(`/api/assets/${id}`),
 	settings: () => call<Settings>('/api/settings'),
-	saveSettings: (s: { libraryPath?: string; uploadsPath?: string; ownerLogin?: string }) =>
+	saveSettings: (s: { libraryPath?: string; uploadsPath?: string; ownerLogin?: string; facesEnabled?: boolean; mapStyleURL?: string }) =>
 		call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 	moveData: (path: string) =>
 		call<{ dataDir: string; restarting: boolean }>('/api/data/move', { method: 'POST', body: JSON.stringify({ path }) }),
@@ -240,6 +289,14 @@ export const api = {
 		call<AlbumSummary>(`/api/albums/${id}/assets`, { method: 'POST', body: JSON.stringify(change) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
+	updatePerson: (id: number, patch: { name?: string | null; hidden?: boolean; coverFaceId?: number }) =>
+		call<void>(`/api/people/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+	mergePeople: (ids: number[], into: number) => call<void>('/api/people/merge', { method: 'POST', body: JSON.stringify({ ids, into }) }),
+	createPerson: (name: string, faceIds: number[]) =>
+		call<{ id: number }>('/api/people', { method: 'POST', body: JSON.stringify({ name, faceIds }) }),
+	personFaces: (id: number) => call<FaceInfo[]>(`/api/people/${id}/faces`),
+	assignFace: (faceId: number, personId: number | null) =>
+		call<void>(`/api/faces/${faceId}`, { method: 'PATCH', body: JSON.stringify({ personId }) }),
 	edits: (id: string) => call<EditHistory>(`/api/assets/${id}/edits`),
 	saveEdit: (id: string, recipe: import('./editor/recipe').Recipe) =>
 		call<{ asset: CatalogAsset }>(`/api/assets/${id}/edits`, { method: 'POST', body: JSON.stringify({ recipe }) }),

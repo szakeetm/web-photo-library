@@ -10,7 +10,7 @@
 	import { EditRenderer } from './renderer';
 	import { EditorSession } from './session.svelte';
 	import { ADJUSTMENTS, emptyRecipe, frameSize, isIdentity, type Adjustment, type AdjustmentInfo, type Recipe } from './recipe';
-	import { ASPECTS, FULL, cropWithAspect, fitCrop, flipHorizontal, rotateClockwise } from './geometry';
+	import { ASPECTS, FULL, cropWithAspect, fitCrop, flipHorizontal, rotateClockwise, rotateCounterClockwise } from './geometry';
 	import type { Point } from './curve';
 	import Slider from './Slider.svelte';
 	import Dial from './Dial.svelte';
@@ -248,8 +248,8 @@
 		if (aspect != null) session.set({ ...recipe, crop: cropWithAspect(recipe, aspect, srcW, srcH) });
 	}
 
-	function rotate() {
-		session.set(rotateClockwise(recipe));
+	function rotate(clockwise = true) {
+		session.set(clockwise ? rotateClockwise(recipe) : rotateCounterClockwise(recipe));
 		if (aspect != null) aspect = 1 / aspect;
 	}
 
@@ -317,6 +317,9 @@
 			else cancel();
 		} else if (e.key === 'Enter' && mode === 'crop') {
 			mode = 'adjust';
+		} else if (mod && (e.key === '[' || e.key === ']')) {
+			e.preventDefault();
+			rotate(e.key === ']');
 		} else if (e.key === '\\') {
 			showOriginal = true;
 		} else if (e.key === 'c' && !mod) {
@@ -367,6 +370,11 @@
 				onpointerdown={() => (showOriginal = true)}
 				onpointerup={() => (showOriginal = false)}
 				onpointerleave={() => (showOriginal = false)}><Icon name="compare" size={18} /></button
+			>
+			<!-- the rotate icon points counter-clockwise; mirrored it points clockwise -->
+			<button class="tb icon" onclick={() => rotate(false)} title="Rotate left (⌘[)" aria-label="Rotate left"><Icon name="rotate" size={18} /></button>
+			<button class="tb icon" onclick={() => rotate(true)} title="Rotate right (⌘])" aria-label="Rotate right"
+				><span class="mirror"><Icon name="rotate" size={18} /></span></button
 			>
 			<button class="tb" class:active={mode === 'crop'} onclick={() => (mode = mode === 'crop' ? 'adjust' : 'crop')} title="Crop & straighten (C)">
 				<Icon name="crop" size={16} /> Crop
@@ -505,7 +513,8 @@
 								oncommit={commitStraighten}
 							/>
 							<div class="row">
-								<button class="tb small" onclick={rotate}><Icon name="rotate" size={16} /> Rotate</button>
+								<button class="tb small" onclick={() => rotate(false)}><Icon name="rotate" size={16} /> Left</button>
+								<button class="tb small" onclick={() => rotate(true)}><span class="mirror"><Icon name="rotate" size={16} /></span> Right</button>
 								<button class="tb small" onclick={() => session.set(flipHorizontal(recipe))}><Icon name="flip" size={16} /> Flip</button>
 								<button class="tb small" onclick={resetGeometry}>Reset</button>
 							</div>
@@ -579,7 +588,7 @@
 						oncommit={commitStraighten}
 					/>
 					<div class="croptools">
-						<button class="tb icon" onclick={rotate} aria-label="Rotate 90°"><Icon name="rotate" /></button>
+						<button class="tb icon" onclick={() => rotate(false)} aria-label="Rotate left"><Icon name="rotate" /></button>
 						<button class="tb icon" onclick={() => session.set(flipHorizontal(recipe))} aria-label="Flip"><Icon name="flip" /></button>
 						<select class="select" value={aspectLabel} onchange={(e) => chooseAspect((e.target as HTMLSelectElement).value)} aria-label="Aspect ratio">
 							{#each ASPECTS as a (a.label)}<option>{a.label}</option>{/each}
@@ -680,6 +689,10 @@
 	}
 	.tb.icon {
 		padding: 6px;
+	}
+	.mirror {
+		display: inline-flex;
+		transform: scaleX(-1);
 	}
 	.tb.active {
 		color: #ffd60a;

@@ -13,10 +13,16 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var ev: Int
     public var folders: [Int64]
     public var name: String
+    /// [lat, lon] when the photo has a location.
+    public var loc: [Double]? = nil
+    /// GeoNames place id (see `places`).
+    public var pl: Int64? = nil
+    /// People in the photo (person ids).
+    public var pp: [Int64]? = nil
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 3
+public let catalogFormat = 4
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -26,6 +32,8 @@ public struct CatalogSnapshot: Codable, Sendable {
     public var assets: [CatalogAsset]
     public var folders: [FolderNode]
     public var albums: [CatalogAlbum]
+    public var people: [CatalogPerson]
+    public var places: [CatalogPlace]
 }
 
 public struct FolderNode: Codable, Sendable, Equatable {
@@ -49,11 +57,15 @@ public struct CatalogDelta: Codable, Sendable {
     public var deleted: [String]
     public var folders: [FolderNode]?
     public var albums: [CatalogAlbum]?
+    public var people: [CatalogPerson]?
+    public var places: [CatalogPlace]?
 }
 
 public struct AssetDetail: Codable, Sendable {
     public var asset: Asset
     public var files: [String]
+    public var faces: [FaceInfo] = []
+    public var place: CatalogPlace? = nil
 }
 
 public final class CatalogService: Sendable {
@@ -85,6 +97,9 @@ public final class CatalogService: Sendable {
         }
         let rows = try Row.fetchAll(d, sql: """
             SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
+                   a.lat, a.lon, a.placeId,
+                   (SELECT GROUP_CONCAT(DISTINCT fc.personId) FROM face fc JOIN person p ON p.id = fc.personId
+                     WHERE fc.assetId = a.id AND p.hidden = 0) AS people,
                    GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
             FROM asset a JOIN file f ON f.assetId = a.id
             WHERE a.missingSince IS NULL \(filter)
@@ -94,9 +109,14 @@ public final class CatalogService: Sendable {
         return rows.map { r -> CatalogAsset in
                 let folders = ((r["folders"] as String?) ?? "").split(separator: ",").compactMap { Int64($0) }
                 let rel: String = r["relPath"]
+                let lat: Double? = r["lat"], lon: Double? = r["lon"]
+                let round5 = { (v: Double) in (v * 1e5).rounded() / 1e5 }
+                let people = ((r["people"] as String?) ?? "").split(separator: ",").compactMap { Int64($0) }.sorted()
                 return CatalogAsset(id: r["id"], w: r["width"], h: r["height"], t: Self.iso.string(from: r["takenAt"]),
                                     tz: r["tzOffset"], fav: r["favorite"], bh: r["blurhash"], ev: r["editVersion"],
-                                    folders: Array(Set(folders)).sorted(), name: (rel as NSString).lastPathComponent)
+                                    folders: Array(Set(folders)).sorted(), name: (rel as NSString).lastPathComponent,
+                                    loc: (lat != nil && lon != nil && !(lat == 0 && lon == 0)) ? [round5(lat!), round5(lon!)] : nil,
+                                    pl: r["placeId"], pp: people.isEmpty ? nil : people)
         }
     }
 
@@ -110,7 +130,8 @@ public final class CatalogService: Sendable {
             let assets = try Self.catalogAssets(d)
             let seq = try Self.currentSeq(d)
             return CatalogSnapshot(catalogId: try Self.catalogId(d), seq: seq, assets: assets, folders: try Self.folders(d),
-                                   albums: try AlbumService(db: db, settings: settings).catalogAlbums(d))
+                                   albums: try AlbumService(db: db, settings: settings).catalogAlbums(d),
+                                   people: try FaceService.catalogPeople(d), places: try PlaceService.catalogPlaces(d))
         }
     }
 
@@ -141,7 +162,8 @@ public final class CatalogService: Sendable {
             return CatalogDelta(catalogId: id, seq: seq, reset: false, assets: present,
                                 deleted: assetIds.filter { !presentIds.contains($0) }.sorted(),
                                 folders: try Self.folders(d),
-                                albums: try AlbumService(db: db, settings: settings).catalogAlbums(d))
+                                albums: try AlbumService(db: db, settings: settings).catalogAlbums(d),
+                                people: try FaceService.catalogPeople(d), places: try PlaceService.catalogPlaces(d))
         }
     }
 
@@ -164,7 +186,10 @@ public final class CatalogService: Sendable {
         try db.writer.read { d in
             guard let a = try Asset.fetchOne(d, key: id) else { return nil }
             let files = try String.fetchAll(d, sql: "SELECT relPath FROM file WHERE assetId = ? ORDER BY relPath", arguments: [id])
-            return AssetDetail(asset: a, files: files)
+            let faces = try Row.fetchAll(d, sql: "SELECT id, assetId, personId, x, y, w, h FROM face WHERE assetId = ? ORDER BY x",
+                                         arguments: [id]).map(FaceService.info)
+            let place = try a.placeId.flatMap { pid in try PlaceService.catalogPlaces(d).first { $0.id == pid } }
+            return AssetDetail(asset: a, files: files, faces: faces, place: place)
         }
     }
 

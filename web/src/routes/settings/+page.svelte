@@ -19,14 +19,17 @@
 		reindex: 'Re-index',
 		'rebuild-caches': 'Rebuild caches',
 		'purge-missing': 'Purge missing',
-		'import-takeout-albums': 'Import Takeout albums'
+		'import-takeout-albums': 'Import Takeout albums',
+		faces: 'Find faces',
+		recluster: 'Regroup faces'
 	};
 	const phaseNames: Record<string, string> = {
 		scan: 'Scanning library',
 		metadata: 'Reading metadata',
 		thumbnails: 'Generating thumbnails',
 		previews: 'Generating previews',
-		images: 'Generating thumbnails and previews'
+		images: 'Generating thumbnails and previews',
+		faces: 'Looking for faces'
 	};
 
 	async function loadSettings() {
@@ -128,6 +131,30 @@
 			await api.startJob(kind);
 			wasRunning = true;
 			poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+
+	let mapStyle = $state('');
+	$effect(() => {
+		if (settings) mapStyle = settings.mapStyleURL ?? '';
+	});
+
+	async function setFaces(on: boolean) {
+		try {
+			settings = await api.saveSettings({ facesEnabled: on });
+			if (on) poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+
+	async function saveMapStyle() {
+		try {
+			settings = await api.saveSettings({ mapStyleURL: mapStyle.trim() });
+			await app.reload();
+			message = { text: 'Map style saved.' };
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
 		}
@@ -260,6 +287,55 @@
 				>{moving ? 'Moving…' : 'Move…'}</button
 			>
 		</div>
+	</section>
+
+	<section>
+		<h3>People</h3>
+		<div class="row">
+			<div class="label">
+				<div>Face recognition</div>
+				<div class="muted small">
+					Finds faces on this Mac (Apple Vision and the Neural Engine) and groups them into people. Nothing leaves the Mac.
+				</div>
+				{#if settings && !settings.faceModelInstalled}
+					<div class="muted small warn">
+						The recognition model isn't installed. On the Mac run <code>tools/face-model/make.sh</code> (once), then Find faces.
+					</div>
+				{/if}
+			</div>
+			<label class="switch">
+				<input type="checkbox" checked={settings?.facesEnabled ?? true} onchange={(e) => setFaces((e.target as HTMLInputElement).checked)} />
+				<span>{settings?.facesEnabled ?? true ? 'On' : 'Off'}</span>
+			</label>
+		</div>
+		<div class="row actions">
+			<button class="btn" disabled={!settings?.faceModelInstalled || !settings?.facesEnabled} onclick={() => start('faces')}>Find faces</button>
+			<button class="btn" disabled={!settings?.faceModelInstalled} onclick={() => start('recluster')}>Regroup faces</button>
+			<span class="muted small">New photos are scanned after each scan. Regroup rebuilds unnamed groups; names and your corrections stay.</span>
+		</div>
+	</section>
+
+	<section>
+		<h3>Places</h3>
+		<div class="row">
+			<div class="label">
+				<div>Map style</div>
+				<div class="muted small">
+					Photo locations are turned into place names on this Mac. The map itself loads tiles from the style's server
+					(default {settings?.defaultMapStyleURL ?? 'OpenFreeMap'}); tiles you have seen keep working offline.
+				</div>
+			</div>
+		</div>
+		<form
+			class="row"
+			onsubmit={(e) => {
+				e.preventDefault();
+				saveMapStyle();
+			}}
+		>
+			<input class="text" placeholder={settings?.defaultMapStyleURL ?? ''} bind:value={mapStyle} autocapitalize="off" spellcheck="false" />
+			<button class="btn">Save</button>
+		</form>
 	</section>
 
 	<section>
@@ -492,5 +568,15 @@
 		padding: 7px 10px;
 		font: inherit;
 		color: inherit;
+	}
+	.switch {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+	}
+	.warn {
+		color: #ff9f0a;
+		margin-top: 4px;
 	}
 </style>

@@ -1,5 +1,5 @@
 // Offline copy of the catalog: a full snapshot once, then small deltas.
-import type { CatalogAsset, CatalogAlbum, CatalogDelta, CatalogSnapshot, FolderNode } from './api';
+import type { CatalogAsset, CatalogAlbum, CatalogDelta, CatalogPerson, CatalogPlace, CatalogSnapshot, FolderNode } from './api';
 import { db, type CatalogMeta } from './db';
 
 export interface Replica {
@@ -7,6 +7,8 @@ export interface Replica {
 	assets: CatalogAsset[];
 	folders: FolderNode[];
 	albums: CatalogAlbum[];
+	people: CatalogPerson[];
+	places: CatalogPlace[];
 }
 
 /** The stored replica, or null when there is none (or it was made by another app format). */
@@ -14,12 +16,14 @@ export async function loadReplica(format: number): Promise<Replica | null> {
 	const d = await db();
 	const meta = (await d.get('meta', 'catalog')) as CatalogMeta | undefined;
 	if (!meta || meta.format !== format) return null;
-	const [assets, folders, albums] = await Promise.all([
+	const [assets, folders, albums, people, places] = await Promise.all([
 		d.getAll('assets'),
 		d.get('meta', 'folders') as Promise<FolderNode[] | undefined>,
-		d.get('meta', 'albums') as Promise<CatalogAlbum[] | undefined>
+		d.get('meta', 'albums') as Promise<CatalogAlbum[] | undefined>,
+		d.get('meta', 'people') as Promise<CatalogPerson[] | undefined>,
+		d.get('meta', 'places') as Promise<CatalogPlace[] | undefined>
 	]);
-	return { meta, assets, folders: folders ?? [], albums: albums ?? [] };
+	return { meta, assets, folders: folders ?? [], albums: albums ?? [], people: people ?? [], places: places ?? [] };
 }
 
 export async function saveSnapshot(snap: CatalogSnapshot) {
@@ -31,6 +35,8 @@ export async function saveSnapshot(snap: CatalogSnapshot) {
 	const meta = tx.objectStore('meta');
 	meta.put(snap.folders, 'folders');
 	meta.put(snap.albums, 'albums');
+	meta.put(snap.people, 'people');
+	meta.put(snap.places, 'places');
 	meta.put({ format: snap.format, catalogId: snap.catalogId, seq: snap.seq } satisfies CatalogMeta, 'catalog');
 	await tx.done;
 }
@@ -44,6 +50,8 @@ export async function saveDelta(delta: CatalogDelta) {
 	const meta = tx.objectStore('meta');
 	if (delta.folders) meta.put(delta.folders, 'folders');
 	if (delta.albums) meta.put(delta.albums, 'albums');
+	if (delta.people) meta.put(delta.people, 'people');
+	if (delta.places) meta.put(delta.places, 'places');
 	meta.put({ format: delta.format, catalogId: delta.catalogId, seq: delta.seq } satisfies CatalogMeta, 'catalog');
 	await tx.done;
 }

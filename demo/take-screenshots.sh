@@ -10,13 +10,15 @@ set -euo pipefail
 REPO=${0:A:h:h}
 DEMO=${DEMO_DIR:-/Users/Shared/PhotoDemo}
 PORT=${PORT:-8833}
-BIN=$REPO/server/.build/release/PhotoServer
+# BIN / WEB let a test build be used instead of the one a running server is serving.
+BIN=${BIN:-$REPO/server/.build/release/PhotoServer}
+WEB=${WEB:-$REPO/web/build}
 BASE=http://127.0.0.1:$PORT
 
 if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null; then
 	echo "Port $PORT is in use; set PORT=..." >&2; exit 1
 fi
-[[ -x $BIN && -d $REPO/web/build ]] || { echo "Build the web app and the server first." >&2; exit 1; }
+[[ -x $BIN && -d $WEB ]] || { echo "Build the web app and the server first." >&2; exit 1; }
 
 rm -rf $DEMO && mkdir -p $DEMO/Uploads $DEMO/upload-samples
 cp -R $REPO/demo/Library $DEMO/Library
@@ -24,7 +26,7 @@ cp $REPO/demo/upload-samples/* $DEMO/upload-samples/
 # An upload that's already in the library, to show de-duplication.
 cp "$(ls $DEMO/Library/Dolomites/*.jpg | head -1)" $DEMO/upload-samples/IMG_from_phone.jpg
 
-PHOTOSERVER_HOME=$DEMO/Data PORT=$PORT WEB_ROOT=$REPO/web/build $BIN >$DEMO/server.log 2>&1 &
+PHOTOSERVER_HOME=$DEMO/Data PORT=$PORT WEB_ROOT=$WEB $BIN >$DEMO/server.log 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
 for _ in {1..50}; do curl -sf $BASE/api/health >/dev/null && break; sleep 0.2; done
@@ -34,6 +36,12 @@ idle() { until ! curl -sf $BASE/api/jobs | grep -q '"state":"\(queued\|running\)
 api PUT settings "{\"libraryPath\":\"$DEMO/Library\",\"uploadsPath\":\"$DEMO/Uploads\"}"
 api POST jobs/detect-changes; sleep 1; idle
 api POST jobs/import-takeout-albums; sleep 1; idle
+# faces (if the model is installed in the demo data dir) run after the scan
+if [[ -n ${FACE_MODEL:-} ]]; then
+	mkdir -p $DEMO/Data/models && cp -R $FACE_MODEL $DEMO/Data/models/FaceNet.mlpackage
+	api POST jobs/faces; sleep 1; idle
+	node $REPO/demo/name-people.mjs $BASE
+fi
 
 cd $REPO/demo
 [[ -d node_modules ]] || npm install --silent

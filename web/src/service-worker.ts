@@ -14,6 +14,10 @@ const SHELL = `shell-${version}`;
 const SHELL_FILES = ['/', ...immutable.map((f) => `/${f.path}`), ...assets.map((f) => `/${f.path}`)];
 const shellSet = new Set(SHELL_FILES);
 const NAV_TIMEOUT_MS = 2500;
+/** Map tiles/styles/fonts already seen stay available offline (capped). */
+const TILES = 'tiles-v1';
+const TILE_HOSTS = ['tiles.openfreemap.org'];
+const MAX_TILES = 4000;
 
 sw.addEventListener('install', (event) => {
 	event.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)));
@@ -85,10 +89,33 @@ async function navigate(request: Request): Promise<Response> {
 	}
 }
 
+let tileWrites = 0;
+async function tile(request: Request): Promise<Response> {
+	const cache = await caches.open(TILES);
+	try {
+		const res = await fetch(request);
+		if (res.ok) {
+			await cache.put(request, res.clone());
+			// trim now and then: oldest entries first (Cache Storage keeps insertion order)
+			if (++tileWrites % 200 === 0) {
+				const keys = await cache.keys();
+				for (const k of keys.slice(0, Math.max(0, keys.length - MAX_TILES))) await cache.delete(k);
+			}
+		}
+		return res;
+	} catch {
+		return (await cache.match(request)) ?? new Response(null, { status: 504, statusText: 'Offline' });
+	}
+}
+
 sw.addEventListener('fetch', (event) => {
 	const { request } = event;
 	if (request.method !== 'GET') return;
 	const url = new URL(request.url);
+	if (TILE_HOSTS.includes(url.hostname)) {
+		event.respondWith(tile(request));
+		return;
+	}
 	if (url.origin !== sw.location.origin) return;
 
 	if (request.mode === 'navigate') {

@@ -88,3 +88,18 @@ Demo library photos are from [Unsplash](https://unsplash.com) (via picsum.photos
 - `Photos from 2026/IMG_4275.jpg` — Alejandro Escamilla, <https://unsplash.com/photos/Iuq0EL4EINY>
 - `Photos from 2026/IMG_4513.jpg` — Art Wave, <https://unsplash.com/photos/algEQavPY4M>
 - `Photos from 2026/IMG_4856.jpg` — Florian Klauer, <https://unsplash.com/photos/t1mqA3V3-7g>
+
+People photos (`Space Center/`) are NASA photos, public domain, via [Wikimedia Commons](https://commons.wikimedia.org); dates and places are made up.
+
+- `Space Center/IMG_7001.jpg` — Jessica Meir, NASA (public domain), <https://commons.wikimedia.org/wiki/File:ISS-61_Jessica_Meir_works_inside_the_Destiny_lab_(1).jpg>
+- `Space Center/IMG_7008.jpg` — Jessica Meir, NASA (public domain), <https://commons.wikimedia.org/wiki/File:ISS-61_Jessica_Meir_reviews_robotics_procedures_in_the_Destiny_lab.jpg>
+- `Space Center/IMG_7015.jpg` — Jessica Meir, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Jessica_Meir_portrait_in_a_WB-57_flight_suit_(2).jpg>
+- `Space Center/IMG_7022.jpg` — Jessica Meir, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Jessica_Meir,_Gagarin_Cosmonaut_Training_Center,_29_ago_2019.jpg>
+- `Space Center/IMG_7029.jpg` — Christina Koch, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Artemis_2_-_Christina_Koch.jpg>
+- `Space Center/IMG_7036.jpg` — Christina Koch, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Christina_Koch_Tours_VAB_(KSC-20210714-PH-GEB01_0036).jpg>
+- `Space Center/IMG_7043.jpg` — Christina Koch, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Christina_Koch_Tours_VAB_(KSC-20210714-PH-GEB01_0131).jpg>
+- `Space Center/IMG_7050.jpg` — Christina Koch, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Christina_Koch_official_portrait_in_an_EMU.jpg>
+- `Space Center/IMG_7057.jpg` — Victor Glover, NASA (public domain), <https://commons.wikimedia.org/wiki/File:Expedition_64_Flight_Engineer_Victor_Glover_of_NASA_(iss064e004868).jpg>
+- `Space Center/IMG_7064.jpg` — Victor Glover, NASA (public domain), <https://commons.wikimedia.org/wiki/File:NASA_Astronaut_Victor_Glover_Spends_Day_at_Edwards_Air_Force_Base_(AFRC2026-0177-32).jpg>
+- `Space Center/IMG_7071.jpg` — Victor Glover, NASA (public domain), <https://commons.wikimedia.org/wiki/File:NASA_Astronaut_Victor_Glover_Spends_Day_at_Edwards_Air_Force_Base_(AFRC2026-0177-52).jpg>
+- `Space Center/IMG_7078.jpg` — Victor Glover, NASA (public domain), <https://commons.wikimedia.org/wiki/File:NASA_Astronaut_Victor_Glover_Spends_Day_at_Edwards_Air_Force_Base_(AFRC2026-0177-64).jpg>

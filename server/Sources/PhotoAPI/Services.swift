@@ -38,7 +38,7 @@ public final class Services: @unchecked Sendable {
         let box = StoreBox()
         edits = EditService(db: db, catalog: catalog, derivatives: { box.get() })
         var getStore: (() -> DerivativeStore)!
-        jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir])
+        jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir], dataDir: paths.dataDir)
         getStore = { [unowned self] in self.derivatives() }
         box.get = getStore
         if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }

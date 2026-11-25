@@ -30,8 +30,9 @@ async function openEditor(p, album, index) {
 	await settle(p, 2500);
 }
 
-// Desktop: Chromium, headed: headless Chromium loses the WebGPU device in the editor.
-const cb = await chromium.launch({ headless: false, args: ['--enable-unsafe-webgpu'] });
+// Desktop: Chromium, headed when an editor shot is wanted (headless Chromium loses the WebGPU device there).
+const editorShots = !only || only.some((n) => n.endsWith('-editor'));
+const cb = await chromium.launch({ headless: !editorShots, args: ['--enable-unsafe-webgpu'] });
 const d = await cb.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 if (want('desktop-library')) {
 	await d.goto(BASE + '/');
@@ -74,6 +75,34 @@ if (want('desktop-settings')) {
 	await d.goto(BASE + '/settings');
 	await settle(d);
 	await shot(d, 'desktop-settings');
+}
+if (want('desktop-places')) {
+	await d.goto(BASE + '/places');
+	await settle(d, 4000);
+	await shot(d, 'desktop-places');
+}
+if (want('desktop-people')) {
+	await d.goto(BASE + '/people');
+	await settle(d, 2500);
+	await shot(d, 'desktop-people');
+}
+if (want('desktop-person')) {
+	await d.goto(BASE + '/people');
+	await settle(d);
+	await d.locator('a.person').first().click();
+	await settle(d, 2500);
+	await shot(d, 'desktop-person');
+}
+if (want('desktop-viewer-people')) {
+	await d.goto(BASE + '/people');
+	await settle(d);
+	await d.locator('a.person').first().click();
+	await settle(d);
+	await d.locator('.thumb').first().click();
+	await settle(d, 2000);
+	await d.getByRole('button', { name: 'Info' }).click();
+	await settle(d, 2000);
+	await shot(d, 'desktop-viewer-people');
 }
 if (want('desktop-upload')) {
 	await d.goto(BASE + '/');
@@ -123,6 +152,24 @@ if (want('mobile-select')) {
 	for (const i of [0, 2, 3, 5]) await m.locator('.thumb').nth(i).click();
 	await settle(m, 800);
 	await shot(m, 'mobile-select');
+}
+if (want('mobile-places')) {
+	await m.goto(BASE + '/places');
+	await settle(m, 4000);
+	await shot(m, 'mobile-places');
+}
+if (want('mobile-places-list')) {
+	await m.goto(BASE + '/places');
+	await settle(m);
+	await m.getByRole('tab', { name: 'List' }).click();
+	await settle(m, 2000);
+	await shot(m, 'mobile-places-list');
+	await m.getByRole('tab', { name: 'Map' }).click();
+}
+if (want('mobile-people')) {
+	await m.goto(BASE + '/people');
+	await settle(m, 2500);
+	await shot(m, 'mobile-people');
 }
 if (want('mobile-folder')) {
 	await m.goto(BASE + '/folders/Dolomites');

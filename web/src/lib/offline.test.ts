@@ -33,7 +33,9 @@ describe('replica', () => {
 		seq: 10,
 		assets: [asset('a'), asset('b')],
 		folders: [],
-		albums: [{ id: 1, title: 'Trip', coverId: null, source: 'user', assetIds: ['a'] }]
+		albums: [{ id: 1, title: 'Trip', coverId: null, source: 'user', assetIds: ['a'] }],
+		people: [{ id: 5, name: 'Anna', coverFaceId: 9, count: 1, hidden: false }],
+		places: []
 	};
 
 	it('round-trips a snapshot and ignores other formats', async () => {
@@ -42,6 +44,7 @@ describe('replica', () => {
 		expect(r?.meta).toEqual({ format: 3, catalogId: 'c1', seq: 10 });
 		expect(r?.assets.map((a) => a.id).sort()).toEqual(['a', 'b']);
 		expect(r?.albums[0].title).toBe('Trip');
+		expect(r?.people[0].name).toBe('Anna');
 		expect(await loadReplica(4)).toBeNull();
 	});
 

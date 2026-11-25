@@ -26,6 +26,9 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
     public var blurhash: String?
     public var editVersion: Int
     public var missingSince: Date?
+    public var placeId: Int64? = nil
+    public var placeVersion: Int = 0
+    public var facesVersion: Int = 0
 
     public static func placeholder(id: String) -> Asset {
         Asset(id: id, width: 0, height: 0, mime: "", takenAt: Date(timeIntervalSince1970: 0), tzOffset: nil,

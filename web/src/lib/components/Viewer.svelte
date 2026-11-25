@@ -7,6 +7,7 @@
 	import { app, setFavorite } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
+	import FaceAvatar from './FaceAvatar.svelte';
 	import ExportSheet from './ExportSheet.svelte';
 	import Editor from '#lib/editor/Editor.svelte';
 
@@ -72,6 +73,28 @@
 		// The original would hide an edit: deep zoom only swaps in the original for unedited photos.
 		if (scale >= 1.6 && originalShowable && asset?.ev === 0) fullRes = true;
 	});
+
+	/** Faces in the open photo (people hidden from People are left out). */
+	const faces = $derived(
+		(detail?.faces ?? []).filter((f) => f.personId == null || !app.personById.get(f.personId)?.hidden)
+	);
+
+	/** Names a face nobody was recognised in: joins an existing person with that name, or creates one. */
+	async function nameFace(faceId: number) {
+		const name = prompt('Who is this?')?.trim();
+		if (!name) return;
+		try {
+			const same = app.people.find((p) => p.name?.toLowerCase() === name.toLowerCase());
+			if (same) await api.assignFace(faceId, same.id);
+			else await api.createPerson(name, [faceId]);
+			const current = id;
+			const d = await api.asset(current);
+			if (current === id) detail = d;
+			app.reload();
+		} catch (e) {
+			alert((e as Error).message);
+		}
+	}
 
 	function openEditor() {
 		if (!asset || !net.online || !canEdit) return;
@@ -488,12 +511,44 @@
 				{#if detail?.asset.lat != null && detail?.asset.lon != null}
 					<dt>Location</dt>
 					<dd>
-						<a
+						{#if detail.place}
+							<a href="/places/{detail.place.id}">{detail.place.name}</a>
+							<span class="muted">{[detail.place.region, detail.place.country].filter((x) => x && x !== detail?.place?.name).join(', ')}</span>
+							<br />
+						{/if}
+						<a class="muted"
 							href="https://www.openstreetmap.org/?mlat={detail.asset.lat}&mlon={detail.asset.lon}#map=14/{detail.asset
 								.lat}/{detail.asset.lon}"
 							target="_blank"
 							rel="noreferrer">{detail.asset.lat.toFixed(5)}, {detail.asset.lon.toFixed(5)}</a
 						>
+					</dd>
+				{/if}
+				{#if faces.length}
+					<dt>People</dt>
+					<dd class="faces">
+						{#each faces as f (f.id)}
+							{@const p = f.personId != null ? app.personById.get(f.personId) : undefined}
+							{#if p}
+								<a class="face" href="/people/{p.id}" title="All photos of {p.name ?? 'this person'}">
+									<FaceAvatar faceId={f.id} size={56} />
+									<span class:unnamed={!p.name}>{p.name ?? 'Unnamed'}</span>
+								</a>
+							{:else}
+								<button class="face" disabled={!net.online} onclick={() => nameFace(f.id)} title="Name this person">
+									<FaceAvatar faceId={f.id} size={56} />
+									<span class="unnamed">Add Name</span>
+								</button>
+							{/if}
+						{/each}
+					</dd>
+				{:else if asset.pp?.length}
+					<dt>People</dt>
+					<dd class="people">
+						{#each asset.pp as pid (pid)}
+							{@const p = app.personById.get(pid)}
+							{#if p}<a href="/people/{pid}">{p.name ?? 'Unnamed person'}</a>{/if}
+						{/each}
 					</dd>
 				{/if}
 				{#if detail?.asset.description}
@@ -666,6 +721,41 @@
 		position: absolute;
 		top: 10px;
 		right: 10px;
+	}
+	.faces {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px 12px;
+		margin-top: 4px;
+	}
+	.face {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		width: 64px;
+		border: none;
+		background: none;
+		padding: 0;
+		font: inherit;
+		font-size: 12px;
+		color: var(--fg);
+		cursor: pointer;
+		text-align: center;
+	}
+	.face span {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.face .unnamed {
+		color: var(--accent);
+	}
+	.people {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 12px;
 	}
 	.info h3 {
 		margin: 0 40px 12px 0;

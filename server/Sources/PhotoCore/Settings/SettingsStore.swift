@@ -17,6 +17,16 @@ extension SettingKey where T == String? {
     public static let uploadsPath = SettingKey("uploadsPath", default: nil)
 }
 
+extension SettingKey where T == Bool {
+    /// Face recognition (detection + grouping into people) runs after scans.
+    public static let facesEnabled = SettingKey("facesEnabled", default: true)
+}
+
+extension SettingKey where T == String? {
+    /// MapLibre style for the Places map (default: OpenFreeMap "liberty").
+    public static let mapStyleURL = SettingKey("mapStyleURL", default: nil)
+}
+
 extension SettingKey where T == Int? {
     /// Parallel workers for indexing and image generation (nil = default, up to 8).
     public static let workers = SettingKey("workers", default: nil)

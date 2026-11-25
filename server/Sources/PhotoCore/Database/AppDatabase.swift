@@ -159,6 +159,45 @@ public final class AppDatabase: Sendable {
                     PRIMARY KEY (assetId, version));
                 """)
         }
+        m.registerMigration("v6-places-faces") { db in
+            try db.execute(sql: """
+                -- places: GeoNames id as key (stable across rebuilds of the bundled table)
+                CREATE TABLE place (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    region TEXT,
+                    country TEXT NOT NULL,
+                    countryCode TEXT NOT NULL,
+                    lat DOUBLE NOT NULL,
+                    lon DOUBLE NOT NULL);
+                ALTER TABLE asset ADD COLUMN placeId INTEGER;
+                ALTER TABLE asset ADD COLUMN placeVersion INTEGER NOT NULL DEFAULT 0;
+                CREATE INDEX asset_place ON asset(placeId);
+
+                -- people and faces; user decisions (names, assignments, rejections) are never undone by jobs
+                CREATE TABLE person (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    coverFaceId INTEGER,
+                    hidden BOOLEAN NOT NULL DEFAULT 0,
+                    createdAt DATETIME NOT NULL);
+                CREATE TABLE face (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    assetId TEXT NOT NULL,
+                    x DOUBLE NOT NULL, y DOUBLE NOT NULL, w DOUBLE NOT NULL, h DOUBLE NOT NULL,
+                    quality DOUBLE NOT NULL,
+                    embedding BLOB NOT NULL,
+                    personId INTEGER REFERENCES person(id) ON DELETE SET NULL,
+                    assignment TEXT);
+                CREATE INDEX face_asset ON face(assetId);
+                CREATE INDEX face_person ON face(personId);
+                CREATE TABLE face_reject (
+                    faceId INTEGER NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+                    personId INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+                    PRIMARY KEY (faceId, personId));
+                ALTER TABLE asset ADD COLUMN facesVersion INTEGER NOT NULL DEFAULT 0;
+                """)
+        }
         return m
     }
 }

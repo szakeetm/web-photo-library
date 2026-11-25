@@ -49,12 +49,24 @@ struct APIRoutes {
     struct Health: Encodable {
         let ok: Bool; let version: String; let apiVersion: Int; let uploadsConfigured: Bool
         let webVersion: String?; let libraryConfigured: Bool
+        let mapStyleURL: String
     }
-    struct SettingsBody: Codable { var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String? }
+    struct SettingsBody: Codable {
+        var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String?
+        var facesEnabled: Bool?; var mapStyleURL: String?
+    }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
         let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
+        let facesEnabled: Bool; let faceModelInstalled: Bool; let faceModelPath: String
+        let mapStyleURL: String?; let defaultMapStyleURL: String
     }
+    static let defaultMapStyle = "https://tiles.openfreemap.org/styles/liberty"
+    struct PersonPatch: Decodable { var name: String??; var hidden: Bool?; var coverFaceId: Int64? }
+    struct MergeBody: Decodable { let ids: [Int64]; let into: Int64 }
+    struct FacePatch: Decodable { let personId: Int64? }
+    struct NewPerson: Decodable { let name: String; let faceIds: [Int64] }
+    struct Created: Encodable { let id: Int64 }
     struct MoveBody: Decodable { let path: String }
     struct UploadResponse: Encodable { let asset: CatalogAsset?; let duplicate: Bool }
     struct NewAlbum: Decodable { let title: String; var assetIds: [String]? }
@@ -76,7 +88,8 @@ struct APIRoutes {
             try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion,
                             uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
-                            libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil))
+                            libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil,
+                            mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle))
         }
 
         api.get("settings") { _, _ in try settingsResponse() }
@@ -135,6 +148,17 @@ struct APIRoutes {
                 }
             }
             if let o = body.ownerLogin { try services.settings.set(.ownerLogin, o.isEmpty ? nil : o) }
+            if let f = body.facesEnabled {
+                try services.settings.set(.facesEnabled, f)
+                if f { services.jobs.enqueueFacesIfNeeded() }
+            }
+            if let m = body.mapStyleURL {
+                let t = m.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty, !(t.hasPrefix("https://") || t.hasPrefix("http://")) {
+                    return errorResponse(.badRequest, "The map style must be an http(s) URL.")
+                }
+                try services.settings.set(.mapStyleURL, t.isEmpty ? nil : t)
+            }
             return try settingsResponse()
         }
 
@@ -251,6 +275,56 @@ struct APIRoutes {
             return try json(SearchResult(ids: ids))
         }
 
+        // People and faces
+        let faces = FaceService(db: services.db)
+        api.get("people") { _, _ in try json(try faces.people()) }
+        api.post("people") { req, ctx in
+            let body = try await req.decode(as: NewPerson.self, context: ctx)
+            let name = body.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return errorResponse(.badRequest, "A name is required.") }
+            return try peopleCall { try json(Created(id: try faces.createPerson(name: name, faceIds: body.faceIds))) }
+        }
+        api.patch("people/:person") { req, ctx in
+            guard let id = ctx.parameters.get("person", as: Int64.self) else { throw HTTPError(.notFound) }
+            let body = try await req.decode(as: PersonPatch.self, context: ctx)
+            return try peopleCall {
+                try faces.update(personId: id, name: body.name, hidden: body.hidden, coverFaceId: body.coverFaceId)
+                return Response(status: .noContent)
+            }
+        }
+        api.post("people/merge") { req, ctx in
+            let body = try await req.decode(as: MergeBody.self, context: ctx)
+            return try peopleCall {
+                try faces.merge(sources: body.ids, into: body.into)
+                return Response(status: .noContent)
+            }
+        }
+        api.get("people/:person/faces") { _, ctx in
+            guard let id = ctx.parameters.get("person", as: Int64.self) else { throw HTTPError(.notFound) }
+            return try json(try faces.faces(personId: id))
+        }
+        api.patch("faces/:face") { req, ctx in
+            guard let id = ctx.parameters.get("face", as: Int64.self) else { throw HTTPError(.notFound) }
+            let body = try await req.decode(as: FacePatch.self, context: ctx)
+            return try peopleCall {
+                try faces.assign(faceId: id, to: body.personId)
+                return Response(status: .noContent)
+            }
+        }
+        api.get("faces/:face/thumb") { _, ctx in
+            guard let id = ctx.parameters.get("face", as: Int64.self), let f = try faces.face(id: id) else { throw HTTPError(.notFound) }
+            let store = services.derivatives()
+            var preview = store.url(id: f.assetId, kind: .preview, format: .heic)
+            if !store.exists(id: f.assetId, kind: .preview, format: .heic) {
+                guard let src = try services.catalog.sourceURL(id: f.assetId) else { throw HTTPError(.notFound) }
+                preview = try await renderLimiter.run { try await blocking { try store.ensure(id: f.assetId, source: src, kind: .preview, format: .heic) } }
+            }
+            let base = preview
+            let url = try await renderLimiter.run { try await blocking { try faces.thumbnail(faceId: id, preview: base, cacheDir: store.cacheDir) } }
+            let body = try await fileIO.loadFile(path: url.path, context: ctx)
+            return Response(status: .ok, headers: [.contentType: "image/jpeg", .cacheControl: "public, max-age=31536000, immutable"], body: body)
+        }
+
         // Editing
         api.get("assets/:id/edits") { _, ctx in
             guard let id = validId(ctx), let h = try services.edits.history(id: id) else { throw HTTPError(.notFound) }
@@ -362,6 +436,8 @@ struct APIRoutes {
                         let scanner = LibraryScanner(db: services.db, root: root, rootName: Roots.uploads)
                         let id = try scanner.indexFile(relPath: rel)
                         try? services.jobs.render(assetId: id, source: fileURL)
+                        try? PlaceService(db: services.db).geocodePending(ids: [id])
+                        services.jobs.enqueueFacesIfNeeded()
                         return try services.catalog.catalogAsset(id: id)
                     }
                 }
@@ -387,6 +463,12 @@ struct APIRoutes {
             return errorResponse(.badRequest, e.description)
         } catch let e as EditRenderError {
             return errorResponse(.internalServerError, e.description)
+        }
+    }
+
+    func peopleCall(_ work: () throws -> Response) throws -> Response {
+        do { return try work() } catch PeopleError.notFound {
+            return errorResponse(.notFound, PeopleError.notFound.description)
         }
     }
 
@@ -443,6 +525,10 @@ struct APIRoutes {
         }
         return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), uploadsPath: try s.get(.uploadsPath), ownerLogin: try s.get(.ownerLogin),
                                          dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
-                                         databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing))
+                                         databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing,
+                                         facesEnabled: try s.get(.facesEnabled),
+                                         faceModelInstalled: FaceAnalyzer.modelInstalled(dataDir: services.paths.dataDir),
+                                         faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,
+                                         mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle))
     }
 }

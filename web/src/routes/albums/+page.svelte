@@ -51,6 +51,12 @@
 	{/each}
 </div>
 
+<h2 class="section">People & Places</h2>
+<div class="cards">
+	{@render card('/people', 'People', app.people.filter((p) => !p.hidden && p.name).length, null, 'people')}
+	{@render card('/places', 'Places', app.places.length, app.assets.findLast((a) => a.pl != null)?.id ?? null, 'map')}
+</div>
+
 <h2 class="section">Folders</h2>
 <div class="cards">
 	{#if libraryRoot}{@render card('/folders', 'Library folders', rootCount('library'), firstIn('library'), 'folder')}{/if}

@@ -7,7 +7,7 @@ export const DEFAULT_LIMIT = 2 * 1024 ** 3;
 
 /** Thumbnails and previews are cacheable; originals and exports are not. */
 export function isCacheableImage(pathname: string) {
-	return pathname.startsWith('/api/thumb/') || pathname.startsWith('/api/preview/');
+	return pathname.startsWith('/api/thumb/') || pathname.startsWith('/api/preview/') || /^\/api\/faces\/\d+\/thumb$/.test(pathname);
 }
 
 /** Index key for a request URL: path + query, origin dropped. */
