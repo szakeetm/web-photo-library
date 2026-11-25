@@ -7,8 +7,9 @@
 	import UploadButton from '#lib/components/UploadButton.svelte';
 
 	const selection = new Selection();
+	// Newest first: the latest month on top, newest photo first within each month.
 	const sections = $derived(
-		groupByMonth(app.assets).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
+		groupByMonth(app.assets.toReversed()).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);
 </script>
 
@@ -33,7 +34,7 @@
 		{/if}
 	</div>
 {:else}
-	<PhotoBrowser {sections} {selection} startAtEnd />
+	<PhotoBrowser {sections} {selection} />
 {/if}
 
 <style>
