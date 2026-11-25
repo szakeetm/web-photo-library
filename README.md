@@ -4,9 +4,9 @@ A self-hosted, Apple Photos–style photo library. A Mac serves a **read-only** 
 images (including Google Photos Takeout exports) to a web app that works on desktop and as an
 iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com).
 
-> Status: **milestone 1 of 6** — indexing, timeline, folders, viewer, settings.
-> Albums, offline mode, non-destructive editing, faces and places are designed
-> ([spec](docs/superpowers/specs/2026-11-25-photo-server-design.md)) and on the way.
+> Status: **milestone 2 of 6** — indexing, timeline, folders, viewer, albums, favourites,
+> search, uploads, installable app. Offline mode, non-destructive editing, faces and places are
+> designed ([spec](docs/superpowers/specs/2026-11-25-photo-server-design.md)) and on the way.
 
 ## Screenshots
 
@@ -14,7 +14,10 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 |---|---|
 | ![Library timeline on desktop](docs/screenshots/desktop-library.jpg) | ![Library timeline on iPhone](docs/screenshots/mobile-library.jpg) |
 | ![Photo viewer on desktop](docs/screenshots/desktop-viewer.jpg) | ![Photo viewer on iPhone](docs/screenshots/mobile-viewer.jpg) |
-| ![Folders on desktop](docs/screenshots/desktop-folders.jpg) | ![A folder on iPhone](docs/screenshots/mobile-folder.jpg) |
+| ![Albums on desktop](docs/screenshots/desktop-albums.jpg) | ![Albums on iPhone](docs/screenshots/mobile-albums.jpg) |
+| ![Search on desktop](docs/screenshots/desktop-search.jpg) | ![Selecting photos in an album on iPhone](docs/screenshots/mobile-select.jpg) |
+| ![Uploading by drag and drop on desktop](docs/screenshots/desktop-upload.jpg) | ![A folder on iPhone](docs/screenshots/mobile-folder.jpg) |
+| ![Folders on desktop](docs/screenshots/desktop-folders.jpg) | |
 | ![Settings on desktop](docs/screenshots/desktop-settings.jpg) | |
 
 ## What it does today
@@ -29,6 +32,14 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 - **Photos-like UI.** Month-grouped timeline (local time where each photo was taken), pinch or
   ⌘-scroll to change density, folders with covers, a full-screen viewer with swipe, swipe-down to
   close, pinch/double-tap zoom, info panel and original download.
+- **Albums and favourites.** Create albums from a multi-selection (Select button, long-press on
+  iPhone, ⌘/shift-click on desktop), reorder-safe membership by content hash, ♥ in the viewer
+  (or press F). Google Takeout album folders become albums with one click.
+- **Search** across file names, folders, descriptions and album titles.
+- **Uploads.** Upload from the iPhone photo picker or drag files/folders onto the desktop window.
+  Uploads go to a separate uploads folder (`phone-uploads/`, `desktop-uploads/`), are de-duplicated
+  by content hash, and keep their albums and favourites if you later move them into the library.
+- **Installable** to the iPhone Home Screen (Share → Add to Home Screen) or the Dock / app list.
 - **Everything configured in the browser:** library folder (server-side folder picker), refresh
   jobs (Detect changes, Re-index, Rebuild caches, Purge missing), data location with “Move…”.
 - **Versioned API.** Every response carries the API version; if the app and server don't match,

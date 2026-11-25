@@ -6,6 +6,9 @@
 	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+
+	let menu = $state(false);
 
 	const selection = new Selection();
 	const id = $derived(Number(page.params.id));
@@ -36,8 +39,15 @@
 					{selection.active ? 'Cancel' : 'Select'}
 				</button>
 			{/if}
-			<button class="btn" onclick={rename}>Rename</button>
-			<button class="btn danger" onclick={remove}>Delete</button>
+			<div class="menuwrap">
+				<button class="icon-btn" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}><Icon name="more" /></button>
+				{#if menu}
+					<div class="menu" role="menu">
+						<button role="menuitem" onclick={() => { menu = false; rename(); }}>Rename</button>
+						<button role="menuitem" class="danger" onclick={() => { menu = false; remove(); }}>Delete Album</button>
+					</div>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 </TitleBar>
@@ -51,6 +61,37 @@
 {/if}
 
 <style>
+	.menuwrap {
+		position: relative;
+	}
+	.menu {
+		position: absolute;
+		right: 0;
+		top: 36px;
+		min-width: 170px;
+		background: var(--bg);
+		border-radius: 10px;
+		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+		border: 0.5px solid var(--separator);
+		padding: 4px;
+		z-index: 40;
+	}
+	.menu button {
+		display: block;
+		width: 100%;
+		text-align: left;
+		border: none;
+		background: none;
+		padding: 9px 12px;
+		border-radius: 7px;
+		cursor: pointer;
+	}
+	.menu button:hover {
+		background: var(--bg-elevated);
+	}
+	.menu .danger {
+		color: var(--danger);
+	}
 	.empty {
 		text-align: center;
 		padding: 80px 20px;

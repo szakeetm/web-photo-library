@@ -3,7 +3,6 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page, updated } from '$app/state';
-	import favicon from '#lib/assets/favicon.svg';
 	import Icon from '#lib/components/Icon.svelte';
 	import { app } from '#lib/state.svelte.ts';
 	import { uploads } from '#lib/uploadsInstance.svelte.ts';
@@ -36,9 +35,6 @@
 	});
 </script>
 
-<svelte:head>
-	<link rel="icon" href={favicon} />
-</svelte:head>
 
 {#if app.updateRequired || updated.current}
 	<div class="update" role="alertdialog" aria-modal="true" aria-labelledby="update-title">

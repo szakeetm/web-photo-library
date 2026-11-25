@@ -135,6 +135,12 @@
 		message = { text: 'Saved.' };
 	}
 
+	const installed =
+		typeof window !== 'undefined' &&
+		(matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true);
+	const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent);
+	const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
+
 	const fmtBytes = (n: number) =>
 		n < 1e6 ? `${(n / 1e3).toFixed(0)} KB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`;
 	const pct = (j: Job) => (j.total ? Math.round((j.progress / j.total) * 100) : 0);
@@ -270,6 +276,24 @@
 			<input class="text" placeholder="you@example.com" bind:value={owner} autocapitalize="off" spellcheck="false" />
 			<button class="btn">Save</button>
 		</form>
+	</section>
+
+	<section>
+		<h3>This device</h3>
+		<div class="row">
+			<div class="label">
+				{#if installed}
+					<div>Installed as an app</div>
+				{:else}
+					<div>Install Photos as an app</div>
+					<div class="muted small">
+						{#if isIOS}In Safari, tap Share → <strong>Add to Home Screen</strong>. The app opens full screen and keeps its own storage.
+						{:else if isSafari}In Safari, choose File → <strong>Add to Dock</strong> for an app window. (A plain Safari tab may lose cached data after 7 days unused.)
+						{:else}Use your browser's <strong>Install app</strong> button in the address bar.{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
 	</section>
 
 	<section>

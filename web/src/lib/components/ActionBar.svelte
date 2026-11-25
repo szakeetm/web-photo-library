@@ -77,9 +77,8 @@
 		align-items: center;
 		gap: 10px;
 		padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-		background: var(--bg-bar);
-		backdrop-filter: saturate(180%) blur(20px);
-		-webkit-backdrop-filter: saturate(180%) blur(20px);
+		/* solid: it replaces the tab bar while selecting */
+		background: var(--bg-elevated);
 		border-top: 0.5px solid var(--separator);
 		min-height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
 	}
