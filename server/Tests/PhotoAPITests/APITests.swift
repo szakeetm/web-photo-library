@@ -375,4 +375,43 @@ import UniformTypeIdentifiers
             }
         }
     }
+
+    @Test func albumsFavoritesSearchEndpoints() async throws {
+        let e = try env()
+        let id = indexed(e)
+        try await e.app.test(.router) { client in
+            var albumId = ""
+            try await client.execute(uri: "/api/albums", method: .post, body: ByteBuffer(string: #"{"title":"Trip","assetIds":["\#(id)"]}"#)) { res in
+                #expect(res.status == .ok)
+                let obj = try JSONSerialization.jsonObject(with: Data(buffer: res.body)) as! [String: Any]
+                albumId = String(describing: obj["id"]!)
+                #expect(obj["count"] as? Int == 1)
+            }
+            try await client.execute(uri: "/api/albums/\(albumId)", method: .patch, body: ByteBuffer(string: #"{"title":"Trip 2024"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/api/albums/\(albumId)/assets", method: .post, body: ByteBuffer(string: #"{"remove":["\#(id)"]}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/api/albums", method: .get) { res in
+                #expect(String(buffer: res.body).contains("Trip 2024"))
+            }
+            try await client.execute(uri: "/api/assets", method: .patch, body: ByteBuffer(string: #"{"ids":["\#(id)"],"favorite":true}"#)) { res in
+                #expect(res.status == .noContent)
+            }
+            try await client.execute(uri: "/api/catalog", method: .get) { res in
+                let body = String(buffer: res.body)
+                #expect(body.contains("\"fav\":true") && body.contains("\"albums\""))
+            }
+            try await client.execute(uri: "/api/search?q=IMG", method: .get) { res in
+                #expect(String(buffer: res.body).contains(id))
+            }
+            try await client.execute(uri: "/api/albums/\(albumId)", method: .delete) { res in #expect(res.status == .noContent) }
+            try await client.execute(uri: "/api/albums/999", method: .delete) { res in #expect(res.status == .notFound) }
+            try await client.execute(uri: "/api/albums", method: .post, body: ByteBuffer(string: #"{"title":"  "}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+        }
+        #expect(apiVersion == 2)
+    }
 }

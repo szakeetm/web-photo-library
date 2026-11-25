@@ -13,6 +13,7 @@ public final class Services: @unchecked Sendable {
     public let db: AppDatabase
     public let settings: SettingsStore
     public let catalog: CatalogService
+    public let albums: AlbumService
     public let jobs: JobRunner
     private let lock = NSLock()
     private var store: DerivativeStore?
@@ -32,6 +33,7 @@ public final class Services: @unchecked Sendable {
         }
         settings = SettingsStore(db: db)
         catalog = CatalogService(db: db, settings: settings)
+        albums = AlbumService(db: db, settings: settings)
         var getStore: (() -> DerivativeStore)!
         jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir])
         getStore = { [unowned self] in self.derivatives() }

@@ -55,6 +55,11 @@ struct APIRoutes {
     }
     struct MoveBody: Decodable { let path: String }
     struct UploadResponse: Encodable { let asset: CatalogAsset?; let duplicate: Bool }
+    struct NewAlbum: Decodable { let title: String; var assetIds: [String]? }
+    struct AlbumPatch: Decodable { var title: String?; var coverAssetId: String? }
+    struct AlbumMembers: Decodable { var add: [String]?; var remove: [String]?; var order: [String]? }
+    struct FavoriteBody: Decodable { let ids: [String]; let favorite: Bool }
+    struct SearchResult: Encodable { let ids: [String] }
     struct MoveResponse: Encodable { let dataDir: String; let restarting: Bool }
     struct Jobs: Encodable { let current: JobRow?; let recent: [JobRow] }
     struct Enqueued: Encodable { let id: Int64 }
@@ -176,6 +181,48 @@ struct APIRoutes {
             return try json(detail)
         }
 
+        // Albums
+        api.get("albums") { _, _ in try json(try services.albums.list()) }
+        api.post("albums") { req, ctx in
+            let body = try await req.decode(as: NewAlbum.self, context: ctx)
+            return try albumCall { try json(try services.albums.create(title: body.title, assetIds: body.assetIds ?? [])) }
+        }
+        api.patch("albums/:album") { req, ctx in
+            let body = try await req.decode(as: AlbumPatch.self, context: ctx)
+            guard let id = ctx.parameters.get("album", as: Int64.self) else { throw HTTPError(.notFound) }
+            return try albumCall {
+                try services.albums.update(id: id, title: body.title, coverAssetId: body.coverAssetId)
+                return try json(try services.albums.list().first { $0.id == id })
+            }
+        }
+        api.delete("albums/:album") { _, ctx in
+            guard let id = ctx.parameters.get("album", as: Int64.self) else { throw HTTPError(.notFound) }
+            return try albumCall {
+                try services.albums.delete(id: id)
+                return Response(status: .noContent)
+            }
+        }
+        api.post("albums/:album/assets") { req, ctx in
+            let body = try await req.decode(as: AlbumMembers.self, context: ctx)
+            guard let id = ctx.parameters.get("album", as: Int64.self) else { throw HTTPError(.notFound) }
+            return try albumCall {
+                try services.albums.modify(id: id, add: body.add ?? [], remove: body.remove ?? [], order: body.order)
+                return try json(try services.albums.list().first { $0.id == id })
+            }
+        }
+
+        // Favourites (batch) and search
+        api.patch("assets") { req, ctx in
+            let body = try await req.decode(as: FavoriteBody.self, context: ctx)
+            try services.albums.setFavorite(ids: body.ids, favorite: body.favorite)
+            return Response(status: .noContent)
+        }
+        api.get("search") { req, _ in
+            let q = req.uri.queryParameters.get("q") ?? ""
+            let ids = try await blocking { try services.albums.search(q) }
+            return try json(SearchResult(ids: ids))
+        }
+
         api.head("assets/:id") { _, ctx in
             guard let id = validId(ctx), try services.catalog.catalogAsset(id: id) != nil else { throw HTTPError(.notFound) }
             return Response(status: .ok)
@@ -250,6 +297,14 @@ struct APIRoutes {
             return try services.catalog.catalogAsset(id: id)
         }
         return try json(UploadResponse(asset: asset, duplicate: false))
+    }
+
+    func albumCall(_ work: () throws -> Response) throws -> Response {
+        do { return try work() } catch AlbumError.notFound {
+            return errorResponse(.notFound, AlbumError.notFound.description)
+        } catch AlbumError.emptyTitle {
+            return errorResponse(.badRequest, AlbumError.emptyTitle.description)
+        }
     }
 
     func validId(_ ctx: BasicRequestContext) -> String? {

@@ -23,6 +23,7 @@ public struct CatalogSnapshot: Codable, Sendable {
     public var seq: Int64
     public var assets: [CatalogAsset]
     public var folders: [FolderNode]
+    public var albums: [CatalogAlbum]
 }
 
 public struct FolderNode: Codable, Sendable, Equatable {
@@ -82,7 +83,8 @@ public final class CatalogService: Sendable {
         try db.writer.read { d in
             let assets = try Self.catalogAssets(d)
             let seq = try Int64.fetchOne(d, sql: "SELECT MAX(seq) FROM change_log") ?? 0
-            return CatalogSnapshot(seq: seq, assets: assets, folders: try Self.folders(d))
+            return CatalogSnapshot(seq: seq, assets: assets, folders: try Self.folders(d),
+                                   albums: try AlbumService(db: db, settings: settings).catalogAlbums(d))
         }
     }
 

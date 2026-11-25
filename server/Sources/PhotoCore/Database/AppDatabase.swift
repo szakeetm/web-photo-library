@@ -122,6 +122,25 @@ public final class AppDatabase: Sendable {
                 CREATE INDEX file_folderId ON file(folderId);
                 """)
         }
+        m.registerMigration("v3-albums-search") { db in
+            try db.execute(sql: """
+                CREATE TABLE album (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    createdAt DATETIME NOT NULL,
+                    coverAssetId TEXT,
+                    source TEXT NOT NULL DEFAULT 'user',
+                    sourceKey TEXT UNIQUE);
+                -- members reference assets by id without a foreign key: they survive while a photo is missing
+                CREATE TABLE album_asset (
+                    albumId INTEGER NOT NULL REFERENCES album(id) ON DELETE CASCADE,
+                    assetId TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    PRIMARY KEY (albumId, assetId));
+                CREATE INDEX album_asset_asset ON album_asset(assetId);
+                CREATE VIRTUAL TABLE search_index USING fts5(assetId UNINDEXED, text, tokenize = 'unicode61 remove_diacritics 2');
+                """)
+        }
         return m
     }
 }
