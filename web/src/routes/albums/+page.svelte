@@ -22,6 +22,10 @@
 	const topFace = $derived(app.people.find((p) => !p.hidden && p.name && p.coverFaceId != null)?.coverFaceId);
 	const favCover = $derived(app.assets.findLast((a) => a.fav)?.id ?? null);
 	const editedCover = $derived(app.assets.findLast((a) => a.ev > 0)?.id ?? null);
+	const videoCount = $derived(app.assets.filter((a) => a.dur != null).length);
+	const videoCover = $derived(app.assets.findLast((a) => a.dur != null)?.id ?? null);
+	const liveCount = $derived(app.assets.filter((a) => a.live === true).length);
+	const liveCover = $derived(app.assets.findLast((a) => a.live === true)?.id ?? null);
 
 	async function newAlbum() {
 		const title = prompt('New album name');
@@ -62,6 +66,14 @@
 		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id])}
 	{/each}
 </div>
+
+{#if videoCount || liveCount}
+	<h2 class="section">Media Types</h2>
+	<div class="cards">
+		{#if videoCount}{@render card('/videos', 'Videos', videoCount, videoCover, 'video')}{/if}
+		{#if liveCount}{@render card('/live', 'Live Photos', liveCount, liveCover, 'live')}{/if}
+	</div>
+{/if}
 
 <h2 class="section">People & Places</h2>
 <div class="cards">

@@ -22,7 +22,7 @@
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
 	// Albums, favourites, folders, uploads, people and places all live under Collections on the phone.
-	const albumsSection = ['/albums', '/favorites', '/edited', '/folders', '/uploads', '/people', '/places'];
+	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'
@@ -64,6 +64,8 @@
 		<a href="/" class:active={page.url.pathname === '/'}><Icon name="photos" size={20} /> Library</a>
 		<a href="/favorites" class:active={exact('/favorites')}><Icon name="heart" size={20} /> Favourites</a>
 		<a href="/edited" class:active={exact('/edited')}><Icon name="edit" size={20} /> Edited</a>
+		<a href="/videos" class:active={exact('/videos')}><Icon name="video" size={20} /> Videos</a>
+		<a href="/live" class:active={exact('/live')}><Icon name="live" size={20} /> Live Photos</a>
 		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
