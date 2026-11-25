@@ -21,6 +21,7 @@
 	/** Face of the person with the most photos, as the People cover. */
 	const topFace = $derived(app.people.find((p) => !p.hidden && p.name && p.coverFaceId != null)?.coverFaceId);
 	const favCover = $derived(app.assets.findLast((a) => a.fav)?.id ?? null);
+	const editedCover = $derived(app.assets.findLast((a) => a.ev > 0)?.id ?? null);
 
 	async function newAlbum() {
 		const title = prompt('New album name');
@@ -55,6 +56,7 @@
 <h2 class="section">Albums</h2>
 <div class="cards">
 	{@render card('/favorites', 'Favourites', app.assets.filter((a) => a.fav).length, favCover, 'heart')}
+	{@render card('/edited', 'Edited', app.assets.filter((a) => a.ev > 0).length, editedCover, 'edit')}
 	{#each albums as al (al.id)}
 		{@const p = present(al)}
 		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id])}
