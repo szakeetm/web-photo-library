@@ -4,7 +4,8 @@
 	import { api } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
-	import { pins } from '#lib/pins.svelte.ts';
+	import { confirmDownload, pins, pinStatus } from '#lib/pins.svelte.ts';
+	import DownloadBar from '#lib/components/DownloadBar.svelte';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
@@ -24,13 +25,12 @@
 	const items = $derived(album ? album.assetIds.filter((i) => app.byId.has(i)) : []);
 	const sections = $derived([{ key: `album-${id}`, label: null, items }]);
 	const pin = $derived(pins.records[id]);
-	const fmtBytes = (n: number) => (n < 1e9 ? `${(n / 1e6).toFixed(0)} MB` : `${(n / 1e9).toFixed(1)} GB`);
 
 	async function toggleDownload() {
 		if (!album) return;
 		if (pin) {
 			if (confirm(`Remove the downloaded copy of “${album.title}” from this device?\nThe album stays on the server.`)) await pins.remove(album.id);
-		} else {
+		} else if (confirmDownload(album.title, items.length)) {
 			await pins.download(album);
 		}
 	}
@@ -52,14 +52,7 @@
 
 <TitleBar
 	title={album?.title ?? 'Album'}
-	subtitle={album
-		? `${items.length}` +
-			(pin?.state === 'downloading'
-				? ` · ${net.online ? 'Downloading' : 'Download paused'} ${pin.done} of ${pin.total}`
-				: pin?.state === 'done'
-					? ` · Downloaded${pin.bytes ? ` (${fmtBytes(pin.bytes)})` : ''}`
-					: '')
-		: undefined}
+	subtitle={album ? `${items.length}` + (pin ? ` · ${pinStatus(pin, net.online)}` : '') : undefined}
 	back="/albums"
 >
 	{#snippet actions()}
@@ -83,6 +76,8 @@
 		{/if}
 	{/snippet}
 </TitleBar>
+
+<DownloadBar {pin} />
 
 {#if app.loaded && !album}
 	<p class="empty muted">Album not found.</p>

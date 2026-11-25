@@ -49,9 +49,10 @@ regenerate them with `demo/take-screenshots.sh`.
   Uploads go to a separate uploads folder (`phone-uploads/`, `desktop-uploads/`), are de-duplicated
   by content hash, and keep their albums and favourites if you later move them into the library.
 - **Works offline.** The catalog is kept on the device and updated with small deltas; photos you
-  look at are cached (size limit and Clear in Settings → This device). **Download** an album from
-  its ⋯ menu to keep its thumbnails and previews; offline the app opens without a network and is
-  view-only.
+  look at are cached (size limit and Clear in Settings → This device). **Download** an album or a
+  folder (with its subfolders) from its ⋯ menu to keep its thumbnails and previews, with progress
+  shown under the title (and a confirmation above 500 photos); offline the app opens without a
+  network and is view-only.
 - **Non-destructive editor.** Light (exposure, brilliance, highlights, shadows, brightness,
   contrast, black point), colour (saturation, vibrance, warmth, tint), tone curve, sharpness,
   vignette, crop with aspect presets, straighten, rotate, flip, Auto, undo/redo, hold to compare,

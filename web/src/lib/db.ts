@@ -14,12 +14,16 @@ export interface ImageEntry {
 	url: string;
 	bytes: number;
 	lastAccess: number;
-	/** Downloaded albums that keep this image (never evicted while non-empty). */
+	/** Downloads that keep this image (never evicted while non-empty): album ids, and −folder id for folders. */
 	pins: number[];
 }
 
+/** A downloaded album or folder (thumbnails and previews of its photos kept on the device). */
 export interface PinRecord {
+	/** The pin id (the store's key): an album's id, or −id of a folder. */
 	albumId: number;
+	/** Set for a folder download (photos of the folder and all its subfolders). */
+	folder?: { root: 'library' | 'uploads'; relPath: string };
 	title: string;
 	state: 'downloading' | 'done';
 	total: number;

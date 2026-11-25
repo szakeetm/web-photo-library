@@ -74,6 +74,20 @@
 		if (scale >= 1.6 && originalShowable && asset?.ev === 0) fullRes = true;
 	});
 
+	/** Folders holding the open photo (a Takeout copy can sit in several), with links to them. */
+	const folderLinks = $derived(
+		(asset?.folders ?? [])
+			.map((fid) => app.folders.find((f) => f.id === fid))
+			.filter((f): f is NonNullable<typeof f> => !!f)
+			.map((f) => {
+				const base = f.root === 'uploads' ? '/uploads' : '/folders';
+				const path = f.relPath ? '/' + f.relPath.split('/').map(encodeURIComponent).join('/') : '';
+				const name = f.relPath || (f.root === 'uploads' ? 'Uploads' : 'Library');
+				return { id: f.id, href: base + path, name: f.root === 'uploads' && f.relPath ? `Uploads/${name}` : name };
+			})
+	);
+	const albumLinks = $derived(asset ? app.albums.filter((al) => al.assetIds.includes(asset.id)) : []);
+
 	/** Faces in the open photo (people hidden from People are left out). */
 	const faces = $derived(
 		(detail?.faces ?? []).filter((f) => f.personId == null || !app.personById.get(f.personId)?.hidden)
@@ -473,7 +487,7 @@
 		{#if net.online}
 			<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
 				title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"} aria-label="Edit"><Icon name="edit" /></button>
-			<button class="icon-btn" onclick={() => (exporting = true)} title="Export / share" aria-label="Export"><Icon name="share" /></button>
+			<button class="icon-btn" onclick={() => (exporting = true)} title="Download / share" aria-label="Download"><Icon name="download" /></button>
 		{/if}
 	</header>
 
@@ -569,6 +583,18 @@
 				{#if detail?.asset.description}
 					<dt>Description</dt>
 					<dd>{detail.asset.description}</dd>
+				{/if}
+				{#if albumLinks.length}
+					<dt>{albumLinks.length > 1 ? 'Albums' : 'Album'}</dt>
+					<dd class="links">
+						{#each albumLinks as al (al.id)}<a href="/albums/{al.id}">{al.title}</a>{/each}
+					</dd>
+				{/if}
+				{#if folderLinks.length}
+					<dt>{folderLinks.length > 1 ? 'Folders' : 'Folder'}</dt>
+					<dd class="links">
+						{#each folderLinks as f (f.id)}<a href={f.href}>{f.name}</a>{/each}
+					</dd>
 				{/if}
 				{#if detail}
 					<dt>{detail.files.length > 1 ? 'Files' : 'File'}</dt>
@@ -766,6 +792,12 @@
 	}
 	.face .unnamed {
 		color: var(--accent);
+	}
+	.links {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		word-break: break-word;
 	}
 	.people {
 		display: flex;

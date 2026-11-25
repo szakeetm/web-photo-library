@@ -6,6 +6,9 @@
 	import { app } from '#lib/state.svelte.ts';
 	import Icon from './Icon.svelte';
 	import PhotoBrowser from './PhotoBrowser.svelte';
+	import DownloadBar from './DownloadBar.svelte';
+	import { net } from '#lib/net.svelte.ts';
+	import { confirmDownload, folderAssetIds, folderPinId, pins, pinStatus, pinProgress } from '#lib/pins.svelte.ts';
 
 	let { root, relPath, base, rootTitle }: { root: 'library' | 'uploads'; relPath: string; base: string; rootTitle: string } =
 		$props();
@@ -39,10 +42,41 @@
 		relPath ? relPath.split('/').map((name, i, all) => ({ name, path: all.slice(0, i + 1).join('/') })) : []
 	);
 	const href = (p: string) => `${base}/${p.split('/').map(encodeURIComponent).join('/')}`;
+
+	// ---- download to this device (this folder and its subfolders) ----
+	let menu = $state(false);
+	$effect(() => {
+		void relPath;
+		menu = false;
+	});
+	const title = $derived(trail.length ? trail[trail.length - 1].name : rootTitle);
+	const totalPhotos = $derived(folder ? total(folder) : 0);
+	/** This folder's download, or the parent folder download that includes it. */
+	const pin = $derived(folder ? pins.folderPin(folder) : undefined);
+	const ownPin = $derived(!!folder && pin?.albumId === folderPinId(folder));
+	const subtitle = $derived.by(() => {
+		if (!folder) return undefined;
+		let s = `${totalPhotos.toLocaleString()} photo${totalPhotos === 1 ? '' : 's'}`;
+		if (pin && ownPin) s += ` · ${pinStatus(pin, net.online)}`;
+		// Covered by a parent folder's download: its size and progress are the parent's.
+		else if (pin) s += pin.state === 'done' ? ` · Downloaded with “${pin.title}”` : ` · Downloading with “${pin.title}”`;
+		return s;
+	});
+
+	async function toggleDownload() {
+		if (!folder) return;
+		if (ownPin) {
+			if (confirm(`Remove the downloaded copy of “${title}” from this device?\nThe photos stay on the server.`)) await pins.remove(folderPinId(folder));
+			return;
+		}
+		const count = folderAssetIds(folder, app.folders, app.assets).length;
+		if (confirmDownload(title, count, children.length > 0)) await pins.downloadFolder(folder, title);
+	}
 </script>
 
 <TitleBar
-	title={trail.length ? trail[trail.length - 1].name : rootTitle}
+	{title}
+	{subtitle}
 	back={trail.length ? (trail.length > 1 ? href(trail[trail.length - 2].path) : base) : undefined}
 >
 	{#snippet crumbs()}
@@ -57,8 +91,25 @@
 				{selection.active ? 'Cancel' : 'Select'}
 			</button>
 		{/if}
+		{#if folder && totalPhotos}
+			<div class="menuwrap">
+				<button class="icon-btn" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}><Icon name="more" /></button>
+				{#if menu}
+					<div class="menu" role="menu">
+						{#if pin && !ownPin}
+							<button role="menuitem" disabled>Downloaded with “{pin.title}”</button>
+						{:else}
+							<button role="menuitem" disabled={!ownPin && !net.online} onclick={() => { menu = false; toggleDownload(); }}
+								>{ownPin ? 'Remove Download' : 'Download to This Device'}</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/snippet}
 </TitleBar>
+
+<DownloadBar {pin} />
 
 {#if app.loaded && !folder}
 	<p class="empty muted">{root === 'uploads' ? 'No uploads yet.' : app.libraryConfigured ? 'Folder not found.' : 'No library folder yet.'}</p>
@@ -68,12 +119,18 @@
 			{#each children as c (c.id)}
 				{@const cid = cover(c)}
 				{@const ca = cid ? app.byId.get(cid) : undefined}
+				{@const cp = pins.folderPin(c)}
 				<a class="card" href={href(c.relPath)}>
 					<div class="cover">
 						{#if ca}<img src={thumbUrl(ca.id, ca.ev, app.fmt)} alt="" loading="lazy" />{:else}<Icon name="folder" size={40} />{/if}
 					</div>
 					<div class="name">{c.name}</div>
-					<div class="count muted">{total(c).toLocaleString()}</div>
+					<div class="count muted">
+						{total(c).toLocaleString()}
+						{#if cp}<span class="dl" title={pinStatus(cp, net.online)}
+								>· {cp.state === 'done' ? 'Downloaded' : `${Math.floor(pinProgress(cp) * 100)}%`}</span
+							>{/if}
+					</div>
 				</a>
 			{/each}
 		</div>
@@ -125,6 +182,42 @@
 	}
 	.count {
 		font-size: 13px;
+	}
+	.dl {
+		color: var(--accent);
+	}
+	.menuwrap {
+		position: relative;
+	}
+	.menu {
+		position: absolute;
+		right: 0;
+		top: 36px;
+		min-width: 190px;
+		background: var(--bg);
+		border-radius: 10px;
+		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+		border: 0.5px solid var(--separator);
+		padding: 4px;
+		z-index: 40;
+	}
+	.menu button {
+		display: block;
+		width: 100%;
+		text-align: left;
+		border: none;
+		background: none;
+		padding: 9px 12px;
+		border-radius: 7px;
+		cursor: pointer;
+		color: var(--fg);
+	}
+	.menu button:hover:not(:disabled) {
+		background: var(--bg-elevated);
+	}
+	.menu button:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.section {
 		font-size: 19px;

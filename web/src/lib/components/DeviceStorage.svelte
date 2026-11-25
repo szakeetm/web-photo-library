@@ -1,8 +1,10 @@
 <script lang="ts">
-	// Settings → This device: what the image cache holds, its size limit, downloaded albums.
+	// Settings → This device: what the image cache holds, its size limit, downloaded albums and folders.
 	import { onMount } from 'svelte';
 	import { clearImages, evictToLimit, getLimit, setLimit, usage, type CacheUsage } from '#lib/imageCache.ts';
-	import { pins } from '#lib/pins.svelte.ts';
+	import { pins, pinStatus } from '#lib/pins.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
+	import type { PinRecord } from '#lib/db.ts';
 	import { app } from '#lib/state.svelte.ts';
 
 	const LIMITS = [0.5, 1, 2, 5, 10, 20].map((gb) => gb * 1024 ** 3);
@@ -43,8 +45,8 @@
 	/** Clears cached photos; downloaded albums stay unless `everything`. */
 	async function clear(everything: boolean) {
 		const msg = everything
-			? 'Remove all photos saved on this device, including downloaded albums?'
-			: 'Clear photos cached on this device? Downloaded albums are kept.';
+			? 'Remove all photos saved on this device, including downloaded albums and folders?'
+			: 'Clear photos cached on this device? Downloaded albums and folders are kept.';
 		if (!confirm(msg)) return;
 		busy = true;
 		try {
@@ -57,6 +59,10 @@
 	}
 
 	const downloaded = $derived(Object.values(pins.records));
+	const pinHref = (p: PinRecord) =>
+		p.folder
+			? `/${p.folder.root === 'uploads' ? 'uploads' : 'folders'}/${p.folder.relPath.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
+			: `/albums/${p.albumId}`;
 	const pct = $derived(u ? Math.min(100, (u.total / limit) * 100) : 0);
 </script>
 
@@ -68,7 +74,7 @@
 				aria-label="Cache used"><div style="width: {pct}%"></div></div>
 			<div class="muted small">
 				{fmt(u.total)} of {fmtLimit(limit)} · thumbnails {fmt(u.thumbs)} · previews {fmt(u.previews)}
-				{#if u.pinned}· downloaded albums {fmt(u.pinned)}{/if}
+				{#if u.pinned}· downloads {fmt(u.pinned)}{/if}
 			</div>
 			{#if quota}<div class="muted small">The browser allows this app up to {fmt(quota)}.{persisted === false ? ' Storage may be cleared by the system when space is low.' : ''}</div>{/if}
 		{:else}
@@ -88,16 +94,16 @@
 </div>
 <p class="hint muted">
 	Photos you look at are kept here so they open instantly and work offline; the oldest are removed when the limit is
-	reached. Downloaded albums are always kept (thumbnails and previews, not full resolution). Download an album from
-	its ⋯ menu.
+	reached. Downloaded albums and folders are always kept (thumbnails and previews, not full resolution; a folder
+	includes its subfolders). Download one from its ⋯ menu.
 </p>
 {#if downloaded.length}
 	<ul class="albums">
 		{#each downloaded as p (p.albumId)}
 			<li>
-				<a href="/albums/{p.albumId}">{app.albums.find((a) => a.id === p.albumId)?.title ?? p.title}</a>
+				<a href={pinHref(p)}>{p.folder ? '' : (app.albums.find((a) => a.id === p.albumId)?.title ?? p.title)}{#if p.folder}<span class="kind muted">Folder</span> {p.title}{/if}</a>
 				<span class="muted small">
-					{#if p.state === 'downloading'}Downloading {p.done} of {p.total}{:else}{fmt(u?.byAlbum.get(p.albumId) ?? p.bytes)}{/if}
+					{#if p.state === 'downloading'}{pinStatus(p, net.online)}{:else}{fmt(u?.byAlbum.get(p.albumId) ?? p.bytes)}{/if}
 				</span>
 				<button class="btn" onclick={() => pins.remove(p.albumId).then(refresh)}>Remove</button>
 			</li>
@@ -136,6 +142,12 @@
 		gap: 10px;
 		padding: 6px 0;
 		border-top: 0.5px solid var(--separator);
+	}
+	.kind {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		margin-right: 4px;
 	}
 	.albums a {
 		flex: 1;

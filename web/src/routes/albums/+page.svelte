@@ -44,7 +44,7 @@
 	{/snippet}
 </TitleBar>
 
-<h2 class="section">My Albums</h2>
+<h2 class="section">Albums</h2>
 <div class="cards">
 	{@render card('/favorites', 'Favourites', app.assets.filter((a) => a.fav).length, favCover, 'heart')}
 	{#each albums as al (al.id)}

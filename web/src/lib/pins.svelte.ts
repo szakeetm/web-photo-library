@@ -1,7 +1,8 @@
-// Downloaded albums: their thumbnails and previews (current edit version, this device's format) are
-// pinned in the image cache so the album works offline. Downloads continue only while the app is open
-// and resume on the next launch; a re-edited photo gets its new images pinned and the old ones released.
-import { previewUrl, thumbUrl, type CatalogAlbum, type CatalogAsset, type ImageFmt } from './api';
+// Downloaded albums and folders: their thumbnails and previews (current edit version, this device's
+// format) are pinned in the image cache so they work offline. A folder download covers its subfolders.
+// Downloads continue only while the app is open and resume on the next launch; a re-edited photo gets
+// its new images pinned and the old ones released. Pin ids: an album's id, −id for a folder.
+import { previewUrl, thumbUrl, type CatalogAlbum, type CatalogAsset, type FolderNode, type ImageFmt } from './api';
 import { db, type PinRecord } from './db';
 import { cacheAndPin, evictToLimit, getLimit, NetworkError, releasePins } from './imageCache';
 import { net } from './net.svelte';
@@ -9,13 +10,67 @@ import { app, onSynced } from './state.svelte';
 
 /** Every image a downloaded album needs on this device. */
 export function albumImageUrls(album: CatalogAlbum, byId: Map<string, CatalogAsset>, fmt: ImageFmt): string[] {
+	return imageUrls(album.assetIds, byId, fmt);
+}
+
+function imageUrls(ids: Iterable<string>, byId: Map<string, CatalogAsset>, fmt: ImageFmt): string[] {
 	const out: string[] = [];
-	for (const id of album.assetIds) {
+	for (const id of ids) {
 		const a = byId.get(id);
 		if (!a) continue;
 		out.push(thumbUrl(a.id, a.ev, fmt), previewUrl(a.id, a.ev, fmt));
 	}
 	return out;
+}
+
+/** `folder` and all folders below it. */
+export function folderSubtree(folder: FolderNode, folders: FolderNode[]): Set<number> {
+	const children = new Map<number, number[]>();
+	for (const f of folders) if (f.parentId != null) children.set(f.parentId, [...(children.get(f.parentId) ?? []), f.id]);
+	const out = new Set<number>();
+	const stack = [folder.id];
+	while (stack.length) {
+		const id = stack.pop()!;
+		if (out.has(id)) continue;
+		out.add(id);
+		stack.push(...(children.get(id) ?? []));
+	}
+	return out;
+}
+
+/** Ids of the photos in `folder` and its subfolders. */
+export function folderAssetIds(folder: FolderNode, folders: FolderNode[], assets: CatalogAsset[]): string[] {
+	const ids = folderSubtree(folder, folders);
+	return assets.filter((a) => a.folders.some((f) => ids.has(f))).map((a) => a.id);
+}
+
+/** Downloads above this many photos ask first. */
+export const LARGE_DOWNLOAD = 500;
+/** Rough device space per photo (thumbnail + 2048 px preview). */
+const BYTES_PER_PHOTO = 0.45e6;
+
+/** Asks before a large download; true to go ahead. */
+export function confirmDownload(title: string, photos: number, nested = false): boolean {
+	if (photos <= LARGE_DOWNLOAD) return true;
+	const size = photos * BYTES_PER_PHOTO;
+	const approx = size < 1e9 ? `${Math.round(size / 1e7) * 10} MB` : `${(size / 1e9).toFixed(1)} GB`;
+	return confirm(
+		`“${title}” has ${photos.toLocaleString()} photos${nested ? ' (including subfolders)' : ''}.\n` +
+			`Downloading keeps about ${approx} on this device, and takes a while: keep the app open until it finishes.\n\nDownload?`
+	);
+}
+
+export const folderPinId = (folder: FolderNode) => -folder.id;
+
+/** Share of a download done, 0…1 (images, i.e. thumbnails and previews). */
+export const pinProgress = (p: PinRecord) => (p.state === 'done' ? 1 : p.total ? Math.min(1, p.done / p.total) : 0);
+
+const fmtBytes = (n: number) => (n < 1e9 ? `${(n / 1e6).toFixed(0)} MB` : `${(n / 1e9).toFixed(1)} GB`);
+
+/** "Downloading 42%", "Download paused 42%" (offline) or "Downloaded (120 MB)". */
+export function pinStatus(p: PinRecord, online: boolean): string {
+	if (p.state === 'downloading') return `${online ? 'Downloading' : 'Download paused'} ${Math.floor(pinProgress(p) * 100)}%`;
+	return `Downloaded${p.bytes ? ` (${fmtBytes(p.bytes)})` : ''}`;
 }
 
 const CONCURRENCY = 4;
@@ -45,10 +100,30 @@ class Pins {
 	}
 
 	async download(album: CatalogAlbum) {
+		await this.begin(album.id, album.title);
+	}
+
+	async downloadFolder(folder: FolderNode, title: string) {
+		await this.begin(folderPinId(folder), title, { root: folder.root, relPath: folder.relPath });
+	}
+
+	private async begin(pinId: number, title: string, folder?: PinRecord['folder']) {
 		// Ask the browser not to evict our storage (best effort).
 		navigator.storage?.persist?.().catch(() => {});
-		await this.save({ albumId: album.id, title: album.title, state: 'downloading', total: 0, done: 0, bytes: 0, updatedAt: Date.now() });
+		await this.save({ albumId: pinId, folder, title, state: 'downloading', total: 0, done: 0, bytes: 0, updatedAt: Date.now() });
 		this.reconcile();
+	}
+
+	/** The download covering `folder`: its own, or a parent folder's (which includes subfolders). */
+	folderPin(folder: FolderNode): PinRecord | undefined {
+		const own = this.records[folderPinId(folder)];
+		if (own) return own;
+		return Object.values(this.records).find(
+			(r) =>
+				r.folder &&
+				r.folder.root === folder.root &&
+				(r.folder.relPath === '' || folder.relPath.startsWith(r.folder.relPath + '/'))
+		);
 	}
 
 	async remove(albumId: number) {
@@ -93,14 +168,21 @@ class Pins {
 
 	private async reconcileOnce() {
 		if (!app.loaded) return;
-		for (const rec of Object.values(this.records)) {
-			const album = app.albums.find((a) => a.id === rec.albumId);
-			if (!album) {
-				// The album was deleted on the server.
+		for (let rec of Object.values(this.records)) {
+			const target = this.resolve(rec);
+			if (!target) {
+				// The album or folder is gone on the server.
 				await this.remove(rec.albumId);
 				continue;
 			}
-			const urls = albumImageUrls(album, app.byId, app.fmt);
+			if (target.pinId !== rec.albumId) {
+				// The folder was re-created by a scan (new id, same path): move the download over.
+				await this.remove(rec.albumId);
+				rec = { ...rec, albumId: target.pinId };
+				await this.save(rec);
+			}
+			const album = { id: target.pinId, title: target.title };
+			const urls = target.urls;
 			await releasePins(album.id, new Set(urls));
 			if (!net.online) continue;
 			let done = 0;
@@ -144,6 +226,20 @@ class Pins {
 				updatedAt: Date.now()
 			});
 		}
+	}
+
+	/** What a download currently covers; null when its album or folder no longer exists. */
+	private resolve(rec: PinRecord): { pinId: number; title: string; urls: string[] } | null {
+		if (rec.folder) {
+			const { root, relPath } = rec.folder;
+			const folder =
+				app.folders.find((f) => -f.id === rec.albumId && f.root === root && f.relPath === relPath) ??
+				app.folders.find((f) => f.root === root && f.relPath === relPath);
+			if (!folder) return null;
+			return { pinId: folderPinId(folder), title: rec.title, urls: imageUrls(folderAssetIds(folder, app.folders, app.assets), app.byId, app.fmt) };
+		}
+		const album = app.albums.find((a) => a.id === rec.albumId);
+		return album ? { pinId: album.id, title: album.title, urls: albumImageUrls(album, app.byId, app.fmt) } : null;
 	}
 }
 
