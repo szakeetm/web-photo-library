@@ -1,7 +1,8 @@
 <script lang="ts">
 	// Full-screen photo viewer: swipe/arrow navigation, swipe-down/Esc to close,
 	// pinch / double-tap / ctrl+wheel zoom, info panel, download original. Videos play over their
-	// poster (VideoPlayer) and are never zoomed or edited.
+	// poster (VideoPlayer) and are never zoomed or edited. Live Photos play their motion while the photo
+	// is pressed and held (LiveOverlay).
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
@@ -14,6 +15,7 @@
 	import ExportSheet from './ExportSheet.svelte';
 	import Editor from '#lib/editor/Editor.svelte';
 	import VideoPlayer from './VideoPlayer.svelte';
+	import LiveOverlay from './LiveOverlay.svelte';
 	import { codecLabel, contentRangeTotal, formatBytes, formatDuration } from '#lib/video.ts';
 
 	let {
@@ -181,6 +183,7 @@
 		if (slide) await animateTo(() => (dx = -delta * pitch));
 		dx = 0;
 		resetZoom();
+		stopLive();
 		onChange(ids[next]);
 	}
 
@@ -230,6 +233,7 @@
 	async function close() {
 		if (closing) return;
 		closing = true;
+		stopLive();
 		const r = scale === 1 ? thumbRect(id) : null;
 		if (r) {
 			const anim = flip(r, true);
@@ -284,6 +288,20 @@
 	let lastTap = 0;
 	let tapTimer: ReturnType<typeof setTimeout> | undefined;
 
+	// Live Photo: a single press held 300 ms without moving (and not zoomed) plays the motion until
+	// release. While it plays, moves don't page and other fingers are ignored; the release doesn't
+	// toggle the chrome. `livePlaying` is also set by hovering the LIVE badge (LiveOverlay).
+	let livePlaying = $state(false);
+	let holding = false;
+	let holdTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function stopLive() {
+		clearTimeout(holdTimer);
+		holdTimer = undefined;
+		holding = false;
+		livePlaying = false;
+	}
+
 	function dist() {
 		const [a, b] = [...pointers.values()];
 		return Math.hypot(a.x - b.x, a.y - b.y);
@@ -320,21 +338,36 @@
 	function onPointerDown(e: PointerEvent) {
 		if ((e.target as HTMLElement).closest('button, a, input, .info, .video-controls')) return;
 		if (isVideo && pointers.size > 0) return; // videos don't zoom: a second finger is ignored
+		if (holding && livePlaying) return; // a hold plays the motion: other fingers are ignored
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 		if (pointers.size === 2) {
+			clearTimeout(holdTimer);
+			holdTimer = undefined;
+			holding = false;
 			axis = 'pinch';
 			const c = center();
 			start = { ...start, scale, dist: dist(), cx: c.x, cy: c.y, tx, ty };
 		} else if (pointers.size === 1) {
 			axis = null;
 			start = { ...start, x: e.clientX, y: e.clientY, t: performance.now(), tx, ty };
+			if (asset?.live && !isVideo && scale === 1 && net.online && e.button === 0) {
+				clearTimeout(holdTimer);
+				holdTimer = setTimeout(() => {
+					holdTimer = undefined;
+					// A move (axis set at 8 px), a second finger or a zoom cancels the hold.
+					if (pointers.size !== 1 || axis || scale !== 1) return;
+					holding = true;
+					livePlaying = true;
+				}, 300);
+			}
 		}
 	}
 
 	function onPointerMove(e: PointerEvent) {
 		if (!pointers.has(e.pointerId)) return;
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+		if (holding && livePlaying) return; // holding plays; it never pages or closes
 		if (axis === 'pinch' && pointers.size === 2) {
 			const c = center();
 			const next = Math.max(1, Math.min(6, (start.scale * dist()) / start.dist));
@@ -350,6 +383,8 @@
 		const my = e.clientY - start.y;
 		if (!axis) {
 			if (Math.hypot(mx, my) < 8) return;
+			clearTimeout(holdTimer);
+			holdTimer = undefined;
 			axis = scale > 1 ? 'pan' : Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
 		}
 		if (axis === 'pan') {
@@ -367,6 +402,18 @@
 	function onPointerUp(e: PointerEvent) {
 		if (!pointers.has(e.pointerId)) return;
 		pointers.delete(e.pointerId);
+		clearTimeout(holdTimer);
+		holdTimer = undefined;
+		if (holding) {
+			// Release ends the motion. A hold is ≥ 300 ms, so it never counts as a tap below.
+			const played = livePlaying;
+			holding = false;
+			livePlaying = false;
+			if (played) {
+				axis = null;
+				return;
+			}
+		}
 		if (axis === 'pinch') {
 			if (pointers.size === 0) {
 				axis = null;
@@ -401,6 +448,7 @@
 	/** The system took the gesture: snap back, never navigate. */
 	function onPointerCancel(e: PointerEvent) {
 		pointers.delete(e.pointerId);
+		if (holdTimer || holding) stopLive();
 		axis = null;
 		animateTo(() => {
 			dx = 0;
@@ -479,6 +527,9 @@
 		onpointermove={onPointerMove}
 		onpointerup={onPointerUp}
 		onpointercancel={onPointerCancel}
+		oncontextmenu={(e) => {
+			if (holding || holdTimer) e.preventDefault(); // a long press on the photo plays a Live Photo
+		}}
 		onwheel={onWheel}
 	>
 		{#each slides as s (s.id)}
@@ -520,6 +571,15 @@
 						{/if}
 						{#if s.o === 0 && a.dur != null}
 							<VideoPlayer bind:this={player} asset={a} active={!closing} />
+						{/if}
+						{#if s.o === 0 && a.live && a.dur == null}
+							<LiveOverlay
+								asset={a}
+								active={!closing}
+								zoomed={scale > 1}
+								still={dims.get(`${a.id}/${a.ev}`)}
+								bind:playing={livePlaying}
+							/>
 						{/if}
 					</div>
 				</div>
@@ -712,6 +772,8 @@
 		position: absolute;
 		inset: 0;
 		overflow: hidden;
+		/* No iOS long-press callout on the photo (press and hold plays a Live Photo). */
+		-webkit-touch-callout: none;
 	}
 	.slide {
 		position: absolute;
@@ -753,7 +815,8 @@
 	}
 	.viewer:not(.chrome) .bar,
 	.viewer:not(.chrome) .nav,
-	.viewer:not(.chrome) :global(.video-controls) {
+	.viewer:not(.chrome) :global(.video-controls),
+	.viewer:not(.chrome) :global(.live-badge) {
 		opacity: 0;
 		pointer-events: none;
 	}
