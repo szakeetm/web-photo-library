@@ -226,22 +226,9 @@
 		window.addEventListener('keydown', onKey);
 		stage.addEventListener('gesturestart', onGestureStart, { passive: false });
 		stage.addEventListener('gesturechange', onGestureChange, { passive: false });
-		// iOS Safari: unless the page's own pinch-zoom is refused, Safari takes the two-finger gesture
-		// (our pointers get cancelled, so the photo doesn't zoom) and leaves the page zoomed, after which
-		// swipes pan the page instead of changing photos. While the viewer is open, the viewer zooms.
-		const refuse = (e: Event) => e.preventDefault();
-		const onTouchMove = (e: TouchEvent) => {
-			if (e.touches.length > 1) e.preventDefault();
-		};
-		document.addEventListener('gesturestart', refuse, { passive: false });
-		document.addEventListener('gesturechange', refuse, { passive: false });
-		document.addEventListener('touchmove', onTouchMove, { passive: false });
 		return () => {
 			stage.removeEventListener('gesturestart', onGestureStart);
 			stage.removeEventListener('gesturechange', onGestureChange);
-			document.removeEventListener('gesturestart', refuse);
-			document.removeEventListener('gesturechange', refuse);
-			document.removeEventListener('touchmove', onTouchMove);
 			document.documentElement.style.overflow = '';
 			window.removeEventListener('resize', onResize);
 			window.removeEventListener('keydown', onKey);
@@ -289,20 +276,9 @@
 
 	function onPointerDown(e: PointerEvent) {
 		if ((e.target as HTMLElement).closest('button, a, .info')) return;
-		// The first finger of a new touch starts a new gesture: forget fingers whose "lifted" event
-		// never arrived (iOS can drop them when the system takes over), or a pinch would look like
-		// three fingers and be ignored.
-		if (e.pointerType === 'touch' && e.isPrimary) {
-			pointers.clear();
-			axis = null;
-		}
-		try {
-			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-		} catch {
-			/* the pointer is already gone */
-		}
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-		if (pointers.size >= 2) {
+		if (pointers.size === 2) {
 			axis = 'pinch';
 			const c = center();
 			start = { ...start, scale, dist: dist(), cx: c.x, cy: c.y, tx, ty };
@@ -315,7 +291,7 @@
 	function onPointerMove(e: PointerEvent) {
 		if (!pointers.has(e.pointerId)) return;
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-		if (axis === 'pinch' && pointers.size >= 2) {
+		if (axis === 'pinch' && pointers.size === 2) {
 			const c = center();
 			const next = Math.max(1, Math.min(6, (start.scale * dist()) / start.dist));
 			const ox = start.cx - vw / 2;
@@ -377,12 +353,6 @@
 		axis = null;
 	}
 
-	/** Capture ended without an "up" (e.g. the element re-rendered): stop tracking that finger. */
-	function onLostCapture(e: PointerEvent) {
-		if (!pointers.delete(e.pointerId)) return;
-		if (pointers.size === 0) axis = null;
-	}
-
 	/** The system took the gesture: snap back, never navigate. */
 	function onPointerCancel(e: PointerEvent) {
 		pointers.delete(e.pointerId);
@@ -427,9 +397,8 @@
 	function onGestureChange(e: Event) {
 		e.preventDefault();
 		e.stopPropagation();
-		// On iPhone the same pinch also arrives as touch pointers, which zoom around the fingers; this
-		// is the fallback for when those were cancelled or lost (and the Mac trackpad's pinch).
-		if (axis === 'pinch') return;
+		// On iPhone the same pinch also arrives as two touch pointers, which zoom around the fingers.
+		if (pointers.size >= 2) return;
 		const g = e as unknown as { scale: number; clientX: number; clientY: number };
 		zoomAt(gestureStart * g.scale, g.clientX ?? vw / 2, g.clientY ?? vh / 2);
 	}
@@ -465,7 +434,6 @@
 		onpointermove={onPointerMove}
 		onpointerup={onPointerUp}
 		onpointercancel={onPointerCancel}
-		onlostpointercapture={onLostCapture}
 		onwheel={onWheel}
 	>
 		{#each slides as s (s.id)}
