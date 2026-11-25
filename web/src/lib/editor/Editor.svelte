@@ -397,6 +397,9 @@
 			<div class="mid">
 				<button class="tb icon" onclick={() => session.undo()} disabled={!session.canUndo} aria-label="Undo"><Icon name="undo" size={20} /></button>
 				<button class="tb icon" onclick={() => session.redo()} disabled={!session.canRedo} aria-label="Redo"><Icon name="redo" size={20} /></button>
+				{#if !isIdentity(recipe)}
+					<button class="tb revert" onclick={revertToOriginal} title="Revert to Original">Revert</button>
+				{/if}
 			</div>
 			<button class="tb done" onclick={done} disabled={saving || status !== 'ready'}>{saving ? 'Saving…' : 'Done'}</button>
 		</header>
@@ -874,6 +877,9 @@
 	.topbar .mid {
 		display: flex;
 		gap: 4px;
+	}
+	.topbar .revert {
+		color: #ff453a;
 	}
 	.topbar .done {
 		color: #ffd60a;

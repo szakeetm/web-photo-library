@@ -71,6 +71,20 @@
 		}
 	});
 
+	/** When the open photo's current edit was saved (shown in the info panel). */
+	let editedAt = $state<string | null>(null);
+	$effect(() => {
+		const current = id;
+		const ev = asset?.ev ?? 0;
+		editedAt = null;
+		if (!infoOpen || ev === 0) return;
+		api.edits(current)
+			.then((h) => {
+				if (current === id) editedAt = h.versions.find((v) => v.version === h.current)?.createdAt ?? null;
+			})
+			.catch(() => {});
+	});
+
 	$effect(() => {
 		// The original would hide an edit: deep zoom only swaps in the original for unedited photos.
 		if (scale >= 1.6 && originalShowable && asset?.ev === 0) fullRes = true;
@@ -541,6 +555,15 @@
 				{/if}
 				<dt>Size</dt>
 				<dd>{asset.w} × {asset.h} <span class="muted">({((asset.w * asset.h) / 1e6).toFixed(1)} MP)</span></dd>
+				{#if asset.ev > 0}
+					<dt>Edited</dt>
+					<dd>
+						Yes
+						{#if editedAt}<span class="muted"
+								>· {new Date(editedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span
+							>{/if}
+					</dd>
+				{/if}
 				{#if detail?.asset.lat != null && detail?.asset.lon != null}
 					<dt>Location</dt>
 					<dd>
