@@ -35,6 +35,7 @@ public final class Services: @unchecked Sendable {
         var getStore: (() -> DerivativeStore)!
         jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir])
         getStore = { [unowned self] in self.derivatives() }
+        if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }
     }
 
     public func derivatives() -> DerivativeStore {

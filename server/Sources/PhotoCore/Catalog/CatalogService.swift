@@ -55,23 +55,32 @@ public final class CatalogService: Sendable {
         return f
     }()
 
-    public func catalog() throws -> CatalogSnapshot {
-        try db.writer.read { d in
-            let rows = try Row.fetchAll(d, sql: """
-                SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
-                       GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
-                FROM asset a JOIN file f ON f.assetId = a.id
-                WHERE a.missingSince IS NULL
-                GROUP BY a.id
-                ORDER BY a.takenAt DESC, a.id
-                """)
-            let assets = rows.map { r -> CatalogAsset in
+    static func catalogAssets(_ d: Database, id: String? = nil) throws -> [CatalogAsset] {
+        let rows = try Row.fetchAll(d, sql: """
+            SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
+                   GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
+            FROM asset a JOIN file f ON f.assetId = a.id
+            WHERE a.missingSince IS NULL \(id == nil ? "" : "AND a.id = ?")
+            GROUP BY a.id
+            ORDER BY a.takenAt DESC, a.id
+            """, arguments: id.map { [$0] } ?? [])
+        return rows.map { r -> CatalogAsset in
                 let folders = ((r["folders"] as String?) ?? "").split(separator: ",").compactMap { Int64($0) }
                 let rel: String = r["relPath"]
                 return CatalogAsset(id: r["id"], w: r["width"], h: r["height"], t: Self.iso.string(from: r["takenAt"]),
                                     tz: r["tzOffset"], fav: r["favorite"], bh: r["blurhash"], ev: r["editVersion"],
                                     folders: Array(Set(folders)).sorted(), name: (rel as NSString).lastPathComponent)
-            }
+        }
+    }
+
+    /// The catalog entry for one (present) asset.
+    public func catalogAsset(id: String) throws -> CatalogAsset? {
+        try db.writer.read { try Self.catalogAssets($0, id: id).first }
+    }
+
+    public func catalog() throws -> CatalogSnapshot {
+        try db.writer.read { d in
+            let assets = try Self.catalogAssets(d)
             let seq = try Int64.fetchOne(d, sql: "SELECT MAX(seq) FROM change_log") ?? 0
             return CatalogSnapshot(seq: seq, assets: assets, folders: try Self.folders(d))
         }

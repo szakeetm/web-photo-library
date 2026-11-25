@@ -184,6 +184,19 @@ public final class JobRunner: @unchecked Sendable {
         return s
     }
 
+    /// Preview + thumbnail (+ BlurHash) for one asset, e.g. right after an upload.
+    public func render(assetId: String, source: URL, store: DerivativeStore? = nil, needsBlurHash: Bool = true) throws {
+        let store = store ?? derivatives()
+        let made = try store.ensureAll(id: assetId, source: source, format: .heic)
+        if needsBlurHash, let img = try? DerivativeStore.downscaled(source: made.thumb, maxPixel: 64) {
+            let bh = BlurHash.encode(cgImage: img)
+            try db.writer.write {
+                try $0.execute(sql: "UPDATE asset SET blurhash = ? WHERE id = ?", arguments: [bh, assetId])
+                try ChangeLog.record($0, entity: "asset", id: assetId, op: "upsert")
+            }
+        }
+    }
+
     var workerCount: Int {
         let configured = (try? settings.get(.workers)).flatMap { $0 } ?? Workers.defaultCount
         return max(1, min(configured, ProcessInfo.processInfo.activeProcessorCount))
@@ -212,14 +225,7 @@ public final class JobRunner: @unchecked Sendable {
             let item = items[i]
             do {
                 guard let source = item.url else { throw ScanError.rootUnreadable(item.rel) }
-                let made = try store.ensureAll(id: item.id, source: source, format: .heic)
-                if !item.hasBH, let img = try? DerivativeStore.downscaled(source: made.thumb, maxPixel: 64) {
-                    let bh = BlurHash.encode(cgImage: img)
-                    try? db.writer.write {
-                        try $0.execute(sql: "UPDATE asset SET blurhash = ? WHERE id = ?", arguments: [bh, item.id])
-                        try ChangeLog.record($0, entity: "asset", id: item.id, op: "upsert")
-                    }
-                }
+                try render(assetId: item.id, source: source, store: store, needsBlurHash: !item.hasBH)
             } catch {
                 failures.add(item.rel)
             }

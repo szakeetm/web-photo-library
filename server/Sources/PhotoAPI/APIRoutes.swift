@@ -54,6 +54,7 @@ struct APIRoutes {
         let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
     }
     struct MoveBody: Decodable { let path: String }
+    struct UploadResponse: Encodable { let asset: CatalogAsset?; let duplicate: Bool }
     struct MoveResponse: Encodable { let dataDir: String; let restarting: Bool }
     struct Jobs: Encodable { let current: JobRow?; let recent: [JobRow] }
     struct Enqueued: Encodable { let id: Int64 }
@@ -175,6 +176,13 @@ struct APIRoutes {
             return try json(detail)
         }
 
+        api.head("assets/:id") { _, ctx in
+            guard let id = validId(ctx), try services.catalog.catalogAsset(id: id) != nil else { throw HTTPError(.notFound) }
+            return Response(status: .ok)
+        }
+
+        api.post("uploads") { req, ctx in try await upload(req, ctx) }
+
         api.get("assets/:id/original") { _, ctx in
             guard let id = validId(ctx), let url = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
             let body = try await fileIO.loadFile(path: url.path, context: ctx)
@@ -190,6 +198,58 @@ struct APIRoutes {
         for kind in DerivativeKind.allCases {
             api.get("\(kind.rawValue)/:id") { req, ctx in try await derivative(kind, req, ctx) }
         }
+    }
+
+    func upload(_ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
+        guard let uploadsPath = try services.settings.get(.uploadsPath) else {
+            return errorResponse(.conflict, UploadError.notConfigured.description)
+        }
+        let root = URL(fileURLWithPath: uploadsPath, isDirectory: true)
+        let source = req.uri.queryParameters.get("source").flatMap(UploadSource.init(rawValue:)) ?? .desktop
+        let name = req.uri.queryParameters.get("name") ?? "upload"
+        let clientMTime = req.uri.queryParameters.get("mtime", as: Double.self).map { Date(timeIntervalSince1970: $0 / 1000) }
+
+        // 1. receive into .incoming while hashing
+        let session = try UploadSession(uploadsRoot: root)
+        let received: UploadSession.Result
+        do {
+            for try await chunk in req.body {
+                try session.write(Data(buffer: chunk))
+            }
+            received = try session.finish()
+        } catch UploadError.tooLarge {
+            return errorResponse(.contentTooLarge, UploadError.tooLarge.description)
+        } catch {
+            session.abort()
+            throw error
+        }
+
+        // 2. already in the catalog? keep nothing
+        if let existing = try services.catalog.catalogAsset(id: received.sha256) {
+            try? FileManager.default.removeItem(at: received.tempURL)
+            return try json(UploadResponse(asset: existing, duplicate: true))
+        }
+
+        // 3. must be a photo
+        guard let probe = ImageProbe.probe(url: received.tempURL) else {
+            try? FileManager.default.removeItem(at: received.tempURL)
+            return errorResponse(.unsupportedMediaType, UploadError.notAnImage.description)
+        }
+
+        // 4. place by capture month, index, render
+        let meta = MetadataResolver.resolve(probe: probe, sidecar: nil, fileMTime: clientMTime ?? Date(), serverTZ: .current)
+        let services = self.services
+        let asset: CatalogAsset? = try await blocking {
+            let rel = try UploadPlacer.place(temp: received.tempURL, uploadsRoot: root, source: source, name: name,
+                                             takenAt: meta.takenAt, tzOffset: meta.tzOffset)
+            let fileURL = root.appendingPathComponent(rel)
+            if let clientMTime { try? FileManager.default.setAttributes([.modificationDate: clientMTime], ofItemAtPath: fileURL.path) }
+            let scanner = LibraryScanner(db: services.db, root: root, rootName: Roots.uploads)
+            let id = try scanner.indexFile(relPath: rel)
+            try? services.jobs.render(assetId: id, source: fileURL)
+            return try services.catalog.catalogAsset(id: id)
+        }
+        return try json(UploadResponse(asset: asset, duplicate: false))
     }
 
     func validId(_ ctx: BasicRequestContext) -> String? {

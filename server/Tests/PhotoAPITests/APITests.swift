@@ -319,4 +319,60 @@ import UniformTypeIdentifiers
             }
         }
     }
+
+    func jpegBytes(color: CGFloat) -> Data {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("u-\(UUID().uuidString).jpg")
+        let ctx = CGContext(data: nil, width: 300, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        ctx.setFillColor(red: color, green: 0.2, blue: 0.3, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+        let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, [kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: "2024:07:04 12:00:00", kCGImagePropertyExifOffsetTimeOriginal: "+02:00"]] as CFDictionary)
+        CGImageDestinationFinalize(dest)
+        return try! Data(contentsOf: url)
+    }
+
+    @Test func uploadNewDuplicateAndGarbage() async throws {
+        let e = try env()
+        _ = indexed(e)
+        let up = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: up, withIntermediateDirectories: true)
+        try e.services.settings.set(.uploadsPath, up.path)
+        let bytes = jpegBytes(color: 0.9)
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/uploads?source=phone&name=IMG_9.jpg", method: .post, body: ByteBuffer(bytes: bytes)) { res in
+                #expect(res.status == .ok)
+                let body = String(buffer: res.body)
+                #expect(body.contains("\"duplicate\":false") && body.contains("IMG_9.jpg"))
+            }
+            #expect(FileManager.default.fileExists(atPath: up.appendingPathComponent("phone-uploads/2024-07/IMG_9.jpg").path))
+            // same bytes again → duplicate, nothing new written
+            try await client.execute(uri: "/api/uploads?source=desktop&name=other.jpg", method: .post, body: ByteBuffer(bytes: bytes)) { res in
+                #expect(String(buffer: res.body).contains("\"duplicate\":true"))
+            }
+            #expect(!FileManager.default.fileExists(atPath: up.appendingPathComponent("desktop-uploads").path))
+            // garbage → 415, nothing written
+            try await client.execute(uri: "/api/uploads?source=phone&name=x.jpg", method: .post, body: ByteBuffer(string: "nope")) { res in
+                #expect(res.status == .unsupportedMediaType)
+            }
+            #expect((try? FileManager.default.contentsOfDirectory(atPath: up.appendingPathComponent(".incoming").path))?.isEmpty ?? true)
+        }
+        let catalog = try e.services.catalog.catalog()
+        #expect(catalog.assets.count == 2)
+        let id = try FileHasher.sha256(url: up.appendingPathComponent("phone-uploads/2024-07/IMG_9.jpg"))
+        #expect(e.services.derivatives().exists(id: id, kind: .thumb, format: .heic))
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/assets/\(id)", method: .head) { res in #expect(res.status == .ok) }
+            try await client.execute(uri: "/api/assets/\(String(repeating: "a", count: 64))", method: .head) { res in #expect(res.status == .notFound) }
+        }
+    }
+
+    @Test func uploadWithoutFolderIsRefused() async throws {
+        let e = try env()
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/uploads?source=phone&name=a.jpg", method: .post, body: ByteBuffer(bytes: jpegBytes(color: 0.1))) { res in
+                #expect(res.status == .conflict)
+            }
+        }
+    }
 }
