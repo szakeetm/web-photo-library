@@ -22,7 +22,8 @@
 		scan: 'Scanning library',
 		metadata: 'Reading metadata',
 		thumbnails: 'Generating thumbnails',
-		previews: 'Generating previews'
+		previews: 'Generating previews',
+		images: 'Generating thumbnails and previews'
 	};
 
 	async function loadSettings() {

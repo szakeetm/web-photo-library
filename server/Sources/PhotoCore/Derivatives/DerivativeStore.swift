@@ -53,6 +53,29 @@ public final class DerivativeStore: @unchecked Sendable {
         return target
     }
 
+    /// Preview and thumbnail from a single decode of the original: the thumbnail is made from the preview.
+    @discardableResult
+    public func ensureAll(id: String, source: URL, editVersion: Int = 0, format: ImageFormat,
+                          onDecode: (URL) -> Void = { _ in }) throws -> (thumb: URL, preview: URL) {
+        let preview = url(id: id, kind: .preview, editVersion: editVersion, format: format)
+        let thumb = url(id: id, kind: .thumb, editVersion: editVersion, format: format)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: preview.path) && fm.fileExists(atPath: thumb.path) { return (thumb, preview) }
+        let keyLock = lockFor(preview.path)
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        if !fm.fileExists(atPath: preview.path) {
+            onDecode(source)
+            let image = try Self.downscaled(source: source, maxPixel: DerivativeKind.preview.maxPixel)
+            try write(image, to: preview, format: format)
+        }
+        if !fm.fileExists(atPath: thumb.path) {
+            let small = try Self.downscaled(source: preview, maxPixel: DerivativeKind.thumb.maxPixel)
+            try write(small, to: thumb, format: format)
+        }
+        return (thumb, preview)
+    }
+
     public func exists(id: String, kind: DerivativeKind, editVersion: Int = 0, format: ImageFormat) -> Bool {
         FileManager.default.fileExists(atPath: url(id: id, kind: kind, editVersion: editVersion, format: format).path)
     }

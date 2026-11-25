@@ -15,6 +15,11 @@ extension SettingKey where T == String? {
     public static let ownerLogin = SettingKey("ownerLogin", default: nil)
 }
 
+extension SettingKey where T == Int? {
+    /// Parallel workers for indexing and image generation (nil = default, up to 8).
+    public static let workers = SettingKey("workers", default: nil)
+}
+
 /// Untyped JSON value, used to expose all settings over the API.
 public enum JSONValue: Codable, Sendable, Equatable {
     case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])

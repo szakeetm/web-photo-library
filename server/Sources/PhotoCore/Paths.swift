@@ -10,9 +10,12 @@ public struct AppPaths: Sendable, Equatable {
     public var databaseURL: URL { dataDir.appendingPathComponent("library.sqlite") }
     public var cacheDir: URL { dataDir.appendingPathComponent("cache", isDirectory: true) }
 
-    /// ~/Library/Application Support/PhotoServer
+    /// ~/Library/Application Support/PhotoServer (override with PHOTOSERVER_HOME, e.g. for a second dev instance)
     public static var standardBootstrapDir: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let home = ProcessInfo.processInfo.environment["PHOTOSERVER_HOME"], !home.isEmpty {
+            return URL(fileURLWithPath: home, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PhotoServer", isDirectory: true)
     }
 

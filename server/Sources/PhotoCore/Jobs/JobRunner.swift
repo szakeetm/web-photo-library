@@ -102,9 +102,15 @@ public final class JobRunner: @unchecked Sendable {
 
     private func progressReporter(_ id: Int64, phase: String) -> (Int, Int) -> Void {
         var last = Date.distantPast
+        let started = Date()
+        var logged = false
         update(id) { $0.phase = phase; $0.progress = 0; $0.total = 0 }
         return { [self] done, total in
             let now = Date()
+            if done == total && !logged {
+                logged = true
+                FileHandle.standardError.write(Data(String(format: "job %lld phase %@: %d items in %.2fs\n", id, phase, total, now.timeIntervalSince(started)).utf8))
+            }
             guard done == total || now.timeIntervalSince(last) > 0.25 else { return }
             last = now
             update(id) { $0.progress = done; $0.total = total }
@@ -153,7 +159,12 @@ public final class JobRunner: @unchecked Sendable {
         return s
     }
 
-    /// Thumbnails (+ BlurHash) for everything first, then previews.
+    var workerCount: Int {
+        let configured = (try? settings.get(.workers)).flatMap { $0 } ?? Workers.defaultCount
+        return max(1, min(configured, ProcessInfo.processInfo.activeProcessorCount))
+    }
+
+    /// Preview + thumbnail (+ BlurHash) per photo, newest first, one decode of the original each.
     private func generateDerivatives(id: Int64, isCancelled: @escaping () -> Bool) throws {
         let root = try libraryRoot()
         let store = derivatives()
@@ -164,31 +175,26 @@ public final class JobRunner: @unchecked Sendable {
                 """)
         }
         let items: [(id: String, rel: String, hasBH: Bool)] = rows.map { ($0["id"], $0["relPath"], ($0["blurhash"] as String?) != nil) }
-
-        for kind in DerivativeKind.allCases {
-            let report = progressReporter(id, phase: kind == .thumb ? "thumbnails" : "previews")
-            let counter = Counter()
-            let failed = Counter()
-            DispatchQueue.concurrentPerform(iterations: items.count) { i in
-                if isCancelled() { return }
-                let item = items[i]
-                let source = root.appendingPathComponent(item.rel)
-                do {
-                    let url = try store.ensure(id: item.id, source: source, kind: kind, format: .heic)
-                    if kind == .thumb && !item.hasBH, let img = try? DerivativeStore.downscaled(source: url, maxPixel: 64) {
-                        let bh = BlurHash.encode(cgImage: img)
-                        try? db.writer.write {
-                            try $0.execute(sql: "UPDATE asset SET blurhash = ? WHERE id = ?", arguments: [bh, item.id])
-                            try ChangeLog.record($0, entity: "asset", id: item.id, op: "upsert")
-                        }
+        let report = progressReporter(id, phase: "images")
+        let counter = Counter()
+        parallelFor(items.count, workers: workerCount) { i in
+            if isCancelled() { return }
+            let item = items[i]
+            do {
+                let made = try store.ensureAll(id: item.id, source: root.appendingPathComponent(item.rel), format: .heic)
+                if !item.hasBH, let img = try? DerivativeStore.downscaled(source: made.thumb, maxPixel: 64) {
+                    let bh = BlurHash.encode(cgImage: img)
+                    try? db.writer.write {
+                        try $0.execute(sql: "UPDATE asset SET blurhash = ? WHERE id = ?", arguments: [bh, item.id])
+                        try ChangeLog.record($0, entity: "asset", id: item.id, op: "upsert")
                     }
-                } catch {
-                    failed.increment()
                 }
-                report(counter.increment(), items.count)
+            } catch {
+                // reported via the job message in a later milestone (see deferred minors)
             }
-            if isCancelled() { throw ScanError.cancelled }
+            report(counter.increment(), items.count)
         }
+        if isCancelled() { throw ScanError.cancelled }
     }
 }
 

@@ -102,3 +102,29 @@ import CoreGraphics
         #expect(BlurHash.encode(cgImage: solid(0.2, 0.5, 0.7)).count == 28)
     }
 }
+
+@Suite struct DerivativePairTests {
+    @Test func ensureAllMakesPreviewAndThumbFromOneDecode() throws {
+        let dir = Fixtures.tempDir()
+        let src = dir.appendingPathComponent("src.jpg")
+        Fixtures.writeJPEG(to: src, width: 4000, height: 3000)
+        let store = DerivativeStore(cacheDir: dir.appendingPathComponent("cache"))
+        var decodes = 0
+        let made = try store.ensureAll(id: "abcdef", source: src, format: .heic) { _ in decodes += 1 }
+        #expect(decodes == 1)
+        #expect(ImageProbe.probe(url: made.thumb).map { max($0.width, $0.height) } == 512)
+        #expect(ImageProbe.probe(url: made.preview).map { max($0.width, $0.height) } == 2048)
+    }
+
+    @Test func parallelForVisitsEachIndexOnceWithBoundedWorkers() {
+        let lock = NSLock()
+        var seen = [Int](), active = 0, peak = 0
+        parallelFor(100, workers: 3) { i in
+            lock.lock(); active += 1; peak = max(peak, active); lock.unlock()
+            usleep(500)
+            lock.lock(); active -= 1; seen.append(i); lock.unlock()
+        }
+        #expect(seen.sorted() == Array(0..<100))
+        #expect(peak <= 3)
+    }
+}
