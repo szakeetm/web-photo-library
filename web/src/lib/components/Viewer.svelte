@@ -183,7 +183,11 @@
 		return img.animate(reverse ? frames.reverse() : frames, {
 			duration: 280,
 			easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
-			fill: 'forwards'
+			// Opening must not hold its end state: a finished animation that "fills forwards" keeps
+			// overriding the frame's own transform, so pinch/double-tap zoom changed nothing on screen.
+			// (It ends at the frame's resting transform, so letting go is seamless.) Closing holds its
+			// end state until the viewer is removed.
+			fill: reverse ? 'forwards' : 'none'
 		});
 	}
 
