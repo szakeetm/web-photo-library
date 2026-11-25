@@ -92,6 +92,36 @@ public final class DerivativeStore: @unchecked Sendable {
         return (thumb, preview)
     }
 
+    /// Preview and thumbnail of a video, made from a poster frame (SDR, never edited). Blocks on AVFoundation.
+    @discardableResult
+    public func ensurePoster(id: String, source: URL, format: ImageFormat, ffmpeg: URL?) throws -> (thumb: URL, preview: URL) {
+        let preview = url(id: id, kind: .preview, format: format)
+        let thumb = url(id: id, kind: .thumb, format: format)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: preview.path) && fm.fileExists(atPath: thumb.path) { return (thumb, preview) }
+        let keyLock = lockFor(preview.path)
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        var poster: CGImage?
+        func frame() throws -> CGImage {
+            if let poster { return poster }
+            let f = try VideoPoster.frame(source: source, ffmpeg: ffmpeg)
+            poster = f
+            return f
+        }
+        let previewImage: CGImage
+        if !fm.fileExists(atPath: preview.path) {
+            previewImage = try Self.downscaled(image: try frame(), maxPixel: DerivativeKind.preview.maxPixel)
+            try write(previewImage, to: preview, format: format)
+        } else {
+            previewImage = try Self.downscaled(source: preview, maxPixel: DerivativeKind.preview.maxPixel)
+        }
+        if !fm.fileExists(atPath: thumb.path) {
+            try write(try Self.downscaled(image: previewImage, maxPixel: DerivativeKind.thumb.maxPixel), to: thumb, format: format)
+        }
+        return (thumb, preview)
+    }
+
     public func exists(id: String, kind: DerivativeKind, editVersion: Int = 0, format: ImageFormat) -> Bool {
         FileManager.default.fileExists(atPath: url(id: id, kind: kind, editVersion: editVersion, format: format).path)
     }

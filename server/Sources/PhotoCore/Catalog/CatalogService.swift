@@ -204,6 +204,11 @@ public final class CatalogService: Sendable {
         return nil
     }
 
+    /// "photo" or "video"; nil for an unknown asset.
+    public func kind(id: String) throws -> String? {
+        try db.writer.read { try String.fetchOne($0, sql: "SELECT kind FROM asset WHERE id = ?", arguments: [id]) }
+    }
+
     /// The still's Live Photo motion clip, if it is still on disk as scanned.
     public func motionURL(id: String) throws -> URL? {
         guard let row = try db.writer.read({ try MotionRow.fetchOne($0, key: id) }) else { return nil }
