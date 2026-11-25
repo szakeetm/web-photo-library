@@ -58,3 +58,10 @@
 	stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 	<path d={paths[name] ?? ''} />
 </svg>
+
+<style>
+	/* Never squeezed by long text beside it (e.g. album names in the sidebar). */
+	svg {
+		flex-shrink: 0;
+	}
+</style>

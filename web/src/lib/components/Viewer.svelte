@@ -2,6 +2,8 @@
 	// Full-screen photo viewer: swipe/arrow navigation, swipe-down/Esc to close,
 	// pinch / double-tap / ctrl+wheel zoom, info panel, download original.
 	import { onMount } from 'svelte';
+	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
+	import GestureDebug from './GestureDebug.svelte';
 	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite } from '#lib/state.svelte.ts';
@@ -400,6 +402,10 @@
 		}
 	}
 
+	/** One-line gesture state for the debug overlay. */
+	const debugState = () =>
+		`ptrs=${pointers.size}[${[...pointers.keys()].join(',')}] axis=${axis ?? '-'} scale=${scale.toFixed(2)}${animating ? ' ANIM' : ''}${fullRes ? ' FULL' : ''}${chrome ? '' : ' nochrome'}${infoOpen ? ' info' : ''}`;
+
 	// Safari trackpad pinch
 	let gestureStart = 1;
 	function onGestureStart(e: Event) {
@@ -624,6 +630,7 @@
 			</dl>
 		</aside>
 	{/if}
+	{#if gestureDebug.enabled}<GestureDebug snapshot={debugState} />{/if}
 </div>
 
 <style>
