@@ -334,6 +334,9 @@ export const api = {
 		call<AlbumSummary>(`/api/albums/${id}/assets`, { method: 'POST', body: JSON.stringify(change) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
+	/** Deletes uploaded photos (moved to the server's Trash); the server refuses anything in the library. */
+	deleteUploads: (ids: string[]) =>
+		call<{ deleted: string[] }>('/api/uploads/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	updatePerson: (id: number, patch: { name?: string | null; hidden?: boolean; coverFaceId?: number }) =>
 		call<void>(`/api/people/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 	mergePeople: (ids: number[], into: number) => call<void>('/api/people/merge', { method: 'POST', body: JSON.stringify({ ids, into }) }),

@@ -74,6 +74,8 @@ struct APIRoutes {
     struct AlbumPatch: Decodable { var title: String?; var coverAssetId: String? }
     struct AlbumMembers: Decodable { var add: [String]?; var remove: [String]?; var order: [String]? }
     struct FavoriteBody: Decodable { let ids: [String]; let favorite: Bool }
+    struct DeleteBody: Decodable { let ids: [String] }
+    struct DeleteResponse: Encodable { let deleted: [String] }
     struct SearchResult: Encodable { let ids: [String] }
     struct MoveResponse: Encodable { let dataDir: String; let restarting: Bool }
     struct Jobs: Encodable { let current: JobRow?; let recent: [JobRow] }
@@ -378,6 +380,30 @@ struct APIRoutes {
         }
 
         api.post("uploads") { req, ctx in try await upload(req, ctx) }
+
+        // Deletes uploaded photos only (files go to the Trash); anything in the library is refused.
+        api.post("uploads/delete") { req, ctx in
+            let body = try await req.decode(as: DeleteBody.self, context: ctx)
+            guard body.ids.allSatisfy({ $0.count == 64 && $0.allSatisfy(\.isHexDigit) }) else { throw HTTPError(.badRequest) }
+            guard let uploadsPath = try services.settings.get(.uploadsPath) else {
+                return errorResponse(.conflict, UploadError.notConfigured.description)
+            }
+            let services = self.services
+            do {
+                let deleted = try await blocking {
+                    try UploadDeleter.delete(ids: body.ids, db: services.db, uploadsRoot: URL(fileURLWithPath: uploadsPath, isDirectory: true))
+                }
+                let store = services.derivatives()
+                for id in deleted { store.remove(id: id); services.videos.remove(id: id) }
+                return try json(DeleteResponse(deleted: deleted))
+            } catch let e as UploadDeleteError {
+                switch e {
+                case .notFound: return errorResponse(.notFound, e.description)
+                case .notAnUpload: return errorResponse(.forbidden, e.description)
+                case .trashFailed: return errorResponse(.internalServerError, e.description)
+                }
+            }
+        }
 
         api.get("assets/:id/original") { req, ctx in
             guard let id = validId(ctx), let url = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }

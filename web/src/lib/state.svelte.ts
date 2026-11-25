@@ -25,6 +25,13 @@ class AppState {
 	personById = $derived(new Map(this.people.map((p) => [p.id, p])));
 	uploadsConfigured = $state(false);
 	byId = $derived(new Map(this.assets.map((a) => [a.id, a])));
+	folderById = $derived(new Map(this.folders.map((f) => [f.id, f])));
+
+	/** An uploaded photo: every copy of it is in the uploads folder (only those can be deleted). */
+	isUpload(id: string): boolean {
+		const a = this.byId.get(id);
+		return !!a && a.folders.length > 0 && a.folders.every((f) => this.folderById.get(f)?.root === 'uploads');
+	}
 	fmt = $state<ImageFmt>('jpeg');
 	loaded = $state(false);
 	error = $state<string | null>(null);
@@ -154,6 +161,21 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 		throw e;
 	}
 	app.reload(); // persist to the device copy
+}
+
+/** Deletes uploaded photos; the server moves their files to its Trash. */
+export async function deleteUploads(ids: string[]) {
+	if (!ids.every((id) => app.isUpload(id))) throw new Error('Only uploaded photos can be deleted.');
+	const set = new Set(ids);
+	const before = app.assets;
+	app.assets = app.assets.filter((a) => !set.has(a.id));
+	try {
+		await api.deleteUploads(ids);
+	} catch (e) {
+		app.assets = before;
+		throw e;
+	}
+	await app.reload();
 }
 
 export async function addToAlbum(albumId: number, ids: string[]) {

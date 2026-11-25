@@ -8,7 +8,7 @@
 	import GestureDebug from './GestureDebug.svelte';
 	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
-	import { app, setFavorite } from '#lib/state.svelte.ts';
+	import { app, setFavorite, deleteUploads } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
 	import FaceAvatar from './FaceAvatar.svelte';
@@ -158,6 +158,24 @@
 
 	function toggleFavorite() {
 		if (asset && net.online) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
+	}
+
+	/** Deletes the shown photo (uploads only), then shows its neighbour or closes. */
+	async function removeUpload() {
+		if (!asset || !app.isUpload(asset.id) || !net.online) return;
+		if (!confirm('Delete this uploaded photo? The file goes to the Trash on the server.')) return;
+		const gone = asset.id;
+		const neighbour = ids[index + 1] ?? ids[index - 1];
+		try {
+			stopLive();
+			resetZoom();
+			if (neighbour) onChange(neighbour);
+			await deleteUploads([gone]);
+			if (!neighbour) onClose();
+		} catch (e) {
+			if (neighbour) onChange(gone);
+			alert((e as Error).message);
+		}
 	}
 
 	function resetZoom() {
@@ -626,10 +644,15 @@
 			><Icon name="info" /></button
 		>
 		{#if net.online}
-			<button class="icon-btn" onclick={openEditor} disabled={!canEdit || isVideo}
-				title={isVideo ? "Videos can't be edited" : canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
-				aria-label="Edit"><Icon name="edit" /></button>
+			{#if !isVideo}
+				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
+					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
+					aria-label="Edit"><Icon name="edit" /></button>
+			{/if}
 			<button class="icon-btn" onclick={() => (exporting = true)} title="Download / share" aria-label="Download"><Icon name="download" /></button>
+			{#if asset && app.isUpload(asset.id)}
+				<button class="icon-btn" onclick={removeUpload} title="Delete upload" aria-label="Delete upload"><Icon name="trash" /></button>
+			{/if}
 		{/if}
 	</header>
 

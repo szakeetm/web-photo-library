@@ -15,6 +15,7 @@
 		right: 'M9 5l7 7-7 7',
 		up: 'M12 19V5 M5 12l7-7 7 7',
 		albumAdd: 'M4 7h12v12H4z M8 3h12v12 M10 10v6 M7 13h6',
+		trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12 M9 7V4h6v3',
 		minus: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12h8',
 		search: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z M20 20l-4.6-4.6',
 		albums: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z',

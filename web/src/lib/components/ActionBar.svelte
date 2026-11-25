@@ -2,7 +2,7 @@
 	// Bottom bar for a multi-photo selection.
 	import { originalUrl } from '#lib/api.ts';
 	import { downloadUrl, iosStandalone } from '#lib/download.ts';
-	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum } from '#lib/state.svelte.ts';
+	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deleteUploads } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
@@ -12,6 +12,8 @@
 	let picking = $state(false);
 	let busy = $state(false);
 	const ids = $derived([...selection.ids]);
+	/** Only uploads can be deleted: the button shows when every selected photo is one. */
+	const allUploads = $derived(ids.length > 0 && ids.every((i) => app.isUpload(i)));
 	const favNext = $derived(nextFavoriteValue(ids.map((i) => app.byId.get(i)?.fav ?? false)));
 
 	async function run(work: () => Promise<unknown>) {
@@ -49,6 +51,15 @@
 		for (const id of ids) downloadUrl(originalUrl(id));
 	}
 
+	function remove() {
+		const n = ids.length;
+		if (!confirm(`Delete ${n === 1 ? 'this uploaded photo' : `${n} uploaded photos`}? The file${n === 1 ? ' goes' : 's go'} to the Trash on the server.`)) return;
+		run(async () => {
+			await deleteUploads(ids);
+			selection.clear();
+		});
+	}
+
 	async function share() {
 		const files = shareFiles;
 		shareFiles = null;
@@ -76,6 +87,10 @@
 		{#if albumId != null}
 			<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Remove from album" aria-label="Remove from album"
 				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
+		{/if}
+		{#if allUploads}
+			<button class="icon-btn danger" disabled={busy || !net.online} title="Delete uploads" aria-label="Delete uploads"
+				onclick={remove}><Icon name="trash" /></button>
 		{/if}
 		<button class="icon-btn" disabled={!selection.count || !net.online} title="Download originals" aria-label="Download originals"
 			onclick={download}><Icon name="download" /></button>
