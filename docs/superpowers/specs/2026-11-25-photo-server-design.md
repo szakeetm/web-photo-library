@@ -43,7 +43,8 @@ Single user: the owner. No accounts.
 - Offline map tiles (only previously viewed tiles are available offline).
 
 **Anti-goals (failure even if it "works")**
-- Writing, moving, renaming or deleting anything inside the library folder.
+- Writing, moving, renaming or deleting anything inside the library folder (uploads go to a
+  separate uploads folder, §6.13).
 - An edited preview that looks different from the exported edited file.
 - Losing edits, albums, favourites, face names when re-indexing, moving the library folder,
   or clearing caches.
@@ -307,6 +308,27 @@ Sidecar matching must handle Takeout quirks, with unit tests per case:
   next cold launch. Offline devices keep running the cached version (view-only, see §7.5); on
   reconnecting they hit the version check and must update before doing anything else. Same on iOS
   Home Screen apps and desktop installs.
+
+### 6.13 Uploads (owner request)
+- **Separate uploads folder** (setting, chosen with the folder browser; the library stays read-only).
+  It contains `phone-uploads/` and `desktop-uploads/`, each organised as `YYYY-MM/` by capture date
+  (EXIF, else upload date). Original filenames are kept; a name clash with different content gets a
+  ` (2)` suffix. The server only ever writes into this folder.
+- **One catalog, several roots:** `file` rows gain a `root` (`library` | `uploads`). Detect changes
+  scans all roots in one pass, so a file moved from uploads into the library (same hash) is matched to
+  the existing asset — albums, edits, favourites and faces stay attached. Folder view shows both roots
+  ("Library" and "Uploads").
+- **Upload API:** `POST /api/uploads?source=phone|desktop` streaming one file per request, with the
+  client's SHA-256 first checked via `HEAD /api/assets/{hash}` so duplicates are skipped instantly.
+  The server hashes the received bytes, writes atomically (temp file + rename), indexes the file
+  immediately (thumb, preview, metadata) and returns the catalog entry.
+- **iPhone:** "Upload" button → photo picker (`<input type=file accept="image/*" multiple>`), which
+  lets you multi-select from the Photos library. Uploads run one at a time with progress and continue
+  only while the app is open; a closed app resumes the remaining queue when reopened. Drag and drop
+  isn't practical on iPhone (works on iPad), and iOS doesn't let web apps appear in the share sheet.
+  iOS may hand over JPEG instead of HEIC and may strip location unless "Location" is enabled in the
+  picker's Options — verify on device.
+- **Desktop:** same button plus drag and drop of files/folders onto the window.
 
 ## 7. Web client
 
