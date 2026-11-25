@@ -414,4 +414,63 @@ import UniformTypeIdentifiers
         }
         #expect(apiVersion == 2)
     }
+
+    @Test func concurrentSameContentUploadsWriteOneCopy() async throws {
+        let e = try env()
+        let up = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: up, withIntermediateDirectories: true)
+        try e.services.settings.set(.uploadsPath, up.path)
+        let bytes = jpegBytes(color: 0.55)
+        try await e.app.test(.live) { client in
+            try await withThrowingTaskGroup(of: Void.self) { g in
+                for _ in 0..<4 {
+                    g.addTask {
+                        try await client.execute(uri: "/api/uploads?source=phone&name=same.jpg", method: .post, body: ByteBuffer(bytes: bytes)) { res in
+                            #expect(res.status == .ok)
+                        }
+                    }
+                }
+                try await g.waitForAll()
+            }
+        }
+        let files = try FileManager.default.contentsOfDirectory(atPath: up.appendingPathComponent("phone-uploads/2024-07").path)
+        #expect(files == ["same.jpg"])
+    }
+
+    @Test func uploadWithOddNameSurvivesRescan() async throws {
+        let e = try env()
+        let up = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: up, withIntermediateDirectories: true)
+        try e.services.settings.set(.uploadsPath, up.path)
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/uploads?source=phone&name=photo.jfif", method: .post, body: ByteBuffer(bytes: jpegBytes(color: 0.66))) { res in
+                #expect(res.status == .ok)
+            }
+        }
+        e.services.jobs.enqueue(.detectChanges)
+        e.services.jobs.waitUntilIdle()
+        #expect(FileManager.default.fileExists(atPath: up.appendingPathComponent("phone-uploads/2024-07/photo.jpeg").path))
+        #expect(try e.services.catalog.catalog().assets.count == 2)
+    }
+
+    @Test func uploadsFolderThroughSymlinkIntoLibraryIsRefused() async throws {
+        let e = try env()
+        let link = FileManager.default.temporaryDirectory.appendingPathComponent("link-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: e.root)
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/settings", method: .put, body: ByteBuffer(string: #"{"uploadsPath":"\#(link.appendingPathComponent("Uploads").path)"}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+        }
+        #expect(!FileManager.default.fileExists(atPath: e.root.appendingPathComponent("Uploads").path))
+    }
+
+    @Test func healthReportsUploadsConfigured() async throws {
+        let e = try env()
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/health", method: .get) { res in
+                #expect(String(buffer: res.body).contains("\"uploadsConfigured\":false"))
+            }
+        }
+    }
 }

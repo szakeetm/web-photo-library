@@ -57,3 +57,37 @@ describe('UploadQueue', () => {
 		expect(await store.all()).toEqual([]);
 	});
 });
+
+describe('server updates during uploads', () => {
+	it('stops on 426 without losing queued files', async () => {
+		const store = new MemoryStore();
+		const { t } = fakeTransport({ reject: { 'a.jpg': 426 } });
+		const q = new UploadQueue(t, store, { retryDelayMs: 1 });
+		let updateNeeded = false;
+		q.onUpdateRequired = () => (updateNeeded = true);
+		await q.add([file('a.jpg'), file('b.jpg')], 'phone');
+		await q.idle();
+		expect(updateNeeded).toBe(true);
+		expect(q.items.map((i) => i.status)).toEqual(['queued', 'queued']);
+		expect((await store.all()).length).toBe(2);
+	});
+
+	it('does not start while blocked', async () => {
+		const { t, calls } = fakeTransport({});
+		const q = new UploadQueue(t, new MemoryStore(), { retryDelayMs: 1 });
+		q.blocked = () => true;
+		await q.add([file('a.jpg')], 'phone');
+		await q.idle();
+		expect(calls).toEqual([]);
+		expect(q.items[0].status).toBe('queued');
+	});
+
+	it('retries 429 but not 415', async () => {
+		const { t, calls } = fakeTransport({ reject: { 'busy.jpg': 429, 'bad.jpg': 415 } });
+		const q = new UploadQueue(t, new MemoryStore(), { retryDelayMs: 1 });
+		await q.add([file('busy.jpg'), file('bad.jpg')], 'phone');
+		await q.idle();
+		expect(calls.filter((c) => c === 'busy.jpg').length).toBe(3);
+		expect(calls.filter((c) => c === 'bad.jpg').length).toBe(1);
+	});
+});

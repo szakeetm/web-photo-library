@@ -30,6 +30,8 @@ func blocking<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async thr
 
 /// On-demand thumbnail/preview rendering shares the hardware codec; keep a few at a time.
 let renderLimiter = AsyncLimiter(limit: 4)
+/// One upload per content hash at a time.
+let uploadLocks = KeyedLock()
 
 struct APIRoutes {
     let services: Services
@@ -45,7 +47,7 @@ struct APIRoutes {
     let fileIO = FileIO()
 
     struct Health: Encodable {
-        let ok: Bool; let version: String; let apiVersion: Int
+        let ok: Bool; let version: String; let apiVersion: Int; let uploadsConfigured: Bool
         let webVersion: String?; let libraryConfigured: Bool
     }
     struct SettingsBody: Codable { var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String? }
@@ -69,6 +71,7 @@ struct APIRoutes {
 
         api.get("health") { _, _ in
             try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion,
+                            uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil))
         }
@@ -103,8 +106,24 @@ struct APIRoutes {
                     if let lib = try services.settings.get(.libraryPath), PathOverlap.overlaps(u, lib) {
                         return errorResponse(.badRequest, "The uploads folder must be outside the library (the library is never written to).")
                     }
+                    // Symlinks only resolve once the folder exists: create it, re-check the real path,
+                    // and undo the creation if it turns out to be inside the library or data location.
+                    let existed = FileManager.default.fileExists(atPath: u)
+                    if !existed {
+                        var parent = URL(fileURLWithPath: u).deletingLastPathComponent()
+                        while !FileManager.default.fileExists(atPath: parent.path) { parent.deleteLastPathComponent() }
+                        let real = PathOverlap.normalized(parent.path)
+                        if let lib = try services.settings.get(.libraryPath).map(PathOverlap.normalized), real == lib || real.hasPrefix(lib + "/") {
+                            return errorResponse(.badRequest, "The uploads folder must be outside the library (the library is never written to).")
+                        }
+                    }
                     do { try FileManager.default.createDirectory(atPath: u, withIntermediateDirectories: true) } catch {
                         return errorResponse(.badRequest, "Cannot create \(u).")
+                    }
+                    let lib = try services.settings.get(.libraryPath)
+                    if (lib.map { PathOverlap.overlaps(u, $0) } ?? false) || PathOverlap.overlaps(u, services.paths.dataDir.path) {
+                        if !existed { try? FileManager.default.removeItem(atPath: u) }
+                        return errorResponse(.badRequest, "The uploads folder must be outside the library and the data location.")
                     }
                     guard FileManager.default.isWritableFile(atPath: u) else {
                         return errorResponse(.badRequest, "The uploads folder is not writable: \(u).")
@@ -271,32 +290,38 @@ struct APIRoutes {
             throw error
         }
 
-        // 2. already in the catalog? keep nothing
-        if let existing = try services.catalog.catalogAsset(id: received.sha256) {
-            try? FileManager.default.removeItem(at: received.tempURL)
-            return try json(UploadResponse(asset: existing, duplicate: true))
-        }
-
-        // 3. must be a photo
-        guard let probe = ImageProbe.probe(url: received.tempURL) else {
-            try? FileManager.default.removeItem(at: received.tempURL)
-            return errorResponse(.unsupportedMediaType, UploadError.notAnImage.description)
-        }
-
-        // 4. place by capture month, index, render
-        let meta = MetadataResolver.resolve(probe: probe, sidecar: nil, fileMTime: clientMTime ?? Date(), serverTZ: .current)
+        // 2–4 run under a per-content lock so simultaneous uploads of the same photo write one copy.
         let services = self.services
-        let asset: CatalogAsset? = try await blocking {
-            let rel = try UploadPlacer.place(temp: received.tempURL, uploadsRoot: root, source: source, name: name,
-                                             takenAt: meta.takenAt, tzOffset: meta.tzOffset)
-            let fileURL = root.appendingPathComponent(rel)
-            if let clientMTime { try? FileManager.default.setAttributes([.modificationDate: clientMTime], ofItemAtPath: fileURL.path) }
-            let scanner = LibraryScanner(db: services.db, root: root, rootName: Roots.uploads)
-            let id = try scanner.indexFile(relPath: rel)
-            try? services.jobs.render(assetId: id, source: fileURL)
-            return try services.catalog.catalogAsset(id: id)
+        return try await uploadLocks.withLock(received.sha256) {
+            do {
+                if let existing = try services.catalog.catalogAsset(id: received.sha256) {
+                    try? FileManager.default.removeItem(at: received.tempURL)
+                    return try json(UploadResponse(asset: existing, duplicate: true))
+                }
+                guard let probe = ImageProbe.probe(url: received.tempURL),
+                      let finalName = UploadPlacer.filename(name, mime: probe.mime) else {
+                    try? FileManager.default.removeItem(at: received.tempURL)
+                    return errorResponse(.unsupportedMediaType, UploadError.notAnImage.description)
+                }
+                let meta = MetadataResolver.resolve(probe: probe, sidecar: nil, fileMTime: clientMTime ?? Date(), serverTZ: .current)
+                let asset: CatalogAsset? = try await renderLimiter.run {
+                    try await blocking {
+                        let rel = try UploadPlacer.place(temp: received.tempURL, uploadsRoot: root, source: source, name: finalName,
+                                                         takenAt: meta.takenAt, tzOffset: meta.tzOffset)
+                        let fileURL = root.appendingPathComponent(rel)
+                        if let clientMTime { try? FileManager.default.setAttributes([.modificationDate: clientMTime], ofItemAtPath: fileURL.path) }
+                        let scanner = LibraryScanner(db: services.db, root: root, rootName: Roots.uploads)
+                        let id = try scanner.indexFile(relPath: rel)
+                        try? services.jobs.render(assetId: id, source: fileURL)
+                        return try services.catalog.catalogAsset(id: id)
+                    }
+                }
+                return try json(UploadResponse(asset: asset, duplicate: false))
+            } catch {
+                try? FileManager.default.removeItem(at: received.tempURL)  // no-op once placed
+                throw error
+            }
         }
-        return try json(UploadResponse(asset: asset, duplicate: false))
     }
 
     func albumCall(_ work: () throws -> Response) throws -> Response {

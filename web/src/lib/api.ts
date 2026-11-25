@@ -32,6 +32,7 @@ export interface ServerInfo {
 	apiVersion: number;
 	webVersion: string | null;
 	libraryConfigured: boolean;
+	uploadsConfigured: boolean;
 }
 
 export interface FolderNode {

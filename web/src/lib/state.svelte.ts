@@ -38,13 +38,14 @@ class AppState {
 			const health = await api.health();
 			this.server = health;
 			this.libraryConfigured = health.libraryConfigured;
+			this.uploadsConfigured = health.uploadsConfigured;
 			if (health.apiVersion !== CLIENT_API_VERSION) this.updateRequired = true;
 			const snap = await api.catalog();
 			if (snap.format !== CATALOG_FORMAT) this.updateRequired = true;
 			this.assets = sortByLocalTime(snap.assets);
 			this.folders = snap.folders;
 			this.albums = snap.albums;
-			this.uploadsConfigured = snap.folders.some((f) => f.root === 'uploads');
+
 			this.error = null;
 		} catch (e) {
 			this.error = e instanceof Error ? e.message : String(e);

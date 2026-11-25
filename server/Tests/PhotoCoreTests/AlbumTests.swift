@@ -89,4 +89,22 @@ import GRDB
         let snap = try e.catalog.catalog()
         #expect(snap.albums.first { $0.id == a.id }?.assetIds == [e.ids[2], e.ids[0]])
     }
+
+    @Test func searchHandlesPunctuatedNames() throws {
+        let e = try env()
+        #expect(try e.albums.search("louvre.jpg") == [e.ids[1]])
+        #expect(Set(try e.albums.search("Paris 2008/eiff")) == Set([e.ids[0]]))
+    }
+
+    @Test func contentChangeKeepsAlbumMembership() throws {
+        let e = try env()
+        let a = try e.albums.create(title: "Keep", assetIds: [e.ids[0], e.ids[2]])
+        let path = e.root.appendingPathComponent("Home/cat.jpg")
+        Fixtures.writeJPEG(to: path, width: 640, color: (0.3, 0.3, 0.3))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(120)], ofItemAtPath: path.path)
+        e.runner.enqueue(.detectChanges)
+        e.runner.waitUntilIdle()
+        let newId = try FileHasher.sha256(url: path)
+        #expect(try e.albums.members(id: a.id) == [e.ids[0], newId])
+    }
 }

@@ -1,5 +1,38 @@
 import Foundation
 import CryptoKit
+import UniformTypeIdentifiers
+
+/// Serialises async work per key (e.g. per content hash), FIFO.
+public actor KeyedLock {
+    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var held = Set<String>()
+
+    public init() {}
+
+    public func withLock<T: Sendable>(_ key: String, _ work: @Sendable () async throws -> T) async rethrows -> T {
+        await acquire(key)
+        defer { release(key) }
+        return try await work()
+    }
+
+    private func acquire(_ key: String) async {
+        if !held.contains(key) {
+            held.insert(key)
+            return
+        }
+        await withCheckedContinuation { waiters[key, default: []].append($0) }
+    }
+
+    private func release(_ key: String) {
+        if var queue = waiters[key], !queue.isEmpty {
+            let next = queue.removeFirst()
+            waiters[key] = queue.isEmpty ? nil : queue
+            next.resume()  // ownership passes directly to the next waiter
+        } else {
+            held.remove(key)
+        }
+    }
+}
 
 public enum UploadError: Error, Equatable, CustomStringConvertible {
     case tooLarge, notConfigured, notAnImage
@@ -99,11 +132,34 @@ public enum UploadPlacer {
         return dirRel + "/" + candidate
     }
 
-    /// Last path component only, no leading dots or control characters.
+    /// Last path component only, no slashes, leading dots or control characters.
     static func sanitize(_ name: String) -> String {
         var base = (name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
-        base = String(base.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) && $0 != ":" })
+        base = String(base.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) && $0 != ":" && $0 != "/" })
         while base.hasPrefix(".") { base.removeFirst() }
         return base.isEmpty ? "upload" : base
+    }
+
+    /// A safe file name whose extension the library scanner recognises: unknown or missing
+    /// extensions are replaced with the one implied by the probed image type. nil if the type
+    /// itself isn't one the library indexes.
+    public static func filename(_ name: String, mime: String) -> String? {
+        let clean = sanitize(name)
+        var ext = (clean as NSString).pathExtension
+        var stem = (clean as NSString).deletingPathExtension
+        if stem.isEmpty { stem = "upload" }
+        if !LibraryScanner.imageExtensions.contains(ext.lowercased()) {
+            guard let preferred = UTType(mime)?.preferredFilenameExtension,
+                  LibraryScanner.imageExtensions.contains(preferred.lowercased()) else { return nil }
+            if !ext.isEmpty && !LibraryScanner.imageExtensions.contains(ext.lowercased()) && clean.contains(".") {
+                // e.g. photo.jfif -> photo.jpeg
+            } else if !ext.isEmpty {
+                stem = clean
+            }
+            ext = preferred
+        }
+        // keep names well under the 255-byte limit
+        while stem.utf8.count > 180 { stem.removeLast() }
+        return stem + "." + ext
     }
 }

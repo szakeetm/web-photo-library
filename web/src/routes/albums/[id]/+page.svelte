@@ -12,6 +12,12 @@
 
 	const selection = new Selection();
 	const id = $derived(Number(page.params.id));
+	// SvelteKit reuses this page between albums: never carry a selection over.
+	$effect(() => {
+		void id;
+		selection.clear();
+		menu = false;
+	});
 	const album = $derived(app.albums.find((a) => a.id === id));
 	const items = $derived(album ? album.assetIds.filter((i) => app.byId.has(i)) : []);
 	const sections = $derived([{ key: `album-${id}`, label: null, items }]);

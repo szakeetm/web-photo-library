@@ -197,9 +197,10 @@ public final class AlbumService: Sendable {
 
     /// Photos matching every word (prefix match) in file names, folder paths, descriptions and album titles.
     public func search(_ query: String) throws -> [String] {
-        let tokens = query.split(whereSeparator: { $0.isWhitespace }).map { word in
-            String(word.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
-        }.filter { !$0.isEmpty }
+        // Split on anything that isn't a letter or digit, exactly like the FTS tokenizer does,
+        // so "IMG_1234" or "louvre.jpg" become separate prefix terms (and can't inject syntax).
+        let cleaned = String(query.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? Character($0) : " " })
+        let tokens = cleaned.split(separator: " ").map(String.init)
         guard !tokens.isEmpty else { return [] }
         try refreshSearchIndexIfStale()
         let match = tokens.map { "\"\($0)\"*" }.joined(separator: " ")

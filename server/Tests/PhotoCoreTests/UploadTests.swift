@@ -48,4 +48,36 @@ import Foundation
         #expect(try place(".hidden", "four") == "phone-uploads/2024-08/hidden")
         #expect(incomingFiles(root).isEmpty)
     }
+
+    @Test func unknownOrMissingExtensionGetsTheImageType() {
+        #expect(UploadPlacer.filename("photo.jfif", mime: "public.jpeg") == "photo.jpeg")
+        #expect(UploadPlacer.filename("upload", mime: "public.heic") == "upload.heic")
+        #expect(UploadPlacer.filename(".jpg", mime: "public.jpeg") == "jpg.jpeg")
+        #expect(UploadPlacer.filename("/", mime: "public.png") == "upload.png")
+        #expect(UploadPlacer.filename("IMG_1.HEIC", mime: "public.heic") == "IMG_1.HEIC")
+        #expect((UploadPlacer.filename(String(repeating: "a", count: 400) + ".jpg", mime: "public.jpeg") ?? "").utf8.count <= 200)
+        #expect(UploadPlacer.filename("x.psd", mime: "com.adobe.photoshop-image") == nil)
+    }
+
+    @Test func keyedLockSerialisesSameKey() async {
+        let lock = KeyedLock()
+        let log = Log()
+        await withTaskGroup(of: Void.self) { g in
+            for i in 0..<4 {
+                g.addTask {
+                    await lock.withLock("same") {
+                        await log.add("start\(i)")
+                        try? await Task.sleep(for: .milliseconds(10))
+                        await log.add("end\(i)")
+                    }
+                }
+            }
+        }
+        let entries = await log.entries
+        for k in stride(from: 0, to: entries.count, by: 2) {
+            #expect(entries[k].hasPrefix("start") && entries[k + 1].hasPrefix("end") && entries[k].dropFirst(5) == entries[k + 1].dropFirst(3))
+        }
+    }
+
+    actor Log { var entries: [String] = []; func add(_ s: String) { entries.append(s) } }
 }

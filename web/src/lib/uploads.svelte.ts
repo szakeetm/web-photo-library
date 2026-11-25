@@ -1,3 +1,5 @@
+import { CLIENT_API_VERSION } from './api.ts';
+
 // Upload queue: one file at a time, duplicate check by content hash, retries for transient
 // errors, persisted in IndexedDB so a closed app resumes where it left off.
 
@@ -102,7 +104,7 @@ export const httpTransport: Transport = {
 			const xhr = new XMLHttpRequest();
 			const params = new URLSearchParams({ source, name: file.name, mtime: String(file.lastModified) });
 			xhr.open('POST', `/api/uploads?${params}`);
-			xhr.setRequestHeader('X-Client-API-Version', '2');
+			xhr.setRequestHeader('X-Client-API-Version', String(CLIENT_API_VERSION));
 			xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 			xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
 			xhr.onload = () => {
@@ -133,6 +135,10 @@ export class UploadQueue {
 	private draining: Promise<void> | null = null;
 	/** Called after a file was stored on the server (to refresh the catalog). */
 	onUploaded?: () => void;
+	/** Called when the server says this app must update (426); the queue pauses, nothing is lost. */
+	onUpdateRequired?: () => void;
+	/** While this returns true (e.g. an app update is pending) nothing is uploaded. */
+	blocked: () => boolean = () => false;
 
 	constructor(
 		private transport: Transport,
@@ -191,15 +197,19 @@ export class UploadQueue {
 	private async drain() {
 		this.running = true;
 		for (;;) {
+			if (this.blocked()) break;
 			const next = this.items.find((i) => i.status === 'queued');
 			if (!next) break;
-			await this.process(next);
+			if ((await this.process(next)) === 'stop') break;
 		}
 	}
 
-	private async process(item: UploadItem) {
+	private async process(item: UploadItem): Promise<'next' | 'stop'> {
 		const file = this.files.get(item.id);
-		if (!file) return this.set(item.id, { status: 'failed', error: 'File no longer available' });
+		if (!file) {
+			this.set(item.id, { status: 'failed', error: 'File no longer available' });
+			return 'next';
+		}
 		const attempts = this.opts.attempts ?? 3;
 		for (let attempt = 1; ; attempt++) {
 			try {
@@ -218,17 +228,25 @@ export class UploadQueue {
 				if (!r.duplicate) this.onUploaded?.();
 				break;
 			} catch (e) {
-				const permanent = e instanceof UploadHttpError && e.status >= 400 && e.status < 500;
+				if (e instanceof UploadHttpError && e.status === 426) {
+					// The server was updated: keep everything queued and stop until the app reloads.
+					this.set(item.id, { status: 'queued', progress: 0 });
+					this.onUpdateRequired?.();
+					return 'stop';
+				}
+				// Only these mean "this file will never be accepted"; anything else is worth retrying.
+				const permanent = e instanceof UploadHttpError && [400, 403, 413, 415].includes(e.status);
 				if (permanent || attempt >= attempts) {
 					this.set(item.id, { status: 'failed', error: (e as Error).message });
 					// a rejected file will never succeed; a network failure is kept so it resumes next launch
 					if (permanent) await this.store.delete(item.id).catch(() => {});
-					return;
+					return 'next';
 				}
 				await sleep((this.opts.retryDelayMs ?? 1000) * 2 ** (attempt - 1));
 			}
 		}
 		this.files.delete(item.id);
 		await this.store.delete(item.id).catch(() => {});
+		return 'next';
 	}
 }

@@ -7,6 +7,9 @@ export const uploads = new UploadQueue(
 	typeof indexedDB === 'undefined' ? new MemoryStore() : new IndexedDBStore()
 );
 
+uploads.blocked = () => app.updateRequired;
+uploads.onUpdateRequired = () => (app.updateRequired = true);
+
 let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 uploads.onUploaded = () => {
 	clearTimeout(reloadTimer);

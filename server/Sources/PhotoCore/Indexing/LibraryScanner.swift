@@ -358,6 +358,13 @@ public final class LibraryScanner: @unchecked Sendable {
         if new.description == nil { new.description = old.description }
         if new.editVersion == 0 { new.editVersion = old.editVersion }
         try new.update(d)
+        // Albums follow the photo to its new content.
+        try d.execute(sql: """
+            INSERT OR IGNORE INTO album_asset (albumId, assetId, position)
+            SELECT albumId, ?, position FROM album_asset WHERE assetId = ?
+            """, arguments: [newId, oldId])
+        try d.execute(sql: "DELETE FROM album_asset WHERE assetId = ?", arguments: [oldId])
+        try ChangeLog.record(d, entity: "album", id: "*", op: "upsert")
         try markMissingIfOrphaned(d, assetId: oldId)
     }
 
