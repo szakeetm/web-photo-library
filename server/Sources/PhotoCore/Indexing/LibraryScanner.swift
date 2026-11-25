@@ -7,6 +7,7 @@ public struct ScanReport: Codable, Sendable, Equatable {
     public var removed = 0
     public var unchanged = 0
     public var skipped = 0
+    public var skippedOther = 0
     public var errors: [String] = []
 }
 
@@ -61,8 +62,9 @@ public final class LibraryScanner: @unchecked Sendable {
     // MARK: - Detect changes
 
     public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> ScanReport {
-        let (dirs, candidates, failedDirs) = try walk()
+        let (dirs, candidates, failedDirs, others) = try walk(isCancelled: isCancelled)
         var report = ScanReport()
+        report.skippedOther = others
         let folderIds = try ensureFolders(dirs)
         var existing: [String: FileRow] = [:]
         for row in try db.writer.read({ try FileRow.fetchAll($0) }) { existing[row.relPath] = row }
@@ -147,6 +149,11 @@ public final class LibraryScanner: @unchecked Sendable {
             progress(i, rows.count)
             guard !done.contains(row.assetId) else { continue }
             let url = root.appendingPathComponent(row.relPath)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                report.skipped += 1
+                report.errors.append("File not found: \(row.relPath)")
+                continue
+            }
             guard let probe = ImageProbe.probe(url: url),
                   let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
                 report.skipped += 1
@@ -174,7 +181,7 @@ public final class LibraryScanner: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    func walk() throws -> (dirs: [String], files: [Candidate], failed: [String]) {
+    func walk(isCancelled: () -> Bool = { false }) throws -> (dirs: [String], files: [Candidate], failed: [String], others: Int) {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: root.path, isDirectory: &isDir), isDir.boolValue,
@@ -192,7 +199,11 @@ public final class LibraryScanner: @unchecked Sendable {
         }
         var dirs = [""]
         var files: [Candidate] = []
+        var others = 0
+        var visited = 0
         for case let url as URL in e {
+            visited += 1
+            if visited % 500 == 1, isCancelled() { throw ScanError.cancelled }
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(prefix) else { continue }
             let rel = String(path.dropFirst(prefix.count))
@@ -208,9 +219,14 @@ public final class LibraryScanner: @unchecked Sendable {
                     e.skipDescendants()
                 }
                 dirs.append(rel)
-            } else if v.isRegularFile == true, Self.imageExtensions.contains(url.pathExtension.lowercased()) {
-                files.append(Candidate(relPath: rel, url: url, size: Int64(v.fileSize ?? 0),
-                                       mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0))
+            } else if v.isRegularFile == true {
+                let ext = url.pathExtension.lowercased()
+                if Self.imageExtensions.contains(ext) {
+                    files.append(Candidate(relPath: rel, url: url, size: Int64(v.fileSize ?? 0),
+                                           mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0))
+                } else if ext != "json" {
+                    others += 1
+                }
             }
         }
         for p in errorBox.paths where p.hasPrefix(prefix) {
@@ -218,7 +234,7 @@ public final class LibraryScanner: @unchecked Sendable {
             if !failed.contains(rel) { failed.append(rel) }
         }
         files.sort { $0.relPath < $1.relPath }
-        return (dirs, files, failed)
+        return (dirs, files, failed, others)
     }
 
     func parentRel(_ rel: String) -> String {

@@ -99,11 +99,20 @@ public final class CatalogService: Sendable {
         }
     }
 
-    /// Absolute URL of a readable original for the asset.
+    /// Absolute URL of an original that still matches what was indexed (size + mtime), so derivatives
+    /// are never built from a file that changed since the last scan.
     public func sourceURL(id: String) throws -> URL? {
         guard let root = try settings.get(.libraryPath) else { return nil }
-        let rels = try db.writer.read { try String.fetchAll($0, sql: "SELECT relPath FROM file WHERE assetId = ? ORDER BY relPath", arguments: [id]) }
+        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("relPath")).fetchAll($0) }
         let base = URL(fileURLWithPath: root)
-        return rels.map { base.appendingPathComponent($0) }.first { FileManager.default.isReadableFile(atPath: $0.path) }
+        for row in rows {
+            let url = base.appendingPathComponent(row.relPath)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  (attrs[.size] as? NSNumber)?.int64Value == row.size,
+                  (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 == row.mtime,
+                  FileManager.default.isReadableFile(atPath: url.path) else { continue }
+            return url
+        }
+        return nil
     }
 }

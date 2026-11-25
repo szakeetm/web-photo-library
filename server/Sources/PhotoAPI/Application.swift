@@ -46,9 +46,12 @@ struct VersionMiddleware<Context: RequestContext>: RouterMiddleware {
 struct OwnerMiddleware<Context: RequestContext>: RouterMiddleware {
     let settings: SettingsStore
     func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
-        if let owner = (try? settings.get(.ownerLogin)).flatMap({ $0 }), !owner.isEmpty,
-           let login = request.headers[HTTPField.Name("Tailscale-User-Login")!], login.lowercased() != owner.lowercased() {
-            return Response(status: .forbidden)
+        if let owner = (try? settings.get(.ownerLogin)).flatMap({ $0 }), !owner.isEmpty {
+            let login = request.headers[HTTPField.Name("Tailscale-User-Login")!]
+            let proxied = request.headers[HTTPField.Name("X-Forwarded-For")!] != nil
+            // Allowed: the owner via Tailscale, or direct local access on the Mac (not proxied, no identity).
+            let allowed = login.map { $0.lowercased() == owner.lowercased() } ?? !proxied
+            if !allowed { return Response(status: .forbidden) }
         }
         return try await next(request, context)
     }

@@ -28,8 +28,8 @@ public enum DerivativeError: Error, CustomStringConvertible {
 /// Thumbnails and previews on disk: cache/{kind}/{id[0:2]}/{id}_e{edit}.{fmt}
 public final class DerivativeStore: @unchecked Sendable {
     public let cacheDir: URL
-    private let lock = NSLock()
-    private var keyLocks: [String: NSLock] = [:]
+    /// Fixed lock stripes: generation of the same key is serialised without an ever-growing lock table.
+    private let stripes = (0..<64).map { _ in NSLock() }
 
     public init(cacheDir: URL) { self.cacheDir = cacheDir }
 
@@ -128,10 +128,19 @@ public final class DerivativeStore: @unchecked Sendable {
     }
 
     private func lockFor(_ key: String) -> NSLock {
-        lock.lock(); defer { lock.unlock() }
-        if let l = keyLocks[key] { return l }
-        let l = NSLock()
-        keyLocks[key] = l
-        return l
+        var h = Hasher()
+        h.combine(key)
+        return stripes[Int(UInt(bitPattern: h.finalize()) % UInt(stripes.count))]
+    }
+
+    /// Deletes every derivative of an asset (all kinds, formats and edit versions).
+    public func remove(id: String) {
+        let fm = FileManager.default
+        for kind in DerivativeKind.allCases {
+            let dir = cacheDir.appendingPathComponent(kind.rawValue).appendingPathComponent(String(id.prefix(2)))
+            for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasPrefix(id + "_") {
+                try? fm.removeItem(at: dir.appendingPathComponent(name))
+            }
+        }
     }
 }

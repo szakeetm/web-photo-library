@@ -100,20 +100,22 @@ public final class JobRunner: @unchecked Sendable {
         }
     }
 
-    private func progressReporter(_ id: Int64, phase: String) -> (Int, Int) -> Void {
-        var last = Date.distantPast
+    /// Thread-safe, throttled, never moves backwards.
+    private func progressReporter(_ id: Int64, phase: String) -> @Sendable (Int, Int) -> Void {
+        let state = MonotonicProgress()
         let started = Date()
-        var logged = false
         update(id) { $0.phase = phase; $0.progress = 0; $0.total = 0 }
         return { [self] done, total in
-            let now = Date()
-            if done == total && !logged {
-                logged = true
-                FileHandle.standardError.write(Data(String(format: "job %lld phase %@: %d items in %.2fs\n", id, phase, total, now.timeIntervalSince(started)).utf8))
+            guard state.advance(to: done) else { return }
+            let finished = done == total
+            if finished {
+                FileHandle.standardError.write(Data(String(format: "job %lld phase %@: %d items in %.2fs\n", id, phase, total, Date().timeIntervalSince(started)).utf8))
+            } else if !state.shouldPublish() {
+                return
             }
-            guard done == total || now.timeIntervalSince(last) > 0.25 else { return }
-            last = now
-            update(id) { $0.progress = done; $0.total = total }
+            update(id) { row in
+                if done >= row.progress { row.progress = done; row.total = total }
+            }
         }
     }
 
@@ -130,8 +132,8 @@ public final class JobRunner: @unchecked Sendable {
         case .detectChanges:
             let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ, excluding: excluding)
             let r = try scanner.detectChanges(progress: progressReporter(id, phase: "scan"), isCancelled: cancelled)
-            try generateDerivatives(id: id, isCancelled: cancelled)
-            return summary(r)
+            let failures = try generateDerivatives(id: id, isCancelled: cancelled)
+            return summary(r, renderFailures: failures)
         case .reindex:
             let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ, excluding: excluding)
             let r = try scanner.reindex(progress: progressReporter(id, phase: "metadata"), isCancelled: cancelled)
@@ -139,22 +141,30 @@ public final class JobRunner: @unchecked Sendable {
         case .rebuildCaches:
             try derivatives().clear()
             try db.writer.write { try $0.execute(sql: "UPDATE asset SET blurhash = NULL") }
-            try generateDerivatives(id: id, isCancelled: cancelled)
-            return "Caches rebuilt"
+            let failures = try generateDerivatives(id: id, isCancelled: cancelled)
+            return failures.isEmpty ? "Caches rebuilt" : "Caches rebuilt\n" + renderFailureText(failures)
         case .purgeMissing:
-            let n = try db.writer.write { d -> Int in
+            let ids = try db.writer.write { d -> [String] in
                 let ids = try String.fetchAll(d, sql: "SELECT id FROM asset WHERE missingSince IS NOT NULL")
                 for a in ids { try ChangeLog.record(d, entity: "asset", id: a, op: "delete") }
                 try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
-                return ids.count
+                return ids
             }
-            return "Purged \(n) missing photos"
+            let store = derivatives()
+            for a in ids { store.remove(id: a) }
+            return "Purged \(ids.count) missing photos"
         }
     }
 
-    private func summary(_ r: ScanReport) -> String {
+    private func renderFailureText(_ names: [String]) -> String {
+        "\(names.count) photos could not be rendered: " + names.prefix(20).joined(separator: ", ")
+    }
+
+    private func summary(_ r: ScanReport, renderFailures: [String] = []) -> String {
         var s = "\(r.added) added, \(r.updated) updated, \(r.removed) removed, \(r.unchanged) unchanged"
         if r.skipped > 0 { s += ", \(r.skipped) skipped" }
+        if r.skippedOther > 0 { s += ", \(r.skippedOther) videos/other files skipped" }
+        if !renderFailures.isEmpty { s += "\n" + renderFailureText(renderFailures) }
         if !r.errors.isEmpty { s += "\n" + r.errors.prefix(50).joined(separator: "\n") }
         return s
     }
@@ -165,7 +175,8 @@ public final class JobRunner: @unchecked Sendable {
     }
 
     /// Preview + thumbnail (+ BlurHash) per photo, newest first, one decode of the original each.
-    private func generateDerivatives(id: Int64, isCancelled: @escaping () -> Bool) throws {
+    @discardableResult
+    private func generateDerivatives(id: Int64, isCancelled: @escaping () -> Bool) throws -> [String] {
         let root = try libraryRoot()
         let store = derivatives()
         let rows = try db.writer.read { d in
@@ -177,6 +188,7 @@ public final class JobRunner: @unchecked Sendable {
         let items: [(id: String, rel: String, hasBH: Bool)] = rows.map { ($0["id"], $0["relPath"], ($0["blurhash"] as String?) != nil) }
         let report = progressReporter(id, phase: "images")
         let counter = Counter()
+        let failures = FailedDirs()
         parallelFor(items.count, workers: workerCount) { i in
             if isCancelled() { return }
             let item = items[i]
@@ -190,17 +202,39 @@ public final class JobRunner: @unchecked Sendable {
                     }
                 }
             } catch {
-                // reported via the job message in a later milestone (see deferred minors)
+                failures.add(item.rel)
             }
             report(counter.increment(), items.count)
         }
         if isCancelled() { throw ScanError.cancelled }
+        return failures.paths.sorted()
     }
 }
 
 public enum JobError: Error, CustomStringConvertible {
     case noLibrary
     public var description: String { "No library folder configured. Choose one in Settings." }
+}
+
+/// Progress that only moves forward; publishing is throttled to ~4 updates per second.
+public final class MonotonicProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = -1
+    private var lastPublish = Date.distantPast
+    public init() {}
+    public func advance(to n: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard n > value else { return false }
+        value = n
+        return true
+    }
+    public func shouldPublish() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        guard now.timeIntervalSince(lastPublish) > 0.25 else { return false }
+        lastPublish = now
+        return true
+    }
 }
 
 final class Counter: @unchecked Sendable {

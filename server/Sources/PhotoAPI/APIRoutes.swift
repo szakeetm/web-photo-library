@@ -28,6 +28,9 @@ func blocking<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async thr
     }
 }
 
+/// On-demand thumbnail/preview rendering shares the hardware codec; keep a few at a time.
+let renderLimiter = AsyncLimiter(limit: 4)
+
 struct APIRoutes {
     let services: Services
     let webRoot: URL?
@@ -176,7 +179,9 @@ struct APIRoutes {
         guard ev == 0 else { throw HTTPError(.notFound) }  // edited renders arrive with the editor milestone
         guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
         let store = services.derivatives()
-        let url = try await blocking { try store.ensure(id: id, source: source, kind: kind, editVersion: ev, format: format) }
+        let url = try await renderLimiter.run {
+            try await blocking { try store.ensure(id: id, source: source, kind: kind, editVersion: ev, format: format) }
+        }
         let body = try await fileIO.loadFile(path: url.path, context: ctx)
         return Response(status: .ok, headers: [
             .contentType: format.mimeType,

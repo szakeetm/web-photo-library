@@ -262,4 +262,40 @@ import UniformTypeIdentifiers
         }
         #expect(Bootstrap.load(from: boot).dataDir == nil)
     }
+
+    @Test func ownerSetRefusesProxiedRequestsWithoutIdentity() async throws {
+        let e = try env()
+        try e.services.settings.set(.ownerLogin, "me@example.com")
+        try await e.app.test(.router) { client in
+            // came through tailscale serve (forwarded) but no user identity, e.g. a tagged device
+            try await client.execute(uri: "/api/health", method: .get, headers: [HTTPField.Name("X-Forwarded-For")!: "100.64.0.9"]) { res in
+                #expect(res.status == .forbidden)
+            }
+            // direct local access on the Mac
+            try await client.execute(uri: "/api/health", method: .get) { res in #expect(res.status == .ok) }
+        }
+    }
+
+    @Test func onDemandRenderLimiterCapsConcurrency() async throws {
+        let limiter = AsyncLimiter(limit: 2)
+        let peak = PeakCounter()
+        await withTaskGroup(of: Void.self) { g in
+            for _ in 0..<8 {
+                g.addTask {
+                    await limiter.run {
+                        await peak.enter()
+                        try? await Task.sleep(for: .milliseconds(20))
+                        await peak.leave()
+                    }
+                }
+            }
+        }
+        #expect(await peak.max <= 2)
+    }
+
+    actor PeakCounter {
+        var current = 0, max = 0
+        func enter() { current += 1; max = Swift.max(max, current) }
+        func leave() { current -= 1 }
+    }
 }
