@@ -127,7 +127,7 @@
 
 	async function moveData(path: string) {
 		picker = null;
-		if (!confirm(`Move the database and caches to\n${path}?\n\nThe server restarts afterwards.`)) return;
+		if (!confirm(`Move the database, caches and face model to\n${path}?\n\nThe server restarts afterwards.`)) return;
 		moving = true;
 		try {
 			await api.moveData(path);
@@ -360,7 +360,7 @@
 		<h3>Storage on the server</h3>
 		<div class="row">
 			<div class="label">
-				<div>Data location <span class="muted">(database and caches)</span></div>
+				<div>Data location <span class="muted">(database, caches and face model)</span></div>
 				<div class="muted path">{settings?.dataDir ?? ''}</div>
 				{#if settings}
 					<div class="muted small">

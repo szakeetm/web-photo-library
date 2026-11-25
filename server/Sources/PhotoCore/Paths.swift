@@ -76,8 +76,9 @@ public enum DataMoveError: Error, CustomStringConvertible {
 }
 
 public enum DataMover {
-    /// Copies the database (consistent snapshot) and caches to `newDir`, switches the bootstrap
-    /// config, then removes the old copies. The caller must restart to open the new database.
+    /// Copies the database (consistent snapshot), caches and face model to `newDir`, switches the
+    /// bootstrap config, then removes the old copies. A face model already in `newDir` is kept, and
+    /// the old one is then left in place. The caller must restart to open the new database.
     public static func move(db: AppDatabase, from old: AppPaths, to newDir: URL, bootstrapDir: URL,
                             libraryPath: String? = nil) throws {
         let fm = FileManager.default
@@ -94,12 +95,21 @@ public enum DataMover {
 
         // Only paths created by this call are ever removed on failure.
         var created: [URL] = []
+        let oldModel = FaceAnalyzer.modelURL(dataDir: old.dataDir)
+        let newModel = FaceAnalyzer.modelURL(dataDir: newDir)
+        let moveModel = fm.fileExists(atPath: oldModel.path) && !fm.fileExists(atPath: newModel.path)
         do {
             try db.writer.writeWithoutTransaction { try $0.execute(sql: "VACUUM INTO ?", arguments: [new.databaseURL.path]) }
             created.append(new.databaseURL)
             if fm.fileExists(atPath: old.cacheDir.path) {
                 try fm.copyItem(at: old.cacheDir, to: new.cacheDir)
                 created.append(new.cacheDir)
+            }
+            // Only the package: the compiled model next to it is rebuilt on first use.
+            if moveModel {
+                try fm.createDirectory(at: newModel.deletingLastPathComponent(), withIntermediateDirectories: true)
+                created.append(newModel)
+                try fm.copyItem(at: oldModel, to: newModel)
             }
             try Bootstrap.save(BootstrapConfig(dataDir: newDir.path), in: bootstrapDir)
         } catch {
@@ -108,6 +118,12 @@ public enum DataMover {
         }
         // Old copies are no longer referenced.
         try? fm.removeItem(at: old.cacheDir)
+        if moveModel {
+            let models = oldModel.deletingLastPathComponent()
+            try? fm.removeItem(at: oldModel)
+            try? fm.removeItem(at: models.appendingPathComponent("FaceNet.mlmodelc"))
+            if (try? fm.contentsOfDirectory(atPath: models.path))?.isEmpty == true { try? fm.removeItem(at: models) }
+        }
         for suffix in ["", "-wal", "-shm"] {
             try? fm.removeItem(atPath: old.databaseURL.path + suffix)
         }

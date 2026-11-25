@@ -40,6 +40,46 @@ import GRDB
         #expect(!FileManager.default.fileExists(atPath: old.databaseURL.path))
     }
 
+    @Test func moveCarriesFaceModel() throws {
+        let boot = Fixtures.tempDir()
+        let old = AppPaths.resolve(bootstrapDir: boot)
+        let db = try AppDatabase(path: old.databaseURL.path)
+        let model = FaceAnalyzer.modelURL(dataDir: old.dataDir)
+        try writeModel("model", at: model)
+        let compiled = model.deletingLastPathComponent().appendingPathComponent("FaceNet.mlmodelc")
+        try writeModel("compiled", at: compiled)
+
+        let dest = Fixtures.tempDir().appendingPathComponent("Photos Data")
+        try DataMover.move(db: db, from: old, to: dest, bootstrapDir: boot)
+
+        #expect(try readModel(at: FaceAnalyzer.modelURL(dataDir: dest)) == "model")
+        #expect(!FileManager.default.fileExists(atPath: model.deletingLastPathComponent().path))
+    }
+
+    @Test func moveKeepsFaceModelAlreadyInTarget() throws {
+        let boot = Fixtures.tempDir()
+        let old = AppPaths.resolve(bootstrapDir: boot)
+        let db = try AppDatabase(path: old.databaseURL.path)
+        let model = FaceAnalyzer.modelURL(dataDir: old.dataDir)
+        try writeModel("old", at: model)
+        let dest = Fixtures.tempDir()
+        try writeModel("theirs", at: FaceAnalyzer.modelURL(dataDir: dest))
+
+        try DataMover.move(db: db, from: old, to: dest, bootstrapDir: boot)
+
+        #expect(try readModel(at: FaceAnalyzer.modelURL(dataDir: dest)) == "theirs")
+        #expect(try readModel(at: model) == "old")
+    }
+
+    private func writeModel(_ content: String, at package: URL) throws {
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        try Data(content.utf8).write(to: package.appendingPathComponent("Manifest.json"))
+    }
+
+    private func readModel(at package: URL) throws -> String {
+        try String(contentsOf: package.appendingPathComponent("Manifest.json"), encoding: .utf8)
+    }
+
     @Test func moveRejectsFolderWithExistingLibrary() throws {
         let boot = Fixtures.tempDir()
         let old = AppPaths.resolve(bootstrapDir: boot)
