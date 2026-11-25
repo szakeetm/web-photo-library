@@ -744,7 +744,8 @@
 			opacity: 0;
 			transition: opacity 0.2s;
 		}
-		.viewer:hover .nav:not(:disabled) {
+		/* Shown on hover, but not in immersive mode (controls hidden). */
+		.viewer.chrome:hover .nav:not(:disabled) {
 			opacity: 1;
 		}
 		.prev {
