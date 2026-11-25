@@ -32,6 +32,9 @@ regenerate them with `demo/take-screenshots.sh`.
 
 - **Read-only library.** Point it at any folder on the Mac; it never writes there. Thumbnails,
   previews and the database live in a separate, movable data location.
+- **Videos and Live Photos.** Videos play in the viewer with seeking; iPhone Live Photos play on
+  press. Originals that browsers handle (H.264/HEVC up to 1080p) stream as-is, others get an HEVC
+  preview made on demand with ffmpeg (or in bulk from Settings, Videos).
 - **Google Takeout aware.** Dates, locations, descriptions and favourites come from Takeout JSON
   sidecars (with all their naming quirks), then EXIF, then the file date. Duplicate copies that
   Takeout scatters across album folders are recognised by content hash and shown once.
@@ -88,6 +91,7 @@ regenerate them with `demo/take-screenshots.sh`.
 - A Mac with Apple Silicon (macOS 15+), Swift 6 (Xcode or Command Line Tools), Node 20+.
 - For editing: a browser with WebGPU (Safari on iOS / macOS 26, current Chrome).
 - For people: the face recognition model, built once with `tools/face-model/make.sh` (below).
+- Optional: ffmpeg (`brew install ffmpeg`) for video previews of 4K, VP9 and other unplayable videos.
 - Tailscale on the Mac and your devices for remote access.
 
 ## Run it

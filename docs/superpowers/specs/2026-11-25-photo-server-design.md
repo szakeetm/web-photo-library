@@ -33,7 +33,7 @@ Single user: the owner. No accounts.
 - All server settings editable in the web GUI.
 
 **Non-goals (v1)**
-- Videos, Live Photos (the .MOV companions are ignored).
+- Videos and Live Photos — added later, see `docs/superpowers/specs/2026-11-25-videos-design.md`.
 - Multiple users, sharing outside the tailnet, public links.
 - Offline editing or offline album/favourite changes (controls disabled offline).
 - Native iOS/macOS client app.

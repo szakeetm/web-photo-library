@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import { onMount } from 'svelte';
-	import { api, type Job, type JobKind, type Settings } from '#lib/api.ts';
+	import { api, type ConvertAllState, type Job, type JobKind, type Settings } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import DeviceStorage from '#lib/components/DeviceStorage.svelte';
@@ -71,7 +71,32 @@
 		}
 	}
 
+	let vid = $state<ConvertAllState | null>(null);
+	const videoTotal = $derived(app.assets.filter((a) => a.dur != null).length);
+	async function loadVideos() {
+		if (!net.online) return;
+		try {
+			vid = await api.videos();
+		} catch {
+			/* server restarting */
+		}
+	}
+	async function videoAction(fn: () => Promise<ConvertAllState>) {
+		try {
+			vid = await fn();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	const videosRunning = $derived(vid?.state === 'running');
+	$effect(() => {
+		if (!videosRunning) return;
+		const t = setInterval(loadVideos, 2000);
+		return () => clearInterval(t);
+	});
+
 	onMount(() => {
+		loadVideos();
 		loadSettings().catch((e) => net.online && (message = { text: String(e.message ?? e), error: true }));
 		poll();
 		const t = setInterval(poll, 1000);
@@ -300,6 +325,35 @@
 					{/each}
 				</ul>
 			</details>
+		{/if}
+	</section>
+
+	<section>
+		<h3>Videos</h3>
+		{#if vid}
+			<div class="row">
+				<div class="label">
+					<div>{videoTotal} videos · {vid.needed} need a preview · {vid.converted} converted ({fmtBytes(vid.bytes)})</div>
+					{#if !vid.ffmpeg}
+						<div class="muted small">ffmpeg not found — install with brew install ffmpeg (VP9 videos can't play without it; 4K videos play full size)</div>
+					{:else if vid.state === 'running'}
+						<div class="muted small">
+							Converting {vid.done} of {vid.total}{#if vid.current} · {vid.current}{/if}{#if vid.progress != null} {Math.round(vid.progress * 100)}%{/if}
+						</div>
+					{:else if vid.state === 'paused'}
+						<div class="muted small">Paused · {vid.done} of {vid.total} done</div>
+					{/if}
+				</div>
+				{#if vid.ffmpeg}
+					{#if vid.state === 'running'}
+						<button class="btn" onclick={() => videoAction(api.pauseConversion)}>Pause</button>
+					{:else if vid.state === 'paused'}
+						<button class="btn" onclick={() => videoAction(api.convertAll)}>Resume</button>
+					{:else if vid.needed > 0}
+						<button class="btn" onclick={() => videoAction(api.convertAll)}>Convert all {vid.needed}</button>
+					{/if}
+				{/if}
+			</div>
 		{/if}
 	</section>
 
