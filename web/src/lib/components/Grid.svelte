@@ -3,6 +3,9 @@
 	import { onMount, tick } from 'svelte';
 	import { layoutGrid, visibleRange, columnsFor, type Section } from '#lib/gridLayout.ts';
 	import Thumb from './Thumb.svelte';
+	import TimelineScrubber from './TimelineScrubber.svelte';
+	import MonthJump from './MonthJump.svelte';
+	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
 
 	import type { Selection } from '#lib/selection.svelte.ts';
 
@@ -45,6 +48,22 @@
 		}
 		return label;
 	});
+
+	/** Months of this grid (empty when its sections aren't months, e.g. an album). */
+	const marks = $derived.by(() => {
+		const ys = new Map<string, number>();
+		for (const b of layout.blocks) if (b.kind === 'header') ys.set(b.key.slice(2), b.y);
+		return monthMarks(sections, ys);
+	});
+	const currentMark = $derived(markAt(marks, scrollTop - containerTop + 60));
+	const showScrubber = $derived(marks.length >= 2 && layout.height > viewport * 2.5);
+	let jumping = $state(false);
+
+	function jumpTo(m: MonthMark) {
+		jumping = false;
+		// leave room for the sticky title bar
+		window.scrollTo(0, Math.max(0, containerTop + m.y - 56));
+	}
 
 	function measure() {
 		viewport = window.innerHeight;
@@ -179,7 +198,19 @@
 	{/each}
 </div>
 {#if currentLabel}
-	<div class="pill">{currentLabel}</div>
+	{#if marks.length >= 2}
+		<button class="pill" onclick={() => (jumping = true)} aria-label="{currentLabel} — jump to another month" title="Jump to a month"
+			>{currentLabel} <span class="caret">▾</span></button
+		>
+	{:else}
+		<div class="pill">{currentLabel}</div>
+	{/if}
+{/if}
+{#if showScrubber}
+	<TimelineScrubber {marks} gridHeight={layout.height} gridTop={containerTop} />
+{/if}
+{#if jumping}
+	<MonthJump {marks} current={currentMark} onPick={jumpTo} onClose={() => (jumping = false)} />
 {/if}
 
 <style>
@@ -211,6 +242,18 @@
 		-webkit-backdrop-filter: blur(16px);
 		pointer-events: none;
 		box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
+	}
+	button.pill {
+		pointer-events: auto;
+		border: none;
+		color: var(--fg);
+		font-family: inherit;
+		cursor: pointer;
+	}
+	.caret {
+		font-size: 10px;
+		color: var(--fg-secondary);
+		margin-left: 2px;
 	}
 	@media (min-width: 768px) {
 		.pill {

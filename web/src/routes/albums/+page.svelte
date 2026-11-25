@@ -39,6 +39,7 @@
 <TitleBar title="Albums">
 	{#snippet actions()}
 		<button class="btn" onclick={newAlbum}>New Album</button>
+		<a class="icon-btn settings-link" href="/settings" aria-label="Settings" title="Settings"><Icon name="settings" /></a>
 	{/snippet}
 </TitleBar>
 
@@ -66,6 +67,14 @@
 </div>
 
 <style>
+	.settings-link {
+		display: inline-flex;
+	}
+	@media (min-width: 768px) {
+		.settings-link {
+			display: none;
+		}
+	}
 	.section {
 		font-size: 19px;
 		margin: 14px 14px 8px;

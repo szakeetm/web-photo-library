@@ -6,3 +6,6 @@ web/node_modules/
 web/build/
 web/.svelte-kit/
 *.xcodeproj
+mac/.build/
+mac/build/
+mac/.swiftpm/

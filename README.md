@@ -38,7 +38,8 @@ regenerate them with `demo/take-screenshots.sh`.
 - **Fast.** HEIC thumbnails and previews via the Mac's hardware HEVC codec, one decode per photo,
   8 parallel workers (~16 s for 550 photos on an M-series Mac). BlurHash placeholders while loading.
 - **Photos-like UI.** Month-grouped timeline (local time where each photo was taken), pinch or
-  ⌘-scroll to change density, folders with covers, a full-screen viewer with swipe, swipe-down to
+  ⌘-scroll to change density, a timeline scrubber on the right edge (drag to jump through the years)
+  and a jump-to-month panel (tap the month label: years with photo counts, then months), folders with covers, a full-screen viewer with swipe, swipe-down to
   close, pinch/double-tap zoom, info panel and original download.
 - **Albums and favourites.** Create albums from a multi-selection (Select button, long-press on
   iPhone, ⌘/shift-click on desktop), reorder-safe membership by content hash, ♥ in the viewer
@@ -96,6 +97,22 @@ cd server && swift build -c release && .build/release/PhotoServer
 Open <http://127.0.0.1:8787>, choose your library folder in **Settings**, and it starts indexing.
 If the folder is in Documents, Desktop or on an external drive, give the server binary (or your
 terminal) **Full Disk Access** in System Settings → Privacy & Security.
+
+### As a Mac app
+
+```sh
+scripts/build-app.sh --install    # builds everything into ~/Applications/PhotoServer.app
+```
+
+**Photo Server** lives in the menu bar: it starts the server, then opens your photos — in the
+Safari web app if you made one (Safari → File → Add to Dock while on `http://127.0.0.1:8787`),
+otherwise in Safari. The menu has **Open Photos**, **Start at Login** (keeps the server up for
+your iPhone), **Show Log** (`~/Library/Logs/PhotoServer.log`) and **Quit**, which stops the
+server. If a server is already running on port 8787 (say, a dev build), it uses that one instead.
+The library data stays in `~/Library/Application Support/PhotoServer`, so rebuilding or replacing
+the app keeps everything. Give **PhotoServer.app** Full Disk Access if your library needs it; with
+the default ad-hoc signature that grant resets on each rebuild, so set `SIGN_IDENTITY` to a code
+signing certificate to keep it.
 
 ### Face recognition model (once)
 
