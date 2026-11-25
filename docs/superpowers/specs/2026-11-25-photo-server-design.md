@@ -112,8 +112,12 @@ Repository layout (proposal): `server/` (Swift package), `web/` (Svelte app), `s
 - Runs as a user LaunchAgent (starts at login). The binary needs Full Disk Access if the library
   lives in a protected location (Desktop, Documents, external volumes); the settings screen
   shows a clear error if the library is unreadable.
-- Data dir: `~/Library/Application Support/PhotoServer/` (DB, models, GeoNames data).
-  Cache dir: default `~/Library/Caches/PhotoServer/`, configurable.
+- **Data location (owner request):** one user-selected folder holds the database
+  (`library.sqlite`) and caches (`cache/`); default `~/Library/Application Support/PhotoServer/`.
+  Its path is kept in a bootstrap file `~/Library/Application Support/PhotoServer/config.json`.
+  Settings → "Move…" copies the DB (`VACUUM INTO`) and caches to the new folder, switches the
+  bootstrap file, deletes the old copies and restarts the server in place (re-exec).
+  Bundled models / GeoNames data ship with the app, not in the data location.
 - Optional setting "Prevent sleep while jobs run" (IOPMAssertion).
 - **Packaging** *(builder call)*: the server ships as a minimal `.app` bundle (no Dock icon,
   optional menu-bar status item), registered as a login item via `SMAppService`, signed with
@@ -300,8 +304,8 @@ MapLibre GL JS, WebGPU for the editor. Virtualised justified/square grid.
 - Multi-select by long-press/drag; actions: favourite, add to album, share/export.
 - Folders and Albums are separate sections; a setting hides either.
 - Settings screen sections: Library (path via server folder browser, refresh actions, job
-  progress, purge missing, import Takeout albums), Server (cache location/size/clear, prevent
-  sleep, owner login), Faces (on/off, pause, re-cluster), Map (style URL), This device
+  progress, purge missing, import Takeout albums), Server (data location + Move…, sizes, cache clear,
+  prevent sleep, owner login), Faces (on/off, pause, re-cluster), Map (style URL), This device
   (storage, offline, app version/update).
 
 ### 7.2a Desktop

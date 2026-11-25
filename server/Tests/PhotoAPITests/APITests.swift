@@ -14,6 +14,14 @@ import UniformTypeIdentifiers
         let app: any ApplicationProtocol
         let services: Services
         let root: URL
+        let restarted: Flag
+    }
+
+    final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        func set() { lock.lock(); value = true; lock.unlock() }
+        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
     }
 
     static func writeJPEG(_ url: URL) {
@@ -35,10 +43,12 @@ import UniformTypeIdentifiers
         try FileManager.default.createDirectory(at: web.appendingPathComponent("_app"), withIntermediateDirectories: true)
         try Data("<html>index</html>".utf8).write(to: web.appendingPathComponent("index.html"))
         try Data("console.log(1)".utf8).write(to: web.appendingPathComponent("_app/x.js"))
-        let services = try Services(paths: AppPaths(dataDir: base.appendingPathComponent("data"), defaultCacheDir: base.appendingPathComponent("cache")),
-                                    inMemory: true)
+        let restarted = Flag()
+        let services = try Services(paths: AppPaths(dataDir: base.appendingPathComponent("data")),
+                                    bootstrapDir: base.appendingPathComponent("boot"), inMemory: false,
+                                    restart: { restarted.set() })
         if configured { try services.settings.set(.libraryPath, root.path) }
-        return Env(app: buildApplication(services: services, webRoot: web, port: 0), services: services, root: root)
+        return Env(app: buildApplication(services: services, webRoot: web, port: 0), services: services, root: root, restarted: restarted)
     }
 
     func indexed(_ e: Env) -> String {
@@ -161,5 +171,24 @@ import UniformTypeIdentifiers
                 #expect(res.status == .ok)
             }
         }
+    }
+
+    @Test func moveDataLocation() async throws {
+        let e = try env()
+        _ = indexed(e)
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent("moved-\(UUID().uuidString)")
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/data/move", method: .post, body: ByteBuffer(string: #"{"path":"\#(dest.path)"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/api/data/move", method: .post, body: ByteBuffer(string: #"{"path":"\#(dest.path)"}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+        }
+        #expect(FileManager.default.fileExists(atPath: dest.appendingPathComponent("library.sqlite").path))
+        #expect(FileManager.default.fileExists(atPath: dest.appendingPathComponent("cache/thumb").path))
+        #expect(AppPaths.resolve(bootstrapDir: e.services.bootstrapDir).dataDir.path == dest.path)
+        try await Task.sleep(for: .seconds(1))
+        #expect(e.restarted.isSet)
     }
 }

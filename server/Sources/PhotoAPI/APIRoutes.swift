@@ -33,11 +33,13 @@ struct APIRoutes {
     let fileIO = FileIO()
 
     struct Health: Encodable { let ok: Bool; let version: String; let libraryConfigured: Bool }
-    struct SettingsBody: Codable { var libraryPath: String?; var cacheDir: String?; var ownerLogin: String? }
+    struct SettingsBody: Codable { var libraryPath: String?; var ownerLogin: String? }
     struct SettingsResponse: Encodable {
-        let libraryPath: String?; let cacheDir: String?; let ownerLogin: String?
-        let defaultCacheDir: String; let cacheBytes: Int64
+        let libraryPath: String?; let ownerLogin: String?
+        let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64
     }
+    struct MoveBody: Decodable { let path: String }
+    struct MoveResponse: Encodable { let dataDir: String; let restarting: Bool }
     struct Jobs: Encodable { let current: JobRow?; let recent: [JobRow] }
     struct Enqueued: Encodable { let id: Int64 }
 
@@ -63,16 +65,24 @@ struct APIRoutes {
                 }
                 try services.settings.set(.libraryPath, p)
             }
-            if let c = body.cacheDir {
-                if c.isEmpty { try services.settings.set(.cacheDir, nil) } else {
-                    do { try FileManager.default.createDirectory(atPath: c, withIntermediateDirectories: true) } catch {
-                        return errorResponse(.badRequest, "Cannot create cache folder: \(c)")
-                    }
-                    try services.settings.set(.cacheDir, c)
-                }
-            }
             if let o = body.ownerLogin { try services.settings.set(.ownerLogin, o.isEmpty ? nil : o) }
             return try settingsResponse()
+        }
+
+        api.post("data/move") { req, ctx in
+            let body = try await req.decode(as: MoveBody.self, context: ctx)
+            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for the running job to finish first.") }
+            let target = URL(fileURLWithPath: body.path, isDirectory: true)
+            do {
+                try await blocking {
+                    try DataMover.move(db: services.db, from: services.paths, to: target, bootstrapDir: services.bootstrapDir)
+                }
+            } catch let e as DataMoveError {
+                return errorResponse(.badRequest, e.description)
+            }
+            let restart = services.restart
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { restart() }
+            return try json(MoveResponse(dataDir: target.path, restarting: true))
         }
 
         api.get("fs/list") { req, _ in
@@ -147,8 +157,12 @@ struct APIRoutes {
 
     func settingsResponse() throws -> Response {
         let s = services.settings
-        return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), cacheDir: try s.get(.cacheDir),
-                                         ownerLogin: try s.get(.ownerLogin), defaultCacheDir: services.paths.defaultCacheDir.path,
-                                         cacheBytes: services.derivatives().sizeOnDisk()))
+        let dbBytes = ["", "-wal"].reduce(Int64(0)) { sum, suffix in
+            let attrs = try? FileManager.default.attributesOfItem(atPath: services.paths.databaseURL.path + suffix)
+            return sum + ((attrs?[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+        return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), ownerLogin: try s.get(.ownerLogin),
+                                         dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
+                                         databaseBytes: dbBytes))
     }
 }
