@@ -475,9 +475,13 @@
 							alt={a.name}
 							draggable="false"
 							onload={(e) => {
-								ready = new Set(ready).add(a.id);
 								const img = e.currentTarget as HTMLImageElement;
 								dims = new Map(dims).set(`${a.id}/${a.ev}`, { w: img.naturalWidth, h: img.naturalHeight });
+								// Decode before hiding the placeholder: the neighbouring slides (±1) are decoded
+								// while off-screen, so swiping to them paints at once (Safari and desktop alike).
+								img.decode()
+									.catch(() => {})
+									.finally(() => (ready = new Set(ready).add(a.id)));
 							}}
 						/>
 						{#if s.o === 0 && fullRes}
