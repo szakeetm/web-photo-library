@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Full-screen photo viewer: swipe/arrow navigation, swipe-down/Esc to close,
-	// pinch / double-tap / ctrl+wheel zoom, info panel, download original.
+	// pinch / double-tap / ctrl+wheel zoom, info panel, download original. Videos play over their
+	// poster (VideoPlayer) and are never zoomed or edited.
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
@@ -12,6 +13,8 @@
 	import FaceAvatar from './FaceAvatar.svelte';
 	import ExportSheet from './ExportSheet.svelte';
 	import Editor from '#lib/editor/Editor.svelte';
+	import VideoPlayer from './VideoPlayer.svelte';
+	import { codecLabel, contentRangeTotal, formatBytes, formatDuration } from '#lib/video.ts';
 
 	let {
 		ids,
@@ -22,6 +25,8 @@
 
 	const index = $derived(Math.max(0, ids.indexOf(id)));
 	const asset = $derived(app.byId.get(id));
+	const isVideo = $derived(asset?.dur != null);
+	let player = $state<ReturnType<typeof VideoPlayer>>();
 
 	let vw = $state(window.innerWidth);
 	let vh = $state(window.innerHeight);
@@ -87,7 +92,24 @@
 
 	$effect(() => {
 		// The original would hide an edit: deep zoom only swaps in the original for unedited photos.
-		if (scale >= 1.6 && originalShowable && asset?.ev === 0) fullRes = true;
+		if (scale >= 1.6 && originalShowable && asset?.ev === 0 && !isVideo) fullRes = true;
+	});
+
+	/** The open video's file size (the original's length, read with a one-byte range request). */
+	let fileBytes = $state<number | null>(null);
+	$effect(() => {
+		const current = id;
+		fileBytes = null;
+		if (!infoOpen || !isVideo || !net.online) return;
+		const ctl = new AbortController();
+		fetch(originalUrl(current), { headers: { Range: 'bytes=0-0' }, cache: 'no-store', signal: ctl.signal })
+			.then((r) => {
+				r.body?.cancel();
+				if (!r.ok || current !== id) return;
+				fileBytes = r.status === 206 ? contentRangeTotal(r.headers.get('Content-Range')) : Number(r.headers.get('Content-Length')) || null;
+			})
+			.catch(() => {});
+		return () => ctl.abort();
 	});
 
 	/** Folders holding the open photo (a Takeout copy can sit in several), with links to them. */
@@ -127,7 +149,7 @@
 	}
 
 	function openEditor() {
-		if (!asset || !net.online || !canEdit) return;
+		if (!asset || !net.online || !canEdit || isVideo) return;
 		resetZoom();
 		editing = true;
 	}
@@ -226,9 +248,15 @@
 		};
 		const onKey = (e: KeyboardEvent) => {
 			if (editing || exporting) return;
+			// The video scrubber has keyboard focus: its arrow keys seek.
+			if (e.target instanceof HTMLInputElement && e.key !== 'Escape') return;
 			if (e.key === 'ArrowRight') go(1);
 			else if (e.key === 'ArrowLeft') go(-1);
 			else if (e.key === 'Escape' && infoOpen) infoOpen = false;
+			else if (e.key === ' ' && isVideo && player) {
+				e.preventDefault();
+				player.toggle();
+			}
 			else if (e.key === 'Escape' || e.key === ' ') {
 				e.preventDefault();
 				close();
@@ -275,6 +303,7 @@
 
 	/** Zoom to `next` keeping the screen point (px, py) fixed. */
 	function zoomAt(next: number, px: number, py: number) {
+		if (isVideo) return;
 		next = Math.max(1, Math.min(6, next));
 		const ox = px - vw / 2;
 		const oy = py - vh / 2;
@@ -289,7 +318,8 @@
 	}
 
 	function onPointerDown(e: PointerEvent) {
-		if ((e.target as HTMLElement).closest('button, a, .info')) return;
+		if ((e.target as HTMLElement).closest('button, a, input, .info, .video-controls')) return;
+		if (isVideo && pointers.size > 0) return; // videos don't zoom: a second finger is ignored
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 		if (pointers.size === 2) {
@@ -355,7 +385,8 @@
 			else animateTo(() => (dy = 0));
 		} else if (!axis && elapsed < 300) {
 			const now = performance.now();
-			if (now - lastTap < 300) {
+			if (isVideo) chrome = !chrome;
+			else if (now - lastTap < 300) {
 				clearTimeout(tapTimer);
 				lastTap = 0;
 				animateTo(() => (scale > 1 ? resetZoom() : zoomAt(2.5, e.clientX, e.clientY)));
@@ -487,6 +518,9 @@
 						{#if s.o === 0 && fullRes}
 							<img class="high" src={originalUrl(a.id)} alt="" draggable="false" />
 						{/if}
+						{#if s.o === 0 && a.dur != null}
+							<VideoPlayer bind:this={player} asset={a} active={!closing} />
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -507,8 +541,9 @@
 			><Icon name="info" /></button
 		>
 		{#if net.online}
-			<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
-				title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"} aria-label="Edit"><Icon name="edit" /></button>
+			<button class="icon-btn" onclick={openEditor} disabled={!canEdit || isVideo}
+				title={isVideo ? "Videos can't be edited" : canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
+				aria-label="Edit"><Icon name="edit" /></button>
 			<button class="icon-btn" onclick={() => (exporting = true)} title="Download / share" aria-label="Download"><Icon name="download" /></button>
 		{/if}
 	</header>
@@ -557,8 +592,23 @@
 						</div>
 					</dd>
 				{/if}
-				<dt>Size</dt>
-				<dd>{asset.w} × {asset.h} <span class="muted">({((asset.w * asset.h) / 1e6).toFixed(1)} MP)</span></dd>
+				{#if asset.dur != null}
+					<dt>Duration</dt>
+					<dd>{formatDuration(asset.dur)}</dd>
+					<dt>Resolution</dt>
+					<dd>{asset.w} × {asset.h}</dd>
+					{#if detail?.asset.videoCodec}
+						<dt>Codec</dt>
+						<dd>{codecLabel(detail.asset.videoCodec)}</dd>
+					{/if}
+					{#if fileBytes != null}
+						<dt>File size</dt>
+						<dd>{formatBytes(fileBytes)}</dd>
+					{/if}
+				{:else}
+					<dt>Size</dt>
+					<dd>{asset.w} × {asset.h} <span class="muted">({((asset.w * asset.h) / 1e6).toFixed(1)} MP)</span></dd>
+				{/if}
 				{#if asset.ev > 0}
 					<dt>Edited</dt>
 					<dd>
@@ -702,7 +752,8 @@
 		opacity: calc(1 - var(--dismiss) * 3);
 	}
 	.viewer:not(.chrome) .bar,
-	.viewer:not(.chrome) .nav {
+	.viewer:not(.chrome) .nav,
+	.viewer:not(.chrome) :global(.video-controls) {
 		opacity: 0;
 		pointer-events: none;
 	}
