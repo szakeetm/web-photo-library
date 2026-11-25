@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import { onMount } from 'svelte';
 	import { api, type ConvertAllState, type Job, type JobKind, type Settings } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
@@ -481,13 +480,6 @@
 			<button class="btn" disabled={checking} onclick={checkForUpdate}>{checking ? 'Checking…' : 'Check for Update'}</button>
 			<button class="btn" onclick={() => applyUpdate()}>Reload</button>
 			<span class="muted small">The app also checks on its own every 5 minutes and when you switch back to it.</span>
-		</div>
-		<div class="row">
-			<label class="label">
-				<input type="checkbox" checked={gestureDebug.enabled} onchange={(e) => gestureDebug.set((e.currentTarget as HTMLInputElement).checked)} />
-				Show touch gesture log in the photo viewer
-				<div class="muted small">For troubleshooting pinch and swipe on this device.</div>
-			</label>
 		</div>
 	</section>
 </div>

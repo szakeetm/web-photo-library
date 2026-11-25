@@ -73,6 +73,8 @@
 	}
 
 	async function makeCover(f: FaceInfo) {
+		// Show the new cover immediately; the sync that follows confirms (or reverts) it.
+		app.people = app.people.map((p) => (p.id === id ? { ...p, coverFaceId: f.id } : p));
 		await run(() => api.updatePerson(id, { coverFaceId: f.id }));
 	}
 
@@ -127,14 +129,17 @@
 		<p class="hint muted">Remove faces that aren't {person.name ?? 'this person'}; they won't be added back automatically.</p>
 		<div class="faces">
 			{#each faces as f (f.id)}
-				<div class="face">
+				{@const isCover = person.coverFaceId === f.id}
+				<div class="face" class:cover={isCover}>
 					<FaceAvatar faceId={f.id} size={104} />
 					<div class="faceactions">
 						<button class="icon-btn small" title="Not {person.name ?? 'this person'}" aria-label="Not this person" disabled={busy}
 							onclick={() => notThisPerson(f)}><Icon name="close" size={16} /></button>
-						<button class="icon-btn small" title="Use as cover" aria-label="Use as cover" disabled={busy || person.coverFaceId === f.id}
-							onclick={() => makeCover(f)}><Icon name="select" size={16} /></button>
+						<button class="icon-btn small" class:on={isCover} title={isCover ? 'Cover photo' : 'Use as cover'}
+							aria-label="Use as cover" aria-pressed={isCover} disabled={busy || isCover}
+							onclick={() => makeCover(f)}><Icon name="star" size={16} /></button>
 					</div>
+					{#if isCover}<span class="coverlabel">Cover</span>{/if}
 				</div>
 			{/each}
 		</div>
@@ -212,7 +217,25 @@
 	.face {
 		position: relative;
 		display: flex;
-		justify-content: center;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+	}
+	.face.cover :global(.avatar) {
+		box-shadow: 0 0 0 3px var(--accent);
+	}
+	.coverlabel {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--accent);
+	}
+	.icon-btn.small.on {
+		background: var(--accent);
+		color: #fff;
+		opacity: 1;
+	}
+	.icon-btn.small:disabled:not(.on) {
+		opacity: 0.4;
 	}
 	.faceactions {
 		position: absolute;

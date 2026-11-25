@@ -1,5 +1,5 @@
 // Opt-in on-screen log of touch, pointer and gesture events in the photo viewer, for diagnosing
-// pinch/swipe problems on a phone without a cable. Turn on with ?debug=gestures (or Settings → About),
+// pinch/swipe problems on a phone without a cable. Turn on with ?debug=gestures,
 // off with ?debug=off. Stored per device.
 const KEY = 'debug-gestures';
 
