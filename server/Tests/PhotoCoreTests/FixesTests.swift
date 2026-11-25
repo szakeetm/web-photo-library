@@ -8,7 +8,7 @@ import GRDB
         let root = Fixtures.tempDir()
         Fixtures.writeJPEG(to: root.appendingPathComponent("a.jpg"), color: (1, 0, 0))
         Fixtures.writeJPEG(to: root.appendingPathComponent("b.jpg"), color: (0, 1, 0))
-        try Data().write(to: root.appendingPathComponent("clip.mov"))
+        try Data().write(to: root.appendingPathComponent("doc.pdf"))
         try Data().write(to: root.appendingPathComponent("notes.txt"))
         let db = try AppDatabase.inMemory()
         let settings = SettingsStore(db: db)
@@ -32,7 +32,7 @@ import GRDB
     @Test func skippedOtherFilesAreReported() throws {
         let (_, _, _, runner, _) = try indexed()
         let job = try #require(runner.recent(limit: 1).first)
-        #expect(job.message?.contains("2 videos/other files skipped") == true)
+        #expect(job.message?.contains("2 other files skipped") == true)
     }
 
     @Test func renderFailuresAreReported() throws {

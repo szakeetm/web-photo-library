@@ -180,6 +180,7 @@ public final class JobRunner: @unchecked Sendable {
                 try d.execute(sql: "DELETE FROM album_asset WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM face WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
+                try d.execute(sql: "DELETE FROM motion WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
                 return ids
             }
@@ -248,7 +249,8 @@ public final class JobRunner: @unchecked Sendable {
     private func summary(_ r: ScanReport, renderFailures: [String] = []) -> String {
         var s = "\(r.added) added, \(r.updated) updated, \(r.removed) removed, \(r.unchanged) unchanged"
         if r.skipped > 0 { s += ", \(r.skipped) skipped" }
-        if r.skippedOther > 0 { s += ", \(r.skippedOther) videos/other files skipped" }
+        if r.skippedOther > 0 { s += ", \(r.skippedOther) other file\(r.skippedOther == 1 ? "" : "s") skipped" }
+        if r.liveMotion > 0 { s += ", \(r.liveMotion) Live Photo video\(r.liveMotion == 1 ? "" : "s") attached" }
         if !renderFailures.isEmpty { s += "\n" + renderFailureText(renderFailures) }
         if !r.errors.isEmpty { s += "\n" + r.errors.prefix(50).joined(separator: "\n") }
         return s

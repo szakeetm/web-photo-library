@@ -56,7 +56,7 @@ public final class FaceService: Sendable {
     /// Assets that still need a face scan with the current analyzer.
     public func pendingAssets(limit: Int = .max) throws -> [String] {
         try db.writer.read {
-            try String.fetchAll($0, sql: "SELECT id FROM asset WHERE missingSince IS NULL AND facesVersion < ? ORDER BY takenAt DESC LIMIT ?",
+            try String.fetchAll($0, sql: "SELECT id FROM asset WHERE missingSince IS NULL AND kind = 'photo' AND facesVersion < ? ORDER BY takenAt DESC LIMIT ?",
                                 arguments: [FaceAnalyzer.version, limit])
         }
     }

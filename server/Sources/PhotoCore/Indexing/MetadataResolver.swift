@@ -44,13 +44,35 @@ public enum MetadataResolver {
             tz = serverTZ.secondsFromGMT(for: fileMTime)
         }
 
+        return finish(takenAt: takenAt, tz: tz, source: source, embeddedLat: probe.lat, embeddedLon: probe.lon, sidecar: sidecar)
+    }
+
+    /// Same precedence for a video: sidecar → embedded QuickTime metadata (reported as "exif") → file date.
+    public static func resolve(video: VideoProbeResult, sidecar: SidecarData?, fileMTime: Date, serverTZ: TimeZone) -> ResolvedMetadata {
+        let takenAt: Date
+        let source: String
+        let tz: Int?
+        if let s = sidecar?.takenAt {
+            (takenAt, source) = (s, "sidecar")
+            tz = video.tzOffset ?? serverTZ.secondsFromGMT(for: s)
+        } else if let d = video.takenAt {
+            (takenAt, source) = (d, "exif")
+            tz = video.tzOffset
+        } else {
+            (takenAt, source) = (fileMTime, "file")
+            tz = serverTZ.secondsFromGMT(for: fileMTime)
+        }
+        return finish(takenAt: takenAt, tz: tz, source: source, embeddedLat: video.lat, embeddedLon: video.lon, sidecar: sidecar)
+    }
+
+    private static func finish(takenAt: Date, tz: Int?, source: String, embeddedLat: Double?, embeddedLon: Double?,
+                               sidecar: SidecarData?) -> ResolvedMetadata {
         var lat: Double?, lon: Double?, locSource: String?
         if let la = sidecar?.lat, let lo = sidecar?.lon {
             (lat, lon, locSource) = (la, lo, "sidecar")
-        } else if let la = probe.lat, let lo = probe.lon {
+        } else if let la = embeddedLat, let lo = embeddedLon {
             (lat, lon, locSource) = (la, lo, "exif")
         }
-
         return ResolvedMetadata(takenAt: takenAt, tzOffset: tz, dateSource: source, lat: lat, lon: lon,
                                 locationSource: locSource, description: sidecar?.description, favorited: sidecar?.favorited)
     }

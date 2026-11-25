@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 
 public struct ScanReport: Codable, Sendable, Equatable {
     public var added = 0
@@ -8,11 +9,13 @@ public struct ScanReport: Codable, Sendable, Equatable {
     public var unchanged = 0
     public var skipped = 0
     public var skippedOther = 0
+    /// Live Photo motion clips attached (or re-attached) to their still in this run.
+    public var liveMotion = 0
     public var errors: [String] = []
 
     mutating func merge(_ o: ScanReport) {
         added += o.added; updated += o.updated; removed += o.removed; unchanged += o.unchanged
-        skipped += o.skipped; skippedOther += o.skippedOther; errors += o.errors
+        skipped += o.skipped; skippedOther += o.skippedOther; liveMotion += o.liveMotion; errors += o.errors
     }
 }
 
@@ -47,6 +50,7 @@ public final class LibraryScanner: @unchecked Sendable {
         "jpg", "jpeg", "jpe", "heic", "heif", "hif", "png", "tif", "tiff", "webp", "gif", "bmp", "avif",
         "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "pef", "srw", "3fr", "iiq", "x3f",
     ]
+    public static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "3gp", "avi", "mkv", "webm"]
 
     let db: AppDatabase
     let root: URL
@@ -77,22 +81,37 @@ public final class LibraryScanner: @unchecked Sendable {
     // MARK: - Detect changes
 
     public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> ScanReport {
-        let (dirs, candidates, failedDirs, others) = try walk(isCancelled: isCancelled)
+        let (dirs, images, videos, failedDirs, others) = try walk(isCancelled: isCancelled)
         var report = ScanReport()
         report.skippedOther = others
         let folderIds = try ensureFolders(dirs)
         var existing: [String: FileRow] = [:]
         for row in try db.writer.read({ try FileRow.filter(Column("root") == rootName).fetchAll($0) }) { existing[row.relPath] = row }
+        let probeVersions = try db.writer.read { d in
+            Dictionary(try Row.fetchAll(d, sql: "SELECT id, probeVersion FROM asset").map { ($0["id"] as String, $0["probeVersion"] as Int) },
+                       uniquingKeysWith: { a, _ in a })
+        }
         var dirEntries: [String: Set<String>] = [:]
-        var seen = Set<String>()
+        var reprobed = Set<String>()
+        let total = images.count + videos.count
 
-        for (i, c) in candidates.enumerated() {
+        // 1. Images: new or changed files are hashed; unchanged ones probed by an older scanner are re-read.
+        for (i, c) in images.enumerated() {
             if isCancelled() { throw ScanError.cancelled }
-            progress(i, candidates.count)
-            seen.insert(c.relPath)
+            progress(i, total)
             let old = existing[c.relPath]
             if let old, old.size == c.size, old.mtime == c.mtime {
-                report.unchanged += 1
+                if (probeVersions[old.assetId] ?? Asset.currentProbeVersion) < Asset.currentProbeVersion,
+                   reprobed.insert(old.assetId).inserted {
+                    if try refreshMetadata(old, url: c.url, mtime: c.mtime, dirEntries: &dirEntries) {
+                        report.updated += 1
+                    } else {
+                        report.skipped += 1
+                        report.errors.append("Unreadable image: \(c.relPath)")
+                    }
+                } else {
+                    report.unchanged += 1
+                }
                 continue
             }
             switch try indexCandidate(c, old: old, folderId: folderIds[parentRel(c.relPath)]!, dirEntries: &dirEntries) {
@@ -103,13 +122,12 @@ public final class LibraryScanner: @unchecked Sendable {
                 report.errors.append(why)
             }
         }
-        progress(candidates.count, candidates.count)
 
-        // Files that disappeared — but never those under folders we failed to read.
+        // 2. Files that disappeared — but never those under folders we failed to read.
         for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(\(rootName) root)" : d); its photos were left untouched.") }
-        let gone = existing.values.filter { row in
-            !seen.contains(row.relPath) && !failedDirs.contains { d in d.isEmpty || row.relPath.hasPrefix(d + "/") }
-        }
+        func underFailedDir(_ rel: String) -> Bool { failedDirs.contains { d in d.isEmpty || rel.hasPrefix(d + "/") } }
+        let seen = Set(images.map(\.relPath)).union(videos.map(\.relPath))
+        let gone = existing.values.filter { !seen.contains($0.relPath) && !underFailedDir($0.relPath) }
         if !gone.isEmpty {
             try db.writer.write { d in
                 for row in gone {
@@ -117,8 +135,18 @@ public final class LibraryScanner: @unchecked Sendable {
                     try self.markMissingIfOrphaned(d, assetId: row.assetId)
                 }
             }
-            report.removed = gone.count
+            report.removed += gone.count
         }
+        try removeVanishedMotion(present: Set(videos.map(\.relPath)), keep: underFailedDir)
+
+        // 3. Videos: Live Photo motion clips attach to their still; the rest become video assets.
+        try indexVideos(videos, existing: existing, probeVersions: probeVersions, folderIds: folderIds,
+                        dirEntries: &dirEntries, report: &report) { i in
+            if isCancelled() { throw ScanError.cancelled }
+            progress(images.count + i, total)
+        }
+        progress(total, total)
+
         try pruneEmptyFolders(keeping: Set(dirs).union(failedDirs))
         return report
     }
@@ -126,16 +154,23 @@ public final class LibraryScanner: @unchecked Sendable {
     enum IndexOutcome { case indexed(String), skipped(String) }
 
     /// Probes, hashes and records one file (new or changed). Shared by scans and uploads.
-    func indexCandidate(_ c: Candidate, old: FileRow?, folderId: Int64, dirEntries: inout [String: Set<String>]) throws -> IndexOutcome {
-        guard let probe = ImageProbe.probe(url: c.url) else { return .skipped("Unreadable image: \(c.relPath)") }
+    /// `video` passes an already-probed video so it isn't probed twice.
+    func indexCandidate(_ c: Candidate, old: FileRow?, folderId: Int64, dirEntries: inout [String: Set<String>],
+                        video: VideoProbeResult? = nil) throws -> IndexOutcome {
+        let probe: MediaProbe
+        if let video {
+            probe = .video(video, ext: c.url.pathExtension.lowercased())
+        } else if let p = MediaProbe.probe(url: c.url) {
+            probe = p
+        } else {
+            return .skipped("\(MediaProbe.isVideo(c.url) ? "Unreadable video" : "Unreadable image"): \(c.relPath)")
+        }
         let id: String
         do { id = try hasher(c.url) } catch {
             return .skipped("Cannot read \(c.relPath): \(error.localizedDescription)")
         }
         let sidecarRel = sidecarPath(for: c, dirRel: parentRel(c.relPath), cache: &dirEntries)
-        let sidecar = sidecarRel.flatMap { try? Data(contentsOf: root.appendingPathComponent($0)) }.flatMap(SidecarParser.parse)
-        let meta = MetadataResolver.resolve(probe: probe, sidecar: sidecar,
-                                            fileMTime: Date(timeIntervalSince1970: c.mtime), serverTZ: serverTZ)
+        let meta = resolve(probe, sidecarRel: sidecarRel, mtime: c.mtime)
         try db.writer.write { d in
             try self.upsertAsset(d, id: id, probe: probe, meta: meta)
             if var row = old {
@@ -193,34 +228,50 @@ public final class LibraryScanner: @unchecked Sendable {
                 report.errors.append("File not found: \(row.relPath)")
                 continue
             }
-            guard let probe = ImageProbe.probe(url: url),
-                  let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? row.mtime
+            guard attrs != nil, try refreshMetadata(row, url: url, mtime: mtime, dirEntries: &dirEntries) else {
                 report.skipped += 1
-                report.errors.append("Unreadable image: \(row.relPath)")
+                report.errors.append("\(MediaProbe.isVideo(url) ? "Unreadable video" : "Unreadable image"): \(row.relPath)")
                 continue
             }
             done.insert(row.assetId)
-            let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? row.mtime
-            let c = Candidate(relPath: row.relPath, url: url, size: row.size, mtime: mtime)
-            let sidecarRel = sidecarPath(for: c, dirRel: parentRel(row.relPath), cache: &dirEntries)
-            let sidecar = sidecarRel.flatMap { try? Data(contentsOf: root.appendingPathComponent($0)) }.flatMap(SidecarParser.parse)
-            let meta = MetadataResolver.resolve(probe: probe, sidecar: sidecar, fileMTime: Date(timeIntervalSince1970: mtime), serverTZ: serverTZ)
-            try db.writer.write { d in
-                var r = row
-                r.sidecarRelPath = sidecarRel
-                try r.update(d)
-                try self.applyMetadata(d, id: row.assetId, probe: probe, meta: meta)
-                try ChangeLog.record(d, entity: "asset", id: row.assetId, op: "upsert")
-            }
             report.updated += 1
         }
+        try refreshMotion(isCancelled: isCancelled)
         progress(rows.count, rows.count)
         return report
     }
 
+    /// Re-probes one file and rewrites its machine-derived metadata, without rehashing. False when unreadable.
+    func refreshMetadata(_ row: FileRow, url: URL, mtime: Double, dirEntries: inout [String: Set<String>]) throws -> Bool {
+        guard let probe = MediaProbe.probe(url: url) else { return false }
+        let c = Candidate(relPath: row.relPath, url: url, size: row.size, mtime: mtime)
+        let sidecarRel = sidecarPath(for: c, dirRel: parentRel(row.relPath), cache: &dirEntries)
+        let meta = resolve(probe, sidecarRel: sidecarRel, mtime: mtime)
+        try db.writer.write { d in
+            var r = row
+            r.sidecarRelPath = sidecarRel
+            try r.update(d)
+            try self.applyMetadata(d, id: row.assetId, probe: probe, meta: meta)
+            try ChangeLog.record(d, entity: "asset", id: row.assetId, op: "upsert")
+        }
+        return true
+    }
+
+    func resolve(_ probe: MediaProbe, sidecarRel: String?, mtime: Double) -> ResolvedMetadata {
+        let sidecar = sidecarRel.flatMap { try? Data(contentsOf: root.appendingPathComponent($0)) }.flatMap(SidecarParser.parse)
+        let date = Date(timeIntervalSince1970: mtime)
+        switch probe {
+        case .image(let p): return MetadataResolver.resolve(probe: p, sidecar: sidecar, fileMTime: date, serverTZ: serverTZ)
+        case .video(let v, _): return MetadataResolver.resolve(video: v, sidecar: sidecar, fileMTime: date, serverTZ: serverTZ)
+        }
+    }
+
     // MARK: - Helpers
 
-    func walk(isCancelled: () -> Bool = { false }) throws -> (dirs: [String], files: [Candidate], failed: [String], others: Int) {
+    func walk(isCancelled: () -> Bool = { false }) throws
+        -> (dirs: [String], images: [Candidate], videos: [Candidate], failed: [String], others: Int) {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: root.path, isDirectory: &isDir), isDir.boolValue,
@@ -238,6 +289,7 @@ public final class LibraryScanner: @unchecked Sendable {
         }
         var dirs = [""]
         var files: [Candidate] = []
+        var videos: [Candidate] = []
         var others = 0
         var visited = 0
         for case let url as URL in e {
@@ -260,9 +312,12 @@ public final class LibraryScanner: @unchecked Sendable {
                 dirs.append(rel)
             } else if v.isRegularFile == true {
                 let ext = url.pathExtension.lowercased()
+                let c = Candidate(relPath: rel, url: url, size: Int64(v.fileSize ?? 0),
+                                  mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
                 if Self.imageExtensions.contains(ext) {
-                    files.append(Candidate(relPath: rel, url: url, size: Int64(v.fileSize ?? 0),
-                                           mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0))
+                    files.append(c)
+                } else if Self.videoExtensions.contains(ext) {
+                    videos.append(c)
                 } else if ext != "json" {
                     others += 1
                 }
@@ -273,7 +328,8 @@ public final class LibraryScanner: @unchecked Sendable {
             if !failed.contains(rel) { failed.append(rel) }
         }
         files.sort { $0.relPath < $1.relPath }
-        return (dirs, files, failed, others)
+        videos.sort { $0.relPath < $1.relPath }
+        return (dirs, files, videos, failed, others)
     }
 
     func parentRel(_ rel: String) -> String {
@@ -320,7 +376,7 @@ public final class LibraryScanner: @unchecked Sendable {
         return dirRel.isEmpty ? hit : dirRel + "/" + hit
     }
 
-    func upsertAsset(_ d: Database, id: String, probe: ProbeResult, meta: ResolvedMetadata) throws {
+    func upsertAsset(_ d: Database, id: String, probe: MediaProbe, meta: ResolvedMetadata) throws {
         if var existing = try Asset.fetchOne(d, key: id) {
             if existing.missingSince != nil {
                 existing.missingSince = nil
@@ -336,13 +392,29 @@ public final class LibraryScanner: @unchecked Sendable {
     }
 
     /// Writes machine-derived fields; never touches user-set values.
-    func applyMetadata(_ d: Database, id: String, probe: ProbeResult, meta: ResolvedMetadata) throws {
+    func applyMetadata(_ d: Database, id: String, probe: MediaProbe, meta: ResolvedMetadata) throws {
         guard var a = try Asset.fetchOne(d, key: id) else { return }
-        a.width = probe.width; a.height = probe.height; a.mime = probe.mime
+        switch probe {
+        case .image(let p):
+            a.kind = "photo"
+            a.width = p.width; a.height = p.height; a.mime = p.mime
+            a.cameraMake = p.make; a.cameraModel = p.model; a.lens = p.lens
+            a.iso = p.iso; a.aperture = p.aperture; a.shutter = p.shutter; a.focal = p.focal
+            a.contentId = p.contentId
+        case .video(let v, let ext):
+            a.kind = "video"
+            a.width = v.width; a.height = v.height
+            a.mime = UTType(filenameExtension: ext)?.identifier ?? UTType.movie.identifier
+            a.cameraMake = v.make; a.cameraModel = v.model; a.lens = nil
+            a.iso = nil; a.aperture = nil; a.shutter = nil; a.focal = nil
+            a.contentId = v.contentId
+            a.duration = v.duration; a.videoCodec = v.codec; a.videoHDR = v.hdr
+            a.servePlan = VideoProbe.servePlan(codec: v.codec, ext: ext, width: v.width, height: v.height)
+            a.videoError = nil
+        }
+        a.probeVersion = Asset.currentProbeVersion
         a.takenAt = meta.takenAt; a.tzOffset = meta.tzOffset; a.dateSource = meta.dateSource
         a.lat = meta.lat; a.lon = meta.lon; a.locationSource = meta.locationSource
-        a.cameraMake = probe.make; a.cameraModel = probe.model; a.lens = probe.lens
-        a.iso = probe.iso; a.aperture = probe.aperture; a.shutter = probe.shutter; a.focal = probe.focal
         if !a.favoriteUserSet, let f = meta.favorited { a.favorite = f }
         if a.description == nil { a.description = meta.description }
         try a.update(d)

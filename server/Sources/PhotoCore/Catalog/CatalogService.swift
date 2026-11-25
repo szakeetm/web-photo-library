@@ -196,20 +196,35 @@ public final class CatalogService: Sendable {
     /// Absolute URL of an original that still matches what was indexed (size + mtime), so derivatives
     /// are never built from a file that changed since the last scan.
     public func sourceURL(id: String) throws -> URL? {
-        let bases: [String: URL] = [
+        let bases = try rootURLs()
+        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("root"), Column("relPath")).fetchAll($0) }
+        for row in rows {
+            if let url = Self.unchanged(bases[row.root], row.relPath, size: row.size, mtime: row.mtime) { return url }
+        }
+        return nil
+    }
+
+    /// The still's Live Photo motion clip, if it is still on disk as scanned.
+    public func motionURL(id: String) throws -> URL? {
+        guard let row = try db.writer.read({ try MotionRow.fetchOne($0, key: id) }) else { return nil }
+        return Self.unchanged(try rootURLs()[row.root], row.relPath, size: row.size, mtime: row.mtime)
+    }
+
+    private func rootURLs() throws -> [String: URL] {
+        [
             Roots.library: try settings.get(.libraryPath).map { URL(fileURLWithPath: $0) },
             Roots.uploads: try settings.get(.uploadsPath).map { URL(fileURLWithPath: $0) },
         ].compactMapValues { $0 }
-        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("root"), Column("relPath")).fetchAll($0) }
-        for row in rows {
-            guard let base = bases[row.root] else { continue }
-            let url = base.appendingPathComponent(row.relPath)
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  (attrs[.size] as? NSNumber)?.int64Value == row.size,
-                  (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 == row.mtime,
-                  FileManager.default.isReadableFile(atPath: url.path) else { continue }
-            return url
-        }
-        return nil
+    }
+
+    /// The file under `base` when it is readable and its size and mtime still match the scan.
+    private static func unchanged(_ base: URL?, _ relPath: String, size: Int64, mtime: Double) -> URL? {
+        guard let base else { return nil }
+        let url = base.appendingPathComponent(relPath)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              (attrs[.size] as? NSNumber)?.int64Value == size,
+              (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 == mtime,
+              FileManager.default.isReadableFile(atPath: url.path) else { return nil }
+        return url
     }
 }

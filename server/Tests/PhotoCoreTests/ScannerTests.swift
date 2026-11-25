@@ -73,7 +73,7 @@ import GRDB
         Fixtures.writeJPEG(to: root.appendingPathComponent("A/b.jpg"), color: (0, 1, 0))
         Fixtures.writeJPEG(to: root.appendingPathComponent("B/c.jpg"), color: (0, 0, 1))
         try! Data("{}".utf8).write(to: root.appendingPathComponent("A/b.jpg.json"))
-        try! Data().write(to: root.appendingPathComponent("B/clip.mov"))
+        try! Data().write(to: root.appendingPathComponent("B/notes.txt"))  // non-media: ignored
         return root
     }
 
