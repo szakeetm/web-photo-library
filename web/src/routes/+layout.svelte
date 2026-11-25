@@ -28,6 +28,16 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
+{#if app.updateRequired || updated.current}
+	<div class="update" role="alertdialog" aria-modal="true" aria-labelledby="update-title">
+		<div class="update-card">
+			<h2 id="update-title">Update required</h2>
+			<p class="muted">A new version of Photos is installed on the server. Update to continue.</p>
+			<button class="btn primary" onclick={() => location.reload()}>Update now</button>
+		</div>
+	</div>
+{/if}
+
 <div class="shell">
 	<nav class="sidebar" aria-label="Sections">
 		<div class="brand">Photos</div>
@@ -36,17 +46,6 @@
 		{/each}
 	</nav>
 	<main>
-		{#if app.compat === 'required'}
-			<div class="banner update">
-				This app is too old for the server. <button class="btn primary" onclick={() => location.reload()}>Update now</button>
-			</div>
-		{:else if updated.current || app.compat === 'available'}
-			<div class="banner update">
-				A new version of Photos is available. <button class="btn primary" onclick={() => location.reload()}>Update</button>
-			</div>
-		{:else if app.compat === 'older'}
-			<div class="banner">The server is older than this app. Some features may not work until the server is updated.</div>
-		{/if}
 		{#if app.error}
 			<div class="banner">Can't reach the server: {app.error}</div>
 		{/if}
@@ -97,13 +96,29 @@
 	.tabbar a.active {
 		color: var(--accent);
 	}
-	.banner.update {
-		background: var(--bg-elevated);
-		color: var(--fg);
+	.update {
+		position: fixed;
+		inset: 0;
+		z-index: 1000;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
+		justify-content: center;
+		padding: 24px;
+		background: rgba(0, 0, 0, 0.45);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+	}
+	.update-card {
+		background: var(--bg);
+		border-radius: 14px;
+		padding: 22px;
+		max-width: 340px;
+		text-align: center;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+	}
+	.update-card h2 {
+		margin: 0 0 8px;
+		font-size: 18px;
 	}
 	.banner {
 		background: #ff9f0a;

@@ -13,14 +13,12 @@ class AppState {
 	libraryConfigured = $state(true);
 	server = $state<ServerInfo | null>(null);
 	readonly clientVersion = version;
-	/** 'required': server refuses this client; 'available': server is newer; 'older': server is older than this app. */
-	compat = $state<'ok' | 'available' | 'required' | 'older'>('ok');
+	/** True when this app doesn't match the server (API or payload format): the user must update. */
+	updateRequired = $state(false);
 
 	constructor() {
-		onServerApiVersion((serverApi, updateRequired) => {
-			if (updateRequired) this.compat = 'required';
-			else if (serverApi > CLIENT_API_VERSION) this.compat = 'available';
-			else if (serverApi < CLIENT_API_VERSION) this.compat = 'older';
+		onServerApiVersion((serverApi, refused) => {
+			if (refused || serverApi !== CLIENT_API_VERSION) this.updateRequired = true;
 		});
 	}
 	private started = false;
@@ -37,9 +35,9 @@ class AppState {
 			const health = await api.health();
 			this.server = health;
 			this.libraryConfigured = health.libraryConfigured;
-			if (health.minClientApiVersion > CLIENT_API_VERSION) this.compat = 'required';
+			if (health.apiVersion !== CLIENT_API_VERSION) this.updateRequired = true;
 			const snap = await api.catalog();
-			if (snap.format !== CATALOG_FORMAT) this.compat = snap.format > CATALOG_FORMAT ? 'required' : 'older';
+			if (snap.format !== CATALOG_FORMAT) this.updateRequired = true;
 			this.assets = snap.assets.slice().reverse();
 			this.folders = snap.folders;
 			this.error = null;

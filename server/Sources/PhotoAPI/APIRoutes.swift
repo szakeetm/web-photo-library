@@ -42,7 +42,7 @@ struct APIRoutes {
     let fileIO = FileIO()
 
     struct Health: Encodable {
-        let ok: Bool; let version: String; let apiVersion: Int; let minClientApiVersion: Int
+        let ok: Bool; let version: String; let apiVersion: Int
         let webVersion: String?; let libraryConfigured: Bool
     }
     struct SettingsBody: Codable { var libraryPath: String?; var ownerLogin: String? }
@@ -59,7 +59,7 @@ struct APIRoutes {
         let api = router.group("api")
 
         api.get("health") { _, _ in
-            try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion, minClientApiVersion: minClientApiVersion,
+            try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion,
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil))
         }

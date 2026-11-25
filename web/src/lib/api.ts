@@ -2,7 +2,7 @@
 
 export type ImageFmt = 'heic' | 'jpeg';
 
-/** API contract version this client was built against (must match the server's `apiVersion`). */
+/** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
 export const CLIENT_API_VERSION = 1;
 /** Catalog payload format this client understands. */
 export const CATALOG_FORMAT = 1;
@@ -30,7 +30,6 @@ export interface ServerInfo {
 	ok: boolean;
 	version: string;
 	apiVersion: number;
-	minClientApiVersion: number;
 	webVersion: string | null;
 	libraryConfigured: boolean;
 }

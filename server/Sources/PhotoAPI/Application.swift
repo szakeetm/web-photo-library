@@ -4,10 +4,9 @@ import HTTPTypes
 import PhotoCore
 
 public let serverVersion = "0.1.0"
-/// Version of the HTTP API contract. Bump when request/response shapes change incompatibly.
+/// Version of the HTTP API contract. Bump whenever request/response shapes change.
+/// Clients must match exactly; any other client gets 426 and reloads the current web app.
 public let apiVersion = 1
-/// Oldest client API version this server still serves; older clients get 426 and must update.
-public let minClientApiVersion = 1
 
 public func buildApplication(services: Services, webRoot: URL?, port: Int) -> some ApplicationProtocol {
     let router = Router()
@@ -20,7 +19,7 @@ public func buildApplication(services: Services, webRoot: URL?, port: Int) -> so
     return Application(router: router, configuration: .init(address: .hostname("127.0.0.1", port: port), serverName: "PhotoServer"))
 }
 
-/// Stamps every API response with the API/server versions and refuses clients that are too old.
+/// Stamps every API response with the API/server versions and refuses clients built for another API version.
 struct VersionMiddleware<Context: RequestContext>: RouterMiddleware {
     static var apiHeader: HTTPField.Name { HTTPField.Name("X-API-Version")! }
     static var serverHeader: HTTPField.Name { HTTPField.Name("X-Server-Version")! }
@@ -29,9 +28,9 @@ struct VersionMiddleware<Context: RequestContext>: RouterMiddleware {
     func handle(_ request: Request, context: Context, next: (Request, Context) async throws -> Response) async throws -> Response {
         guard request.uri.path.hasPrefix("/api/") else { return try await next(request, context) }
         var response: Response
-        if let raw = request.headers[Self.clientHeader], let client = Int(raw), client < minClientApiVersion,
+        if let raw = request.headers[Self.clientHeader], Int(raw) != apiVersion,
            request.uri.path != "/api/health" {
-            response = errorResponse(.upgradeRequired, "This app version is too old for the server. Please update.", updateRequired: true)
+            response = errorResponse(.upgradeRequired, "This app doesn't match the server. Please update.", updateRequired: true)
         } else {
             do { response = try await next(request, context) } catch let e as HTTPError {
                 response = errorResponse(e.status, e.body ?? e.status.reasonPhrase)

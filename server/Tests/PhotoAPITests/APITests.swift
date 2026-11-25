@@ -204,7 +204,7 @@ import UniformTypeIdentifiers
             }
             try await client.execute(uri: "/api/health", method: .get) { res in
                 let body = String(buffer: res.body)
-                #expect(body.contains("\"apiVersion\":\(apiVersion)") && body.contains("\"minClientApiVersion\":\(minClientApiVersion)"))
+                #expect(body.contains("\"apiVersion\":\(apiVersion)") && !body.contains("minClientApiVersion"))
                 #expect(body.contains("\"webVersion\":\"1795605986338\""))
             }
             try await client.execute(uri: "/api/catalog", method: .get) { res in
@@ -213,14 +213,17 @@ import UniformTypeIdentifiers
         }
     }
 
-    @Test func tooOldClientGetsUpgradeRequired() async throws {
+    @Test func mismatchedClientGetsUpgradeRequired() async throws {
         let e = try env()
         try await e.app.test(.router) { client in
-            let h: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: "0"]
-            try await client.execute(uri: "/api/catalog", method: .get, headers: h) { res in
-                #expect(res.status == .upgradeRequired)
-                #expect(String(buffer: res.body).contains("updateRequired"))
+            for v in [apiVersion - 1, apiVersion + 1] {
+                let h: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: String(v)]
+                try await client.execute(uri: "/api/catalog", method: .get, headers: h) { res in
+                    #expect(res.status == .upgradeRequired, "client api \(v)")
+                    #expect(String(buffer: res.body).contains("updateRequired"))
+                }
             }
+            let h: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: "0"]
             // health must stay reachable so the client can learn what to do
             try await client.execute(uri: "/api/health", method: .get, headers: h) { res in #expect(res.status == .ok) }
             let ok: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: String(apiVersion)]
