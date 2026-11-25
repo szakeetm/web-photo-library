@@ -1,0 +1,8 @@
+.superpowers/
+.DS_Store
+server/.build/
+server/.swiftpm/
+web/node_modules/
+web/build/
+web/.svelte-kit/
+*.xcodeproj
