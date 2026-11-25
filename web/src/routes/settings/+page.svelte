@@ -31,6 +31,7 @@
 	}
 
 	let wasRunning = false;
+	let lastSeenJob = 0;
 	async function poll() {
 		try {
 			const j = await api.jobs();
@@ -40,6 +41,19 @@
 			if (wasRunning && !running) {
 				await app.reload();
 				await loadSettings();
+				// Surface the outcome of the job that just finished.
+				const last = j.recent[0];
+				if (last && last.id !== lastSeenJob) {
+					lastSeenJob = last.id;
+					if (last.state === 'failed') message = { text: last.error ?? 'Job failed', error: true };
+					else if (last.state === 'done' && last.message) {
+						const [summary, ...problems] = last.message.split('\n');
+						message = {
+							text: problems.length ? `${summary}. ${problems.length} problem(s) — see Recent jobs.` : summary,
+							error: problems.length > 0
+						};
+					}
+				}
 			}
 			wasRunning = running;
 		} catch {
@@ -93,6 +107,7 @@
 	}
 
 	async function start(kind: JobKind) {
+		if (kind === 'purge-missing' && !confirm('Permanently forget photos whose files are no longer found?\n\nTheir favourites, descriptions and (later) edits, albums and faces are deleted. This cannot be undone.')) return;
 		try {
 			await api.startJob(kind);
 			wasRunning = true;
@@ -121,6 +136,20 @@
 			<h2>Welcome</h2>
 			<p>Choose the folder on this Mac that holds your photos. It is only ever read, never modified.</p>
 			<button class="btn primary" onclick={() => (picker = 'library')}>Choose library folder…</button>
+		</div>
+	{/if}
+
+	{#if settings?.dataLocationMissing}
+		<div class="msg error">
+			The data location <strong>{settings.dataDir}</strong> is not available — is its drive connected? Connect it and
+			restart the server, or start over with an empty library in the default location.
+			<div style="margin-top: 8px">
+				<button class="btn danger" onclick={async () => {
+					if (!confirm('Start over in the default location? The photos on the missing drive are not deleted.')) return;
+					await api.resetDataLocation();
+					setTimeout(() => location.reload(), 2500);
+				}}>Use default location</button>
+			</div>
 		</div>
 	{/if}
 

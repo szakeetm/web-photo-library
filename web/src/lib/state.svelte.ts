@@ -1,6 +1,7 @@
 import { version } from '$app/env';
 import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type FolderNode, type ImageFmt, type ServerInfo } from './api';
 import { supportsHeic } from './heic';
+import { sortByLocalTime } from './dates';
 
 class AppState {
 	/** All photos, oldest first (Photos-style: newest at the bottom). */
@@ -38,7 +39,7 @@ class AppState {
 			if (health.apiVersion !== CLIENT_API_VERSION) this.updateRequired = true;
 			const snap = await api.catalog();
 			if (snap.format !== CATALOG_FORMAT) this.updateRequired = true;
-			this.assets = snap.assets.slice().reverse();
+			this.assets = sortByLocalTime(snap.assets);
 			this.folders = snap.folders;
 			this.error = null;
 		} catch (e) {

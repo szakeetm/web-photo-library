@@ -83,9 +83,11 @@
 			: window.innerWidth < 600 ? 1 : 2;
 		measure();
 
+		// Gestures belong to the viewer while it is open.
+		const viewerOpen = () => !!document.querySelector('.viewer');
 		let wheelAcc = 0;
 		const onWheel = (e: WheelEvent) => {
-			if (!e.ctrlKey) return;
+			if (!e.ctrlKey || viewerOpen()) return;
 			e.preventDefault();
 			wheelAcc += e.deltaY;
 			if (Math.abs(wheelAcc) > 40) {
@@ -95,20 +97,23 @@
 		};
 		let gestureScale = 1;
 		const onGestureStart = (e: Event) => {
+			if (viewerOpen()) return;
 			e.preventDefault();
 			gestureScale = 1;
 		};
 		const onGestureChange = (e: Event) => {
+			if (viewerOpen()) return;
 			e.preventDefault();
 			gestureScale = (e as unknown as { scale: number }).scale;
 		};
 		const onGestureEnd = (e: Event) => {
+			if (viewerOpen()) return;
 			e.preventDefault();
 			if (gestureScale > 1.15) setDensity(density + 1);
 			else if (gestureScale < 0.87) setDensity(density - 1);
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || document.querySelector('[role=dialog]')) return;
+			if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || viewerOpen() || document.querySelector('[role=dialog]')) return;
 			if (e.key === '+' || e.key === '=') setDensity(density + 1);
 			if (e.key === '-') setDensity(density - 1);
 		};

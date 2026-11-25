@@ -185,4 +185,27 @@ import GRDB
         let a = try #require(try db.writer.read { try Asset.fetchOne($0, key: id) })
         #expect(a.favorite && a.takenAt == Date(timeIntervalSince1970: 1_000_000_000))
     }
+
+    @Test func unreadableSubfolderIsNotTreatedAsDeleted() throws {
+        let root = threeImages()
+        let (db, s) = try make(root)
+        _ = try scan(s)
+        let sub = root.appendingPathComponent("A").path
+        chmod(sub, 0o000)
+        defer { chmod(sub, 0o755) }
+        let r = try scan(s)
+        #expect(r.removed == 0)
+        #expect(r.errors.contains { $0.contains("A") })
+        #expect(try db.writer.read { try Asset.filter(Column("missingSince") != nil).fetchCount($0) } == 0)
+    }
+
+    @Test func excludedDirectoriesAreSkipped() throws {
+        let root = threeImages()
+        Fixtures.writeJPEG(to: root.appendingPathComponent("data/cache/thumb/ab/x.heic"))
+        let db = try AppDatabase.inMemory()
+        let s = LibraryScanner(db: db, root: root, serverTZ: TimeZone(identifier: "UTC")!,
+                               excluding: [root.appendingPathComponent("data")])
+        let r = try scan(s)
+        #expect(r.added == 3)
+    }
 }

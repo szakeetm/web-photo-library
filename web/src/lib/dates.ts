@@ -30,16 +30,24 @@ export interface MonthGroup<T> {
 	items: T[];
 }
 
-/** Consecutive runs of the same local month, preserving input order. */
+/** Local wall-clock time as a sortable number (ms). */
+export const localTime = (a: Pick<CatalogAsset, 't' | 'tz'>) => Date.parse(a.t) + (a.tz ?? 0) * 1000;
+
+/** Oldest first by the time shown to the user (local time where each photo was taken). */
+export function sortByLocalTime<T extends Pick<CatalogAsset, 't' | 'tz' | 'id'>>(assets: T[]): T[] {
+	return assets.slice().sort((x, y) => localTime(x) - localTime(y) || (x.id < y.id ? -1 : 1));
+}
+
+/** Groups by local month in first-seen order; one group per month even if input isn't sorted. */
 export function groupByMonth<T extends Pick<CatalogAsset, 't' | 'tz'>>(assets: T[]): MonthGroup<T>[] {
-	const groups: MonthGroup<T>[] = [];
+	const groups = new Map<string, MonthGroup<T>>();
 	for (const a of assets) {
 		const key = monthKey(a);
-		const last = groups[groups.length - 1];
-		if (last && last.key === key) last.items.push(a);
-		else groups.push({ key, items: [a] });
+		let g = groups.get(key);
+		if (!g) groups.set(key, (g = { key, items: [] }));
+		g.items.push(a);
 	}
-	return groups;
+	return [...groups.values()];
 }
 
 export function monthLabel(key: string, locale?: string): string {

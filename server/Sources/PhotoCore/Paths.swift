@@ -46,14 +46,28 @@ public enum Bootstrap {
     }
 }
 
+/// Case-insensitive (APFS) path containment checks.
+public enum PathOverlap {
+    public static func normalized(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path.lowercased()
+    }
+    /// True when the paths are equal or one contains the other.
+    public static func overlaps(_ a: String, _ b: String) -> Bool {
+        let x = normalized(a), y = normalized(b)
+        return x == y || x.hasPrefix(y + "/") || y.hasPrefix(x + "/")
+    }
+}
+
 public enum DataMoveError: Error, CustomStringConvertible {
-    case sameLocation, nested, alreadyHasLibrary(String), notWritable(String)
+    case sameLocation, nested, alreadyHasLibrary(String), notWritable(String), targetNotEmpty(String), overlapsLibrary
     public var description: String {
         switch self {
         case .sameLocation: "That is already the data location."
         case .nested: "The new location can't be inside the current one (or vice versa)."
         case .alreadyHasLibrary(let p): "\(p) already contains a library database."
         case .notWritable(let p): "Cannot write to \(p)."
+        case .targetNotEmpty(let p): "\(p) already contains a \"cache\" folder. Choose an empty folder or a new one."
+        case .overlapsLibrary: "The data location can't be inside the photo library (or contain it)."
         }
     }
 }
@@ -61,28 +75,32 @@ public enum DataMoveError: Error, CustomStringConvertible {
 public enum DataMover {
     /// Copies the database (consistent snapshot) and caches to `newDir`, switches the bootstrap
     /// config, then removes the old copies. The caller must restart to open the new database.
-    public static func move(db: AppDatabase, from old: AppPaths, to newDir: URL, bootstrapDir: URL) throws {
+    public static func move(db: AppDatabase, from old: AppPaths, to newDir: URL, bootstrapDir: URL,
+                            libraryPath: String? = nil) throws {
         let fm = FileManager.default
-        let src = old.dataDir.standardizedFileURL.resolvingSymlinksInPath().path
-        let dst = newDir.standardizedFileURL.resolvingSymlinksInPath().path
-        if src == dst { throw DataMoveError.sameLocation }
-        if dst.hasPrefix(src + "/") || src.hasPrefix(dst + "/") { throw DataMoveError.nested }
+        if PathOverlap.normalized(old.dataDir.path) == PathOverlap.normalized(newDir.path) { throw DataMoveError.sameLocation }
+        if PathOverlap.overlaps(old.dataDir.path, newDir.path) { throw DataMoveError.nested }
+        if let lib = libraryPath, PathOverlap.overlaps(lib, newDir.path) { throw DataMoveError.overlapsLibrary }
         let new = AppPaths(dataDir: newDir)
         if fm.fileExists(atPath: new.databaseURL.path) { throw DataMoveError.alreadyHasLibrary(newDir.path) }
+        if fm.fileExists(atPath: new.cacheDir.path) { throw DataMoveError.targetNotEmpty(newDir.path) }
         do { try fm.createDirectory(at: newDir, withIntermediateDirectories: true) } catch {
             throw DataMoveError.notWritable(newDir.path)
         }
         guard fm.isWritableFile(atPath: newDir.path) else { throw DataMoveError.notWritable(newDir.path) }
 
-        try db.writer.writeWithoutTransaction { try $0.execute(sql: "VACUUM INTO ?", arguments: [new.databaseURL.path]) }
+        // Only paths created by this call are ever removed on failure.
+        var created: [URL] = []
         do {
+            try db.writer.writeWithoutTransaction { try $0.execute(sql: "VACUUM INTO ?", arguments: [new.databaseURL.path]) }
+            created.append(new.databaseURL)
             if fm.fileExists(atPath: old.cacheDir.path) {
                 try fm.copyItem(at: old.cacheDir, to: new.cacheDir)
+                created.append(new.cacheDir)
             }
             try Bootstrap.save(BootstrapConfig(dataDir: newDir.path), in: bootstrapDir)
         } catch {
-            try? fm.removeItem(at: new.databaseURL)
-            try? fm.removeItem(at: new.cacheDir)
+            for url in created { try? fm.removeItem(at: url) }
             throw error
         }
         // Old copies are no longer referenced.

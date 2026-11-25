@@ -48,7 +48,7 @@ struct APIRoutes {
     struct SettingsBody: Codable { var libraryPath: String?; var ownerLogin: String? }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let ownerLogin: String?
-        let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64
+        let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
     }
     struct MoveBody: Decodable { let path: String }
     struct MoveResponse: Encodable { let dataDir: String; let restarting: Bool }
@@ -76,6 +76,9 @@ struct APIRoutes {
                 guard (try? FileManager.default.contentsOfDirectory(atPath: p)) != nil else {
                     return errorResponse(.badRequest, "Folder is not readable: \(p). Grant PhotoServer Full Disk Access.")
                 }
+                if PathOverlap.overlaps(p, services.paths.dataDir.path) {
+                    return errorResponse(.badRequest, "The library can't contain the app's data location (\(services.paths.dataDir.path)), or be inside it.")
+                }
                 try services.settings.set(.libraryPath, p)
             }
             if let o = body.ownerLogin { try services.settings.set(.ownerLogin, o.isEmpty ? nil : o) }
@@ -84,11 +87,15 @@ struct APIRoutes {
 
         api.post("data/move") { req, ctx in
             let body = try await req.decode(as: MoveBody.self, context: ctx)
-            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for the running job to finish first.") }
+            if services.dataLocationMissing { return errorResponse(.conflict, "The data location is unavailable.") }
+            if services.jobs.current() != nil || services.jobs.recent(limit: 5).contains(where: { $0.state == "queued" }) {
+                return errorResponse(.conflict, "Wait for running jobs to finish first.")
+            }
             let target = URL(fileURLWithPath: body.path, isDirectory: true)
             do {
                 try await blocking {
-                    try DataMover.move(db: services.db, from: services.paths, to: target, bootstrapDir: services.bootstrapDir)
+                    try DataMover.move(db: services.db, from: services.paths, to: target, bootstrapDir: services.bootstrapDir,
+                                       libraryPath: try services.settings.get(.libraryPath))
                 }
             } catch let e as DataMoveError {
                 return errorResponse(.badRequest, e.description)
@@ -96,6 +103,15 @@ struct APIRoutes {
             let restart = services.restart
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { restart() }
             return try json(MoveResponse(dataDir: target.path, restarting: true))
+        }
+
+        api.post("data/reset") { _, _ in
+            // Only used to recover when the configured data folder is gone.
+            guard services.dataLocationMissing else { return errorResponse(.conflict, "The data location is available.") }
+            try Bootstrap.save(BootstrapConfig(dataDir: nil), in: services.bootstrapDir)
+            let restart = services.restart
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { restart() }
+            return try json(MoveResponse(dataDir: services.bootstrapDir.path, restarting: true))
         }
 
         api.get("fs/list") { req, _ in
@@ -176,6 +192,6 @@ struct APIRoutes {
         }
         return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), ownerLogin: try s.get(.ownerLogin),
                                          dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
-                                         databaseBytes: dbBytes))
+                                         databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing))
     }
 }

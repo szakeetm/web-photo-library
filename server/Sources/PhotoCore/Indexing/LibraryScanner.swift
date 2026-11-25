@@ -10,6 +10,12 @@ public struct ScanReport: Codable, Sendable, Equatable {
     public var errors: [String] = []
 }
 
+final class FailedDirs: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var paths: [String] = []
+    func add(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
+}
+
 public enum ScanError: Error, Equatable, CustomStringConvertible {
     case rootUnreadable(String)
     case cancelled
@@ -33,12 +39,15 @@ public final class LibraryScanner: @unchecked Sendable {
     let root: URL
     let serverTZ: TimeZone
     let hasher: (URL) throws -> String
+    /// Directories never indexed (e.g. the app's own data folder if it sits under the library).
+    let excluding: [String]
 
-    public init(db: AppDatabase, root: URL, serverTZ: TimeZone = .current,
+    public init(db: AppDatabase, root: URL, serverTZ: TimeZone = .current, excluding: [URL] = [],
                 hasher: @escaping (URL) throws -> String = FileHasher.sha256) {
         self.db = db
         self.root = root.standardizedFileURL
         self.serverTZ = serverTZ
+        self.excluding = excluding.map { PathOverlap.normalized($0.path) }
         self.hasher = hasher
     }
 
@@ -52,7 +61,7 @@ public final class LibraryScanner: @unchecked Sendable {
     // MARK: - Detect changes
 
     public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> ScanReport {
-        let (dirs, candidates) = try walk()
+        let (dirs, candidates, failedDirs) = try walk()
         var report = ScanReport()
         let folderIds = try ensureFolders(dirs)
         var existing: [String: FileRow] = [:]
@@ -106,8 +115,11 @@ public final class LibraryScanner: @unchecked Sendable {
         }
         progress(candidates.count, candidates.count)
 
-        // Files that disappeared.
-        let gone = existing.values.filter { !seen.contains($0.relPath) }
+        // Files that disappeared — but never those under folders we failed to read.
+        for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(library root)" : d); its photos were left untouched.") }
+        let gone = existing.values.filter { row in
+            !seen.contains(row.relPath) && !failedDirs.contains { d in d.isEmpty || row.relPath.hasPrefix(d + "/") }
+        }
         if !gone.isEmpty {
             try db.writer.write { d in
                 for row in gone {
@@ -117,7 +129,7 @@ public final class LibraryScanner: @unchecked Sendable {
             }
             report.removed = gone.count
         }
-        try pruneEmptyFolders(keeping: Set(dirs))
+        try pruneEmptyFolders(keeping: Set(dirs).union(failedDirs))
         return report
     }
 
@@ -162,7 +174,7 @@ public final class LibraryScanner: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    func walk() throws -> (dirs: [String], files: [Candidate]) {
+    func walk() throws -> (dirs: [String], files: [Candidate], failed: [String]) {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: root.path, isDirectory: &isDir), isDir.boolValue,
@@ -170,27 +182,43 @@ public final class LibraryScanner: @unchecked Sendable {
             throw ScanError.rootUnreadable(root.path)
         }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        var failed: [String] = []
+        let errorBox = FailedDirs()
         guard let e = fm.enumerator(at: root, includingPropertiesForKeys: keys,
-                                    options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
+                                    options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                                    errorHandler: { url, _ in errorBox.add(url.standardizedFileURL.path); return true }) else {
             throw ScanError.rootUnreadable(root.path)
         }
         var dirs = [""]
         var files: [Candidate] = []
-        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
         for case let url as URL in e {
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(prefix) else { continue }
             let rel = String(path.dropFirst(prefix.count))
             guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
             if v.isDirectory == true {
+                if excluding.contains(PathOverlap.normalized(path)) {
+                    e.skipDescendants()
+                    continue
+                }
+                // A directory we can see but not list: keep its rows, report it.
+                if (try? fm.contentsOfDirectory(atPath: path)) == nil {
+                    failed.append(rel)
+                    e.skipDescendants()
+                }
                 dirs.append(rel)
             } else if v.isRegularFile == true, Self.imageExtensions.contains(url.pathExtension.lowercased()) {
                 files.append(Candidate(relPath: rel, url: url, size: Int64(v.fileSize ?? 0),
                                        mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0))
             }
         }
+        for p in errorBox.paths where p.hasPrefix(prefix) {
+            let rel = String(p.dropFirst(prefix.count))
+            if !failed.contains(rel) { failed.append(rel) }
+        }
         files.sort { $0.relPath < $1.relPath }
-        return (dirs, files)
+        return (dirs, files, failed)
     }
 
     func parentRel(_ rel: String) -> String {

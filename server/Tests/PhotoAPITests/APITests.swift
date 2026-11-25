@@ -182,9 +182,6 @@ import UniformTypeIdentifiers
             try await client.execute(uri: "/api/data/move", method: .post, body: ByteBuffer(string: #"{"path":"\#(dest.path)"}"#)) { res in
                 #expect(res.status == .ok)
             }
-            try await client.execute(uri: "/api/data/move", method: .post, body: ByteBuffer(string: #"{"path":"\#(dest.path)"}"#)) { res in
-                #expect(res.status == .badRequest)
-            }
         }
         #expect(FileManager.default.fileExists(atPath: dest.appendingPathComponent("library.sqlite").path))
         #expect(FileManager.default.fileExists(atPath: dest.appendingPathComponent("cache/thumb").path))
@@ -229,5 +226,40 @@ import UniformTypeIdentifiers
             let ok: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: String(apiVersion)]
             try await client.execute(uri: "/api/catalog", method: .get, headers: ok) { res in #expect(res.status == .ok) }
         }
+    }
+
+    @Test func libraryMayNotOverlapDataLocation() async throws {
+        let e = try env(configured: false)
+        let parent = e.services.paths.dataDir.deletingLastPathComponent().path
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/settings", method: .put, body: ByteBuffer(string: #"{"libraryPath":"\#(parent)"}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+        }
+    }
+
+    @Test func missingConfiguredDataLocationIsNotRecreated() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("api-\(UUID().uuidString)")
+        let boot = base.appendingPathComponent("boot")
+        let gone = base.appendingPathComponent("Volumes/Unplugged/PhotoData")
+        try Bootstrap.save(BootstrapConfig(dataDir: gone.path), in: boot)
+        let services = try Services(paths: AppPaths.resolve(bootstrapDir: boot), bootstrapDir: boot)
+        #expect(services.dataLocationMissing)
+        #expect(!FileManager.default.fileExists(atPath: gone.path))
+    }
+
+    @Test func resetDataLocationWhenMissing() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("api-\(UUID().uuidString)")
+        let boot = base.appendingPathComponent("boot")
+        try Bootstrap.save(BootstrapConfig(dataDir: base.appendingPathComponent("gone").path), in: boot)
+        let services = try Services(paths: AppPaths.resolve(bootstrapDir: boot), bootstrapDir: boot)
+        let app = buildApplication(services: services, webRoot: nil, port: 0)
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/api/settings", method: .get) { res in
+                #expect(String(buffer: res.body).contains("\"dataLocationMissing\":true"))
+            }
+            try await client.execute(uri: "/api/data/reset", method: .post) { res in #expect(res.status == .ok) }
+        }
+        #expect(Bootstrap.load(from: boot).dataDir == nil)
     }
 }

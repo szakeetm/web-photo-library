@@ -283,7 +283,18 @@
 		axis = null;
 	}
 
+	/** The system took the gesture: snap back, never navigate. */
+	function onPointerCancel(e: PointerEvent) {
+		pointers.delete(e.pointerId);
+		axis = null;
+		animateTo(() => {
+			dx = 0;
+			dy = 0;
+		});
+	}
+
 	function onWheel(e: WheelEvent) {
+		e.stopPropagation();
 		if (e.ctrlKey) {
 			e.preventDefault();
 			zoomAt(scale * Math.exp(-e.deltaY / 100), e.clientX, e.clientY);
@@ -299,10 +310,12 @@
 	let gestureStart = 1;
 	function onGestureStart(e: Event) {
 		e.preventDefault();
+		e.stopPropagation();
 		gestureStart = scale;
 	}
 	function onGestureChange(e: Event) {
 		e.preventDefault();
+		e.stopPropagation();
 		const g = e as unknown as { scale: number; clientX: number; clientY: number };
 		zoomAt(gestureStart * g.scale, g.clientX ?? vw / 2, g.clientY ?? vh / 2);
 	}
@@ -337,7 +350,7 @@
 		onpointerdown={onPointerDown}
 		onpointermove={onPointerMove}
 		onpointerup={onPointerUp}
-		onpointercancel={onPointerUp}
+		onpointercancel={onPointerCancel}
 		onwheel={onWheel}
 	>
 		{#each slides as s (s.id)}

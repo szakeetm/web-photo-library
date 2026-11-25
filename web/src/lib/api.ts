@@ -84,6 +84,7 @@ export interface Settings {
 	dataDir: string;
 	cacheBytes: number;
 	databaseBytes: number;
+	dataLocationMissing: boolean;
 }
 
 export interface Job {
@@ -154,6 +155,7 @@ export const api = {
 		call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 	moveData: (path: string) =>
 		call<{ dataDir: string; restarting: boolean }>('/api/data/move', { method: 'POST', body: JSON.stringify({ path }) }),
+	resetDataLocation: () => call<{ dataDir: string; restarting: boolean }>('/api/data/reset', { method: 'POST' }),
 	listDir: (path?: string) => call<DirListing>(`/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ''}`),
 	jobs: () => call<{ current: Job | null; recent: Job[] }>('/api/jobs'),
 	startJob: (kind: JobKind) => call<{ id: number }>(`/api/jobs/${kind}`, { method: 'POST' }),

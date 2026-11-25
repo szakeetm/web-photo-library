@@ -14,6 +14,7 @@ public final class JobRunner: @unchecked Sendable {
     let settings: SettingsStore
     let derivatives: () -> DerivativeStore
     let serverTZ: TimeZone
+    let excluding: [URL]
     private let queue = DispatchQueue(label: "photo.jobs", qos: .utility)
     private let group = DispatchGroup()
     private let lock = NSLock()
@@ -21,8 +22,9 @@ public final class JobRunner: @unchecked Sendable {
     private let gate = DispatchSemaphore(value: 1)
 
     public init(db: AppDatabase, settings: SettingsStore, derivatives: @escaping () -> DerivativeStore,
-                serverTZ: TimeZone = .current) {
+                serverTZ: TimeZone = .current, excluding: [URL] = []) {
         self.db = db
+        self.excluding = excluding
         self.settings = settings
         self.derivatives = derivatives
         self.serverTZ = serverTZ
@@ -120,12 +122,12 @@ public final class JobRunner: @unchecked Sendable {
         let cancelled = { [self] in isCancelled(id) }
         switch kind {
         case .detectChanges:
-            let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ)
+            let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ, excluding: excluding)
             let r = try scanner.detectChanges(progress: progressReporter(id, phase: "scan"), isCancelled: cancelled)
             try generateDerivatives(id: id, isCancelled: cancelled)
             return summary(r)
         case .reindex:
-            let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ)
+            let scanner = LibraryScanner(db: db, root: try libraryRoot(), serverTZ: serverTZ, excluding: excluding)
             let r = try scanner.reindex(progress: progressReporter(id, phase: "metadata"), isCancelled: cancelled)
             return summary(r)
         case .rebuildCaches:

@@ -58,4 +58,46 @@ import GRDB
             try DataMover.move(db: db, from: old, to: boot.appendingPathComponent("cache/inner"), bootstrapDir: boot)
         }
     }
+
+    @Test func moveNeverDeletesExistingCacheFolderInTarget() throws {
+        let boot = Fixtures.tempDir()
+        let old = AppPaths.resolve(bootstrapDir: boot)
+        let db = try AppDatabase(path: old.databaseURL.path)
+        try FileManager.default.createDirectory(at: old.cacheDir.appendingPathComponent("thumb"), withIntermediateDirectories: true)
+        let dest = Fixtures.tempDir()
+        let keep = dest.appendingPathComponent("cache/keep.txt")
+        try FileManager.default.createDirectory(at: keep.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("mine".utf8).write(to: keep)
+        #expect(throws: DataMoveError.self) { try DataMover.move(db: db, from: old, to: dest, bootstrapDir: boot) }
+        #expect(FileManager.default.fileExists(atPath: keep.path))
+        #expect(!FileManager.default.fileExists(atPath: dest.appendingPathComponent("library.sqlite").path))
+    }
+
+    @Test func moveRejectsNestedCaseInsensitive() throws {
+        let boot = Fixtures.tempDir()
+        let old = AppPaths.resolve(bootstrapDir: boot)
+        let db = try AppDatabase(path: old.databaseURL.path)
+        let upper = URL(fileURLWithPath: boot.path.uppercased()).appendingPathComponent("inner")
+        #expect(throws: DataMoveError.self) { try DataMover.move(db: db, from: old, to: upper, bootstrapDir: boot) }
+    }
+
+    @Test func moveRejectsLocationOverlappingLibrary() throws {
+        let boot = Fixtures.tempDir()
+        let old = AppPaths.resolve(bootstrapDir: boot)
+        let db = try AppDatabase(path: old.databaseURL.path)
+        let library = Fixtures.tempDir()
+        #expect(throws: DataMoveError.self) {
+            try DataMover.move(db: db, from: old, to: library.appendingPathComponent("data"), bootstrapDir: boot, libraryPath: library.path)
+        }
+        #expect(throws: DataMoveError.self) {
+            try DataMover.move(db: db, from: old, to: library.deletingLastPathComponent(), bootstrapDir: boot, libraryPath: library.path)
+        }
+    }
+
+    @Test func overlapHelper() {
+        #expect(PathOverlap.overlaps("/a/b", "/a/b/c"))
+        #expect(PathOverlap.overlaps("/A/B/c", "/a/b"))
+        #expect(PathOverlap.overlaps("/a/b", "/a/b"))
+        #expect(!PathOverlap.overlaps("/a/b", "/a/bc"))
+    }
 }
