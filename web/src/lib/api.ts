@@ -3,9 +3,9 @@
 export type ImageFmt = 'heic' | 'jpeg';
 
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
-export const CLIENT_API_VERSION = 4;
+export const CLIENT_API_VERSION = 5;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 4;
+export const CATALOG_FORMAT = 5;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
@@ -36,6 +36,10 @@ export interface CatalogAsset {
 	pl?: number | null;
 	/** person ids */
 	pp?: number[] | null;
+	/** video duration in seconds (videos only) */
+	dur?: number;
+	/** the photo has a Live Photo motion clip */
+	live?: boolean;
 }
 
 export interface CatalogPerson {
@@ -151,6 +155,10 @@ export interface Asset {
 	description: string | null;
 	favorite: boolean;
 	editVersion: number;
+	kind: 'photo' | 'video';
+	/** seconds (videos only) */
+	duration: number | null;
+	videoCodec: string | null;
 }
 
 export interface AssetDetail {
@@ -267,7 +275,30 @@ export const originalUrl = (id: string) => `/api/assets/${id}/original`;
 export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
 /** Full-resolution render of the current edit (made on demand on the Mac). */
 export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
+export const videoUrl = (id: string) => `/api/assets/${id}/video`;
+export const videoStatusUrl = (id: string) => `/api/assets/${id}/video/status`;
+export const motionUrl = (id: string) => `/api/assets/${id}/motion`;
 export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;
+
+/** Preview conversion of a video (or Live Photo clip), as the server reports it. */
+export interface VideoStatus {
+	state: 'ready' | 'converting' | 'queued' | 'failed' | 'unavailable';
+	progress?: number;
+	error?: string;
+}
+
+/** Library-wide "convert all videos" job. */
+export interface ConvertAllState {
+	state: 'idle' | 'running' | 'paused';
+	done: number;
+	total: number;
+	current?: string | null;
+	progress?: number | null;
+	needed: number;
+	converted: number;
+	bytes: number;
+	ffmpeg: boolean;
+}
 
 export const api = {
 	health: (signal?: AbortSignal) =>
@@ -275,6 +306,10 @@ export const api = {
 	catalog: () => call<CatalogSnapshot>('/api/catalog'),
 	changes: (since: number, catalogId: string) =>
 		call<CatalogDelta>(`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}`),
+	videoStatus: (id: string) => call<VideoStatus>(videoStatusUrl(id)),
+	videos: () => call<ConvertAllState>('/api/videos'),
+	convertAll: () => call<ConvertAllState>('/api/videos/convert-all', { method: 'POST' }),
+	pauseConversion: () => call<ConvertAllState>('/api/videos/pause', { method: 'POST' }),
 	asset: (id: string) => call<AssetDetail>(`/api/assets/${id}`),
 	settings: () => call<Settings>('/api/settings'),
 	saveSettings: (s: { libraryPath?: string; uploadsPath?: string; ownerLogin?: string; facesEnabled?: boolean; mapStyleURL?: string }) =>

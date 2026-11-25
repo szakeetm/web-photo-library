@@ -13,6 +13,14 @@ describe('albumImageUrls', () => {
 	});
 });
 
+describe('video assets', () => {
+	it('pin only the thumb and preview images, never the video', () => {
+		const v = { id: 'v', ev: 0, dur: 12.3 } as CatalogAsset;
+		const urls = albumImageUrls({ id: 1, title: 'T', coverId: null, source: 'user', assetIds: ['v'] }, new Map([['v', v]]), 'jpeg');
+		expect(urls).toEqual(['/api/thumb/v?e=0&fmt=jpeg&r=2', '/api/preview/v?e=0&fmt=jpeg&r=2']);
+	});
+});
+
 describe('folder downloads', () => {
 	const f = (id: number, parentId: number | null, relPath: string) =>
 		({ id, parentId, relPath, root: 'library', name: relPath.split('/').pop(), count: 0, coverId: null }) as unknown as FolderNode;

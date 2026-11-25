@@ -8,3 +8,14 @@ describe('api urls', () => {
 		expect(originalUrl('abc')).toBe('/api/assets/abc/original');
 	});
 });
+
+describe('video urls', () => {
+	it('builds video, status and motion urls', async () => {
+		const { videoUrl, videoStatusUrl, motionUrl, CLIENT_API_VERSION, CATALOG_FORMAT } = await import('./api');
+		expect(videoUrl('ab')).toBe('/api/assets/ab/video');
+		expect(videoStatusUrl('ab')).toBe('/api/assets/ab/video/status');
+		expect(motionUrl('ab')).toBe('/api/assets/ab/motion');
+		expect(CLIENT_API_VERSION).toBe(5);
+		expect(CATALOG_FORMAT).toBe(5);
+	});
+});

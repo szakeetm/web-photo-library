@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { thumbUrl } from '#lib/api.ts';
 	import { blurhashUrl } from '#lib/blurhash.ts';
+	import { formatDuration } from '#lib/video.ts';
 	import { app } from '#lib/state.svelte.ts';
 
 	let {
@@ -83,6 +84,7 @@
 		/>
 	{/if}
 	{#if asset?.fav}<span class="fav">♥</span>{/if}
+	{#if asset?.dur != null && !selecting}<span class="dur">{formatDuration(asset.dur)}</span>{/if}
 	{#if selecting}
 		<span class="check" class:on={selected} aria-hidden="true">{selected ? '✓' : ''}</span>
 	{/if}
@@ -128,6 +130,21 @@
 		color: white;
 		font-size: 12px;
 		text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+	}
+	.dur {
+		position: absolute;
+		right: 5px;
+		bottom: 4px;
+		padding: 1px 5px;
+		border-radius: 8px;
+		background: rgba(0, 0, 0, 0.45);
+		color: white;
+		font-size: 11px;
+		font-weight: 600;
+		line-height: 1.4;
+		font-variant-numeric: tabular-nums;
+		text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+		pointer-events: none;
 	}
 	.check {
 		position: absolute;

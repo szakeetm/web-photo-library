@@ -8,6 +8,7 @@
 import { immutable, assets } from '$app/manifest';
 import { version } from '$app/env';
 import { IMAGE_CACHE, imageKey, isCacheableImage, recordImage, touchImages } from '#lib/imageCache.ts';
+import { isStreamedMedia } from '#lib/video.ts';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 const SHELL = `shell-${version}`;
@@ -112,6 +113,7 @@ sw.addEventListener('fetch', (event) => {
 	const { request } = event;
 	if (request.method !== 'GET') return;
 	const url = new URL(request.url);
+	if (isStreamedMedia(url.pathname)) return;
 	if (TILE_HOSTS.includes(url.hostname)) {
 		event.respondWith(tile(request));
 		return;
