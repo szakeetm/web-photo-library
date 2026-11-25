@@ -12,8 +12,9 @@
 		sections,
 		startAtEnd = false,
 		albumId,
-		selection = new Selection()
-	}: { sections: Section[]; startAtEnd?: boolean; albumId?: number; selection?: Selection } = $props();
+		selection = new Selection(),
+		trash = false
+	}: { sections: Section[]; startAtEnd?: boolean; albumId?: number; selection?: Selection; trash?: boolean } = $props();
 	const ids = $derived(sections.flatMap((s) => s.items));
 	const open = $derived(page.state.viewer && ids.includes(page.state.viewer) ? page.state.viewer : null);
 
@@ -46,8 +47,8 @@
 
 <Grid {sections} {startAtEnd} {selection} onActivate={activate} onLongPress={(id) => selection.start(id)} />
 {#if selection.active}
-	<ActionBar {selection} order={ids} {albumId} />
+	<ActionBar {selection} order={ids} {albumId} {trash} />
 {/if}
 {#if open}
-	<Viewer {ids} id={open} onChange={(id) => replaceState('', { viewer: id })} onClose={() => history.back()} />
+	<Viewer {ids} id={open} onChange={(id) => replaceState('', { viewer: id })} onClose={() => history.back()} {trash} />
 {/if}

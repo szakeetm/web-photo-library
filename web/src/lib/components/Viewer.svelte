@@ -6,9 +6,9 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail } from '#lib/api.ts';
+	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail, TRASH_KEEP_DAYS } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
-	import { app, setFavorite, deleteUploads } from '#lib/state.svelte.ts';
+	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
 	import FaceAvatar from './FaceAvatar.svelte';
@@ -22,11 +22,12 @@
 		ids,
 		id,
 		onChange,
-		onClose
-	}: { ids: string[]; id: string; onChange: (id: string) => void; onClose: () => void } = $props();
+		onClose,
+		trash = false
+	}: { ids: string[]; id: string; onChange: (id: string) => void; onClose: () => void; trash?: boolean } = $props();
 
 	const index = $derived(Math.max(0, ids.indexOf(id)));
-	const asset = $derived(app.byId.get(id));
+	const asset = $derived(app.lookup(id));
 	const isVideo = $derived(asset?.dur != null);
 	let player = $state<ReturnType<typeof VideoPlayer>>();
 
@@ -73,7 +74,7 @@
 			.catch(() => {});
 		// prefetch neighbours
 		for (const n of [ids[index - 1], ids[index + 1]]) {
-			const a = n && app.byId.get(n);
+			const a = n && app.lookup(n);
 			if (a) new Image().src = previewUrl(a.id, a.ev, app.fmt);
 		}
 	});
@@ -160,23 +161,40 @@
 		if (asset && net.online) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
 	}
 
-	/** Deletes the shown photo (uploads only), then shows its neighbour or closes. */
-	async function removeUpload() {
-		if (!asset || !app.isUpload(asset.id) || !net.online) return;
-		if (!confirm('Delete this uploaded photo? The file goes to the Trash on the server.')) return;
+	/** Takes the shown photo out of this list (delete, restore…), then shows its neighbour or closes. */
+	async function leave(work: (id: string) => Promise<unknown>) {
+		if (!asset || !net.online) return;
 		const gone = asset.id;
 		const neighbour = ids[index + 1] ?? ids[index - 1];
 		try {
 			stopLive();
 			resetZoom();
 			if (neighbour) onChange(neighbour);
-			await deleteUploads([gone]);
+			await work(gone);
 			if (!neighbour) onClose();
 		} catch (e) {
 			if (neighbour) onChange(gone);
 			alert((e as Error).message);
 		}
 	}
+
+	function removeUpload() {
+		if (!asset || !app.isUpload(asset.id)) return;
+		if (!confirm(`Delete this uploaded photo? It stays in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.`)) return;
+		leave((id) => deleteUploads([id]));
+	}
+
+	function deletePermanently() {
+		if (!confirm("Delete this photo permanently? It can't be restored from the app (the file goes to the Mac's Trash).")) return;
+		leave((id) => deleteForever([id]));
+	}
+
+	/** Days until a Trash item is deleted for good. */
+	const daysLeft = $derived.by(() => {
+		const t = trash && asset ? app.trash.find((x) => x.asset.id === asset.id) : undefined;
+		if (!t) return null;
+		return Math.max(0, Math.ceil(TRASH_KEEP_DAYS - (Date.now() - Date.parse(t.trashedAt)) / 86_400_000));
+	});
 
 	function resetZoom() {
 		scale = 1;
@@ -283,8 +301,8 @@
 				e.preventDefault();
 				close();
 			} else if (e.key === 'i') infoOpen = !infoOpen;
-			else if (e.key === 'f') toggleFavorite();
-			else if (e.key === 'e') openEditor();
+			else if (e.key === 'f' && !trash) toggleFavorite();
+			else if (e.key === 'e' && !trash) openEditor();
 		};
 		// Leaving the app or window mid-hold (or mid-hover) may never deliver pointerup/leave: stop there.
 		const onLeave = () => {
@@ -576,7 +594,7 @@
 		onwheel={onWheel}
 	>
 		{#each slides as s (s.id)}
-			{@const a = app.byId.get(s.id)}
+			{@const a = app.lookup(s.id)}
 			{#if a}
 				<div
 					class="slide"
@@ -635,9 +653,21 @@
 		<div class="title">
 			{#if asset}
 				<div class="date">{captureLabel(asset.t, asset.tz)}</div>
-				<div class="sub muted">{index + 1} of {ids.length}</div>
+				<div class="sub muted">
+					{index + 1} of {ids.length}{#if daysLeft != null} · {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left{/if}
+				</div>
 			{/if}
 		</div>
+		{#if trash}
+			<button class="icon-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
+				><Icon name="info" /></button
+			>
+			{#if net.online}
+				<button class="btn" onclick={() => leave((id) => restoreFromTrash([id]))}>Restore</button>
+				<button class="icon-btn danger" onclick={deletePermanently} title="Delete permanently" aria-label="Delete permanently"
+					><Icon name="trash" /></button>
+			{/if}
+		{:else}
 		<button class="icon-btn heart" class:filled={asset?.fav} onclick={toggleFavorite} disabled={!net.online}
 			aria-label={asset?.fav ? 'Unfavourite' : 'Favourite'} aria-pressed={asset?.fav ?? false}><Icon name="heart" /></button>
 		<button class="icon-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
@@ -653,6 +683,7 @@
 			{#if asset && app.isUpload(asset.id)}
 				<button class="icon-btn" onclick={removeUpload} title="Delete upload" aria-label="Delete upload"><Icon name="trash" /></button>
 			{/if}
+		{/if}
 		{/if}
 	</header>
 

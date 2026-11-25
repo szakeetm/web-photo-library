@@ -49,10 +49,10 @@ public final class AlbumService: Sendable {
         try Row.fetchAll(d, sql: """
                 SELECT al.id, al.title, al.source, al.createdAt,
                        (SELECT COUNT(*) FROM album_asset aa JOIN asset a ON a.id = aa.assetId
-                         WHERE aa.albumId = al.id AND a.missingSince IS NULL) AS count,
-                       COALESCE((SELECT a.id FROM asset a WHERE a.id = al.coverAssetId AND a.missingSince IS NULL),
+                         WHERE aa.albumId = al.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)) AS count,
+                       COALESCE((SELECT a.id FROM asset a WHERE a.id = al.coverAssetId AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)),
                                 (SELECT aa.assetId FROM album_asset aa JOIN asset a ON a.id = aa.assetId
-                                  WHERE aa.albumId = al.id AND a.missingSince IS NULL ORDER BY aa.position LIMIT 1)) AS coverId
+                                  WHERE aa.albumId = al.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) ORDER BY aa.position LIMIT 1)) AS coverId
                 FROM album al ORDER BY al.title COLLATE NOCASE
                 """).map {
                 AlbumSummary(id: $0["id"], title: $0["title"], count: $0["count"], coverId: $0["coverId"],
@@ -207,7 +207,7 @@ public final class AlbumService: Sendable {
         return try db.writer.read { d in
             try String.fetchAll(d, sql: """
                 SELECT s.assetId FROM search_index s JOIN asset a ON a.id = s.assetId
-                WHERE search_index MATCH ? AND a.missingSince IS NULL ORDER BY a.takenAt DESC
+                WHERE search_index MATCH ? AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) ORDER BY a.takenAt DESC
                 """, arguments: [match])
         }
     }

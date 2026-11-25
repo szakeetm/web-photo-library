@@ -22,7 +22,7 @@
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
 	// Albums, favourites, folders, uploads, people and places all live under Collections on the phone.
-	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places'];
+	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'
@@ -73,6 +73,9 @@
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
+		{#if app.trash.length}
+			<a href="/trash" class:active={exact('/trash')}><Icon name="trash" size={20} /> Trash</a>
+		{/if}
 		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
 		<div class="albumlist">
 			{#each sidebarAlbums as al (al.id)}

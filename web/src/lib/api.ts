@@ -19,6 +19,16 @@ export function onNetworkError(fn: typeof networkListener) {
 	networkListener = fn;
 }
 
+/** A deleted upload waiting in the Trash. */
+export interface TrashItem {
+	asset: CatalogAsset;
+	/** ISO-8601 UTC */
+	trashedAt: string;
+}
+
+/** Days a deleted upload stays in the Trash before it is deleted for good (server UploadTrash.keepDays). */
+export const TRASH_KEEP_DAYS = 30;
+
 export interface CatalogAsset {
 	id: string;
 	w: number;
@@ -334,9 +344,15 @@ export const api = {
 		call<AlbumSummary>(`/api/albums/${id}/assets`, { method: 'POST', body: JSON.stringify(change) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
-	/** Deletes uploaded photos (moved to the server's Trash); the server refuses anything in the library. */
+	/** Moves uploaded photos to the Trash; the server refuses anything in the library. */
 	deleteUploads: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/uploads/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+	trash: () => call<TrashItem[]>('/api/trash'),
+	restoreTrash: (ids: string[]) =>
+		call<{ deleted: string[] }>('/api/trash/restore', { method: 'POST', body: JSON.stringify({ ids }) }),
+	/** Deletes Trash items for good (their files go to the macOS Trash); all of them without ids. */
+	deleteForever: (ids?: string[]) =>
+		call<{ deleted: string[] }>('/api/trash/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	updatePerson: (id: number, patch: { name?: string | null; hidden?: boolean; coverFaceId?: number }) =>
 		call<void>(`/api/people/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 	mergePeople: (ids: number[], into: number) => call<void>('/api/people/merge', { method: 'POST', body: JSON.stringify({ ids, into }) }),

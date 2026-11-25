@@ -1,14 +1,19 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
-	import { originalUrl } from '#lib/api.ts';
+	import { originalUrl, TRASH_KEEP_DAYS } from '#lib/api.ts';
 	import { downloadUrl, iosStandalone } from '#lib/download.ts';
-	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deleteUploads } from '#lib/state.svelte.ts';
+	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
 	import Icon from './Icon.svelte';
 
-	let { selection, order, albumId }: { selection: Selection; order: string[]; albumId?: number } = $props();
+	let {
+		selection,
+		order,
+		albumId,
+		trash = false
+	}: { selection: Selection; order: string[]; albumId?: number; trash?: boolean } = $props();
 	let picking = $state(false);
 	let busy = $state(false);
 	const ids = $derived([...selection.ids]);
@@ -53,9 +58,25 @@
 
 	function remove() {
 		const n = ids.length;
-		if (!confirm(`Delete ${n === 1 ? 'this uploaded photo' : `${n} uploaded photos`}? The file${n === 1 ? ' goes' : 's go'} to the Trash on the server.`)) return;
+		if (!confirm(`Delete ${n === 1 ? 'this uploaded photo' : `${n} uploaded photos`}? ${n === 1 ? 'It stays' : 'They stay'} in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.`)) return;
 		run(async () => {
 			await deleteUploads(ids);
+			selection.clear();
+		});
+	}
+
+	function restore() {
+		run(async () => {
+			await restoreFromTrash(ids);
+			selection.clear();
+		});
+	}
+
+	function removeForever() {
+		const n = ids.length;
+		if (!confirm(`Delete ${n === 1 ? 'this photo' : `${n} photos`} permanently? This can't be undone in the app (the files go to the Mac's Trash).`)) return;
+		run(async () => {
+			await deleteForever(ids);
 			selection.clear();
 		});
 	}
@@ -77,6 +98,11 @@
 	<span class="count">{selection.count ? `${selection.count} selected` : 'Select photos'}</span>
 	<button class="link" onclick={() => selection.selectAll(order)}>All</button>
 	<div class="actions">
+		{#if trash}
+		<button class="btn" disabled={!selection.count || busy || !net.online} onclick={restore}>Restore</button>
+		<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Delete permanently"
+			aria-label="Delete permanently" onclick={removeForever}><Icon name="trash" /></button>
+		{:else}
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title={favNext ? 'Favourite' : 'Unfavourite'}
 			aria-label={favNext ? 'Favourite' : 'Unfavourite'}
 			onclick={() => run(() => setFavorite(ids, favNext))}>
@@ -94,6 +120,7 @@
 		{/if}
 		<button class="icon-btn" disabled={!selection.count || !net.online} title="Download originals" aria-label="Download originals"
 			onclick={download}><Icon name="download" /></button>
+		{/if}
 	</div>
 </div>
 

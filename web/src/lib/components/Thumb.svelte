@@ -23,7 +23,7 @@
 		onActivate: (id: string, e: MouseEvent) => void;
 		onLongPress?: (id: string) => void;
 	} = $props();
-	const asset = $derived(app.byId.get(id));
+	const asset = $derived(app.lookup(id));
 	let loaded = $state(false);
 	const placeholder = $derived(blurhashUrl(asset?.bh ?? null));
 

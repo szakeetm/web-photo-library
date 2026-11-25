@@ -221,6 +221,10 @@ public final class AppDatabase: Sendable {
                     UNIQUE (root, relPath));
                 """)
         }
+        m.registerMigration("v8-trash") { db in
+            // Deleted uploads wait here (files untouched) until restored or deleted for good.
+            try db.execute(sql: "CREATE TABLE trash (assetId TEXT PRIMARY KEY, trashedAt DATETIME NOT NULL)")
+        }
         return m
     }
 }

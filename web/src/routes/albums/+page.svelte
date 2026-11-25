@@ -87,6 +87,10 @@
 	{#if uploadsRoot}
 		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}
 	{/if}
+	{#if uploadsRoot || app.trash.length}
+		{@const t = app.trash[0]?.asset}
+		{@render card('/trash', 'Trash', app.trash.length, null, 'trash', t ? thumbUrl(t.id, t.ev, app.fmt) : null)}
+	{/if}
 </div>
 
 <style>

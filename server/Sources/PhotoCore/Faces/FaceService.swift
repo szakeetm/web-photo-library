@@ -130,7 +130,7 @@ public final class FaceService: Sendable {
             let rows = try Row.fetchAll(d, sql: """
                 SELECT f.id, f.embedding, (SELECT group_concat(personId) FROM face_reject r WHERE r.faceId = f.id) AS rejected
                 FROM face f JOIN asset a ON a.id = f.assetId
-                WHERE f.personId IS NULL AND a.missingSince IS NULL
+                WHERE f.personId IS NULL AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)
                 ORDER BY f.quality DESC LIMIT 20000
                 """)
             var pool: [(id: Int64, v: [Float], rejected: Set<Int64>)] = rows.map {
@@ -212,10 +212,10 @@ public final class FaceService: Sendable {
         try Row.fetchAll(d, sql: """
             SELECT p.id, p.name, p.hidden,
                    (SELECT COUNT(DISTINCT f.assetId) FROM face f JOIN asset a ON a.id = f.assetId
-                     WHERE f.personId = p.id AND a.missingSince IS NULL) AS count,
+                     WHERE f.personId = p.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)) AS count,
                    COALESCE((SELECT f.id FROM face f WHERE f.id = p.coverFaceId AND f.personId = p.id),
                             (SELECT f.id FROM face f JOIN asset a ON a.id = f.assetId
-                              WHERE f.personId = p.id AND a.missingSince IS NULL ORDER BY f.quality DESC LIMIT 1)) AS cover
+                              WHERE f.personId = p.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) ORDER BY f.quality DESC LIMIT 1)) AS cover
             FROM person p
             """).compactMap { r -> CatalogPerson? in
             let count: Int = r["count"]
@@ -240,7 +240,7 @@ public final class FaceService: Sendable {
         try db.writer.read {
             try Row.fetchAll($0, sql: """
                 SELECT f.id, f.assetId, f.personId, f.x, f.y, f.w, f.h FROM face f JOIN asset a ON a.id = f.assetId
-                WHERE f.personId = ? AND a.missingSince IS NULL ORDER BY a.takenAt DESC
+                WHERE f.personId = ? AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) ORDER BY a.takenAt DESC
                 """, arguments: [personId]).map(Self.info)
         }
     }

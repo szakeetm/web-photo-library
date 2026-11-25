@@ -1,5 +1,5 @@
 import { version } from '$app/env';
-import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo } from './api';
+import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem } from './api';
 import { supportsHeic } from './heic';
 import { sortByLocalTime } from './dates';
 import { net } from './net.svelte';
@@ -26,6 +26,23 @@ class AppState {
 	uploadsConfigured = $state(false);
 	byId = $derived(new Map(this.assets.map((a) => [a.id, a])));
 	folderById = $derived(new Map(this.folders.map((f) => [f.id, f])));
+	/** Deleted uploads (most recent first); loaded from the server, not kept offline. */
+	trash = $state.raw<TrashItem[]>([]);
+	trashById = $derived(new Map(this.trash.map((t) => [t.asset.id, t.asset])));
+
+	/** A photo in the library or in the Trash (thumbnails and the viewer show both). */
+	lookup(id: string): CatalogAsset | undefined {
+		return this.byId.get(id) ?? this.trashById.get(id);
+	}
+
+	async loadTrash() {
+		if (!net.online) return;
+		try {
+			this.trash = await api.trash();
+		} catch {
+			// keep the last list
+		}
+	}
 
 	/** An uploaded photo: every copy of it is in the uploads folder (only those can be deleted). */
 	isUpload(id: string): boolean {
@@ -135,6 +152,7 @@ class AppState {
 				await saveSnapshot(snap).catch(() => {});
 			}
 			this.error = null;
+			this.loadTrash();
 			for (const fn of afterSync) fn();
 		} catch (e) {
 			if (net.online) this.error = e instanceof Error ? e.message : String(e);
@@ -163,7 +181,7 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 	app.reload(); // persist to the device copy
 }
 
-/** Deletes uploaded photos; the server moves their files to its Trash. */
+/** Moves uploaded photos to the Trash (restorable for TRASH_KEEP_DAYS). */
 export async function deleteUploads(ids: string[]) {
 	if (!ids.every((id) => app.isUpload(id))) throw new Error('Only uploaded photos can be deleted.');
 	const set = new Set(ids);
@@ -173,6 +191,33 @@ export async function deleteUploads(ids: string[]) {
 		await api.deleteUploads(ids);
 	} catch (e) {
 		app.assets = before;
+		throw e;
+	}
+	await app.reload();
+}
+
+export async function restoreFromTrash(ids: string[]) {
+	const set = new Set(ids);
+	const before = app.trash;
+	app.trash = app.trash.filter((t) => !set.has(t.asset.id));
+	try {
+		await api.restoreTrash(ids);
+	} catch (e) {
+		app.trash = before;
+		throw e;
+	}
+	await app.reload();
+}
+
+/** Deletes Trash items for good; all of them without ids. */
+export async function deleteForever(ids?: string[]) {
+	const set = ids && new Set(ids);
+	const before = app.trash;
+	app.trash = set ? app.trash.filter((t) => !set.has(t.asset.id)) : [];
+	try {
+		await api.deleteForever(ids);
+	} catch (e) {
+		app.trash = before;
 		throw e;
 	}
 	await app.reload();

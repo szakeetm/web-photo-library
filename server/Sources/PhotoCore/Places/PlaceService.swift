@@ -55,7 +55,7 @@ public final class PlaceService: Sendable {
     /// Places that have at least one present photo.
     static func catalogPlaces(_ d: Database) throws -> [CatalogPlace] {
         try Row.fetchAll(d, sql: """
-            SELECT p.* FROM place p WHERE EXISTS (SELECT 1 FROM asset a WHERE a.placeId = p.id AND a.missingSince IS NULL)
+            SELECT p.* FROM place p WHERE EXISTS (SELECT 1 FROM asset a WHERE a.placeId = p.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id))
             ORDER BY p.country, p.region, p.name
             """).map {
             CatalogPlace(id: $0["id"], name: $0["name"], region: $0["region"], country: $0["country"], cc: $0["countryCode"],

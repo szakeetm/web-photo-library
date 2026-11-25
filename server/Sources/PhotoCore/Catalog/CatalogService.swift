@@ -91,8 +91,8 @@ public final class CatalogService: Sendable {
         try catalogAssets(d, ids: id.map { [$0] })
     }
 
-    /// Present assets, all of them or only `ids`.
-    static func catalogAssets(_ d: Database, ids: [String]?) throws -> [CatalogAsset] {
+    /// Present assets, all of them or only `ids`; with `trashed`, those in the Trash instead.
+    static func catalogAssets(_ d: Database, ids: [String]?, trashed: Bool = false) throws -> [CatalogAsset] {
         var filter = ""
         var args: StatementArguments = []
         if let ids {
@@ -107,7 +107,7 @@ public final class CatalogService: Sendable {
                      WHERE fc.assetId = a.id AND p.hidden = 0) AS people,
                    GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
             FROM asset a JOIN file f ON f.assetId = a.id
-            WHERE a.missingSince IS NULL \(filter)
+            WHERE a.missingSince IS NULL AND \(trashed ? "" : "NOT ")EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) \(filter)
             GROUP BY a.id
             ORDER BY a.takenAt DESC, a.id
             """, arguments: args)
@@ -180,9 +180,9 @@ public final class CatalogService: Sendable {
         let rows = try Row.fetchAll(d, sql: """
             SELECT fo.id, fo.root, fo.parentId, fo.name, fo.relPath,
                    (SELECT COUNT(DISTINCT f.assetId) FROM file f JOIN asset a ON a.id = f.assetId
-                     WHERE f.folderId = fo.id AND a.missingSince IS NULL) AS count,
+                     WHERE f.folderId = fo.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)) AS count,
                    (SELECT a.id FROM file f JOIN asset a ON a.id = f.assetId
-                     WHERE f.folderId = fo.id AND a.missingSince IS NULL ORDER BY a.takenAt DESC LIMIT 1) AS coverId
+                     WHERE f.folderId = fo.id AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) ORDER BY a.takenAt DESC LIMIT 1) AS coverId
             FROM folder fo ORDER BY fo.root, fo.relPath
             """)
         return rows.map { FolderNode(id: $0["id"], root: $0["root"], parentId: $0["parentId"], name: $0["name"], relPath: $0["relPath"],

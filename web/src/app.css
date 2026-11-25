@@ -68,7 +68,8 @@ a {
 	background: var(--accent);
 	color: white;
 }
-.btn.danger {
+.btn.danger,
+.icon-btn.danger {
 	color: var(--danger);
 }
 .btn:disabled {
