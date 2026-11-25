@@ -50,6 +50,7 @@ struct APIRoutes {
         let ok: Bool; let version: String; let apiVersion: Int; let uploadsConfigured: Bool
         let webVersion: String?; let libraryConfigured: Bool
         let mapStyleURL: String
+        let commit: String?; let commitDate: String?; let dirty: Bool
     }
     struct SettingsBody: Codable {
         var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String?
@@ -89,7 +90,8 @@ struct APIRoutes {
                             uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil,
-                            mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle))
+                            mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle,
+                            commit: BuildInfo.current.commit, commitDate: BuildInfo.current.commitDate, dirty: BuildInfo.current.dirty))
         }
 
         api.get("settings") { _, _ in try settingsResponse() }
@@ -386,6 +388,17 @@ struct APIRoutes {
 
         for kind in DerivativeKind.allCases {
             api.get("\(kind.rawValue)/:id") { req, ctx in try await derivative(kind, req, ctx) }
+        }
+
+        // The photo's HDR gain map for the editor (NormalizedGainMap wire format); 204 for SDR photos.
+        api.get("gainmap/:id") { _, ctx in
+            guard let id = validId(ctx), let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            let store = services.derivatives()
+            let data = try await renderLimiter.run { try await blocking { try store.ensureGainMap(id: id, source: source) } }
+            let cache = "public, max-age=31536000, immutable"
+            guard let data else { return Response(status: .noContent, headers: [.cacheControl: cache]) }
+            return Response(status: .ok, headers: [.contentType: "application/octet-stream", .cacheControl: cache],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
     }
 

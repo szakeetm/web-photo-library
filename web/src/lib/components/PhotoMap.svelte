@@ -105,6 +105,15 @@
 			return;
 		}
 		map.touchZoomRotate.disableRotation();
+		// Trackpads (Apple Maps style): two-finger scroll moves the map, pinch zooms. Pinches arrive as
+		// ctrl+wheel and mouse wheels as coarse vertical steps: both are left to MapLibre's scroll zoom.
+		const onWheel = (e: WheelEvent) => {
+			if (e.ctrlKey || isMouseWheel(e)) return;
+			e.preventDefault();
+			e.stopPropagation();
+			map!.panBy([e.deltaX, e.deltaY], { duration: 0 });
+		};
+		el.addEventListener('wheel', onWheel, { capture: true, passive: false });
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 		map.on('load', () => {
 			map!.addSource('photos', {
@@ -131,6 +140,7 @@
 			/* tile failures (offline): keep the photos visible */
 		});
 		return () => {
+			el.removeEventListener('wheel', onWheel, { capture: true });
 			for (const m of markers.values()) m.remove();
 			markers.clear();
 			map?.remove();
@@ -149,6 +159,11 @@
 </script>
 
 <script lang="ts" module>
+	/** A mouse wheel notch (lines/pages, or a large whole-pixel vertical step) rather than a trackpad swipe. */
+	export function isMouseWheel(e: Pick<WheelEvent, 'deltaMode' | 'deltaX' | 'deltaY'>) {
+		if (e.deltaMode !== 0) return true;
+		return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50 && Math.abs(e.deltaY) % 25 === 0;
+	}
 	/** Last map view, kept while the app runs (returning from a photo restores it). */
 	let saved: { center: [number, number]; zoom: number } | null = null;
 </script>

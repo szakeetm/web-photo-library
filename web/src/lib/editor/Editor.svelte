@@ -8,6 +8,7 @@
 	import { app } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import { EditRenderer } from './renderer';
+	import { fetchGainMap } from './gainmap';
 	import { EditorSession } from './session.svelte';
 	import { ADJUSTMENTS, emptyRecipe, frameSize, isIdentity, type Adjustment, type AdjustmentInfo, type Recipe } from './recipe';
 	import { ASPECTS, FULL, cropWithAspect, fitCrop, flipHorizontal, rotateClockwise, rotateCounterClockwise } from './geometry';
@@ -26,6 +27,8 @@
 	let error = $state('');
 	let renderer: EditRenderer | null = null;
 	let gpuCtx: GPUCanvasContext | null = null;
+	/** HDR photo: the canvas shows the HDR rendition (extended range); the saved edit keeps HDR too. */
+	let hdr = false;
 	let canvas = $state<HTMLCanvasElement>();
 	let stage = $state<HTMLDivElement>();
 	let stageW = $state(0);
@@ -95,12 +98,13 @@
 					"Editing needs WebGPU, which this browser doesn't offer. Use a current Safari (iOS / macOS 26) or Chrome."
 				);
 			}
-			const [h, blob] = await Promise.all([
+			const [h, blob, gainMap] = await Promise.all([
 				api.edits(asset.id),
 				fetch(previewUrl(asset.id, 0, app.fmt)).then((r) => {
 					if (!r.ok) throw new Error(`Couldn't load the photo (${r.status}).`);
 					return r.blob();
-				})
+				}),
+				fetchGainMap(asset.id)
 			]);
 			history = h;
 			const bitmap = await createImageBitmap(blob);
@@ -108,6 +112,8 @@
 			srcH = bitmap.height;
 			renderer.setSource(bitmap);
 			bitmap.close();
+			renderer.setGainMap(gainMap);
+			hdr = gainMap != null;
 			const current = h.versions.find((v) => v.version === h.current)?.recipe ?? emptyRecipe();
 			session.reset(current);
 			renderer.device.lost.then((info) => {
@@ -138,10 +144,12 @@
 				error = "This browser can't draw with WebGPU here.";
 				return;
 			}
+			// An HDR photo draws extended-range values (brighter than SDR white) where the display allows.
 			gpuCtx.configure({
 				device: renderer!.device,
-				format: navigator.gpu.getPreferredCanvasFormat(),
+				format: hdr ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat(),
 				colorSpace: 'display-p3',
+				toneMapping: { mode: hdr ? 'extended' : 'standard' },
 				alphaMode: 'opaque'
 			});
 		}
@@ -159,7 +167,7 @@
 			canvas.width = outSize.w;
 			canvas.height = outSize.h;
 		}
-		renderer.render($state.snapshot(shown) as Recipe, gpuCtx.getCurrentTexture());
+		renderer.render($state.snapshot(shown) as Recipe, gpuCtx.getCurrentTexture(), hdr);
 	}
 
 	// Histogram (desktop): a small render read back, throttled.

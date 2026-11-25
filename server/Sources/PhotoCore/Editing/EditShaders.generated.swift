@@ -2,7 +2,7 @@
 // naga 30.0.2
 
 /// SHA-256 of the WGSL this was generated from (a test checks it is current).
-public let editShaderSourceHash = "f1e066159912a9e63b40339bfd3579272c4435c33164872562700d9323f34d86"
+public let editShaderSourceHash = "c981f98e64efe4bb375a84ac23319fdc84560192f4604ee6084e3abfe59e9fde"
 
 /// Metal Shading Language for the edit pipeline (compiled at runtime).
 public let editShaderMSL = #"""
@@ -60,9 +60,9 @@ metal::float2 source_uv(
     metal::float2 f = ((crop.xy + (uv * crop.zw)) * frame) - (frame * 0.5);
     float _e36 = P.v.inner[2].x;
     float a = ((_e36) * 0.017453292519943295474);
-    float c_3 = metal::cos(a);
+    float c_4 = metal::cos(a);
     float s = metal::sin(a);
-    q = (metal::float2((c_3 * f.x) + (s * f.y), (-(s) * f.x) + (c_3 * f.y)) / frame) + metal::float2(0.5);
+    q = (metal::float2((c_4 * f.x) + (s * f.y), (-(s) * f.x) + (c_4 * f.y)) / frame) + metal::float2(0.5);
     float _e61 = P.v.inner[2].z;
     if (_e61 > 0.5) {
         float _e66 = q.x;
@@ -195,6 +195,27 @@ float tone_curve(
     return metal::clamp(y, 0.0, 1.0);
 }
 
+metal::float3 soft_cap(
+    metal::float3 c_3,
+    float cap
+) {
+    bool local_1 = {};
+    float m = metal::max(metal::max(c_3.x, c_3.y), c_3.z);
+    float knee = 1.0 + (0.6 * (cap - 1.0));
+    if (!((m <= knee))) {
+        local_1 = cap <= 1.0;
+    } else {
+        local_1 = true;
+    }
+    bool _e20 = local_1;
+    if (_e20) {
+        return metal::min(c_3, metal::float3(metal::max(cap, 1.0)));
+    }
+    float room = cap - knee;
+    float m2_ = knee + (room * (1.0 - metal::exp(-((m - knee)) / room)));
+    return c_3 * (m2_ / m);
+}
+
 float contrast_curve(
     float p_1,
     float k_3
@@ -280,9 +301,9 @@ fragment fs_lumaOutput fs_luma(
                     int _e31 = j;
                     metal::float2 uv_1 = uv0_ + ((metal::float2(static_cast<float>(_e29), static_cast<float>(_e31)) + metal::float2(0.5)) * step);
                     metal::float4 _e42 = src.sample(samp, uv_1, metal::level(0.0));
-                    metal::float3 c_4 = _e42.xyz;
+                    metal::float3 c_5 = _e42.xyz;
                     float _e44 = sum;
-                    metal::float3 _e45 = to_linear(c_4);
+                    metal::float3 _e45 = to_linear(c_5);
                     sum = _e44 + metal::dot(_e45, LUMA_W);
                 }
             }
@@ -363,11 +384,13 @@ fragment fs_developOutput fs_develop(
 , metal::texture2d<float, metal::access::sample> src [[texture(0)]]
 , metal::sampler samp [[sampler(0)]]
 , metal::texture2d<float, metal::access::sample> luma [[texture(1)]]
+, metal::texture2d<float, metal::access::sample> gainmap [[texture(2)]]
 ) {
     const VOut in_2 = { pos_2 };
     bool local = {};
     metal::float3 enc = {};
     metal::float3 c = {};
+    float over = 1.0;
     metal::float3 p = {};
     metal::float4 _e4 = P.v.inner[0];
     metal::float2 outSize = _e4.xy;
@@ -401,89 +424,116 @@ fragment fs_developOutput fs_develop(
     float sharpen = P.v.inner[6].x;
     float _e107 = P.v.inner[6].y;
     int curveN = naga_f2i32(_e107 + 0.5);
+    float _e115 = P.v.inner[6].z;
+    bool hdr = _e115 > 0.5;
+    float gainStops = P.v.inner[6].w;
     enc = raw;
     if (sharpen > 0.0) {
         metal::float2 r = metal::float2(metal::max(1.0, metal::max(srcSize_1.x, srcSize_1.y) / 2048.0)) / srcSize_1;
-        metal::float4 _e130 = src.sample(samp, _e14 + metal::float2(r.x, 0.0), metal::level(0.0));
-        metal::float4 _e139 = src.sample(samp, _e14 - metal::float2(r.x, 0.0), metal::level(0.0));
-        metal::float4 _e149 = src.sample(samp, _e14 + metal::float2(0.0, r.y), metal::level(0.0));
-        metal::float4 _e159 = src.sample(samp, _e14 - metal::float2(0.0, r.y), metal::level(0.0));
-        metal::float3 n_2 = ((_e130.xyz + _e139.xyz) + _e149.xyz) + _e159.xyz;
+        metal::float4 _e142 = src.sample(samp, _e14 + metal::float2(r.x, 0.0), metal::level(0.0));
+        metal::float4 _e151 = src.sample(samp, _e14 - metal::float2(r.x, 0.0), metal::level(0.0));
+        metal::float4 _e161 = src.sample(samp, _e14 + metal::float2(0.0, r.y), metal::level(0.0));
+        metal::float4 _e171 = src.sample(samp, _e14 - metal::float2(0.0, r.y), metal::level(0.0));
+        metal::float3 n_2 = ((_e142.xyz + _e151.xyz) + _e161.xyz) + _e171.xyz;
         float detail = metal::dot(raw - (n_2 * 0.25), LUMA_W);
         enc = raw + metal::float3((detail * sharpen) * 1.5);
     }
-    metal::float3 _e172 = enc;
-    metal::float3 _e178 = to_linear(metal::clamp(_e172, metal::float3(0.0), metal::float3(1.0)));
-    c = _e178;
+    metal::float3 _e184 = enc;
+    metal::float3 _e190 = to_linear(metal::clamp(_e184, metal::float3(0.0), metal::float3(1.0)));
+    c = _e190;
     float gain = metal::exp2(exposure);
-    metal::float3 _e181 = c;
-    c = _e181 * gain;
+    metal::float3 _e193 = c;
+    c = _e193 * gain;
     metal::float3 wb = metal::float3(1.0 + (0.25 * warmth), 1.0 - (0.18 * tint), 1.0 - (0.25 * warmth));
-    metal::float3 _e196 = c;
-    c = _e196 * (wb / metal::float3(metal::dot(wb, LUMA_W)));
-    metal::float4 _e205 = luma.sample(samp, _e14, metal::level(0.0));
-    float local_1 = metal::max(_e205.x * gain, 0.0);
-    metal::float3 _e210 = c;
-    float y_4 = metal::dot(_e210, LUMA_W);
-    float lp = metal::sqrt(metal::mix(local_1, metal::max(y_4, 0.0), 0.35));
+    metal::float3 _e208 = c;
+    c = _e208 * (wb / metal::float3(metal::dot(wb, LUMA_W)));
+    metal::float4 _e217 = luma.sample(samp, _e14, metal::level(0.0));
+    float local_2 = metal::max(_e217.x * gain, 0.0);
+    metal::float3 _e222 = c;
+    float y_4 = metal::dot(_e222, LUMA_W);
+    float lp = metal::sqrt(metal::mix(local_2, metal::max(y_4, 0.0), 0.35));
     float shadowW = 1.0 - metal::smoothstep(0.0, 0.55, lp);
     float highW = metal::smoothstep(0.35, 1.0, lp);
     float stops = (((shadows * 1.6) * shadowW) + ((highlights * 1.4) * highW)) + (brilliance * ((0.9 * shadowW) - (0.7 * highW)));
-    metal::float3 _e240 = c;
-    c = _e240 * metal::exp2(stops);
+    metal::float3 _e252 = c;
+    c = _e252 * metal::exp2(stops);
     if (brilliance != 0.0) {
-        float ratio = (y_4 + 0.01) / (local_1 + 0.01);
-        metal::float3 _e250 = c;
-        c = _e250 * metal::pow(ratio, 0.22 * brilliance);
+        float ratio = (y_4 + 0.01) / (local_2 + 0.01);
+        metal::float3 _e262 = c;
+        c = _e262 * metal::pow(ratio, 0.22 * brilliance);
     }
-    metal::float3 _e255 = c;
-    metal::float3 _e256 = to_encoded(_e255);
-    p = _e256;
-    metal::float3 _e258 = p;
-    p = metal::clamp(_e258, metal::float3(0.0), metal::float3(1.0));
-    metal::float3 _e264 = p;
-    p = metal::pow(_e264, metal::float3(metal::exp2(-0.75 * brightness)));
+    if (hdr) {
+        metal::float3 _e269 = c;
+        metal::float4 _e273 = gainmap.sample(samp, _e14, metal::level(0.0));
+        c = _e269 * metal::exp2(_e273.x * gainStops);
+        float _e279 = c.x;
+        float _e281 = c.y;
+        float _e284 = c.z;
+        float m_1 = metal::max(metal::max(_e279, _e281), _e284);
+        if (m_1 > 1.0) {
+            over = m_1;
+            metal::float3 _e288 = c;
+            c = _e288 / metal::float3(m_1);
+        }
+    }
+    metal::float3 _e291 = c;
+    metal::float3 _e292 = to_encoded(_e291);
+    p = _e292;
+    metal::float3 _e294 = p;
+    p = metal::clamp(_e294, metal::float3(0.0), metal::float3(1.0));
+    metal::float3 _e300 = p;
+    p = metal::pow(_e300, metal::float3(metal::exp2(-0.75 * brightness)));
     float k_4 = metal::exp2(1.1 * contrast);
-    float _e274 = p.x;
-    float _e275 = contrast_curve(_e274, k_4);
-    float _e277 = p.y;
-    float _e278 = contrast_curve(_e277, k_4);
-    float _e280 = p.z;
-    float _e281 = contrast_curve(_e280, k_4);
-    p = metal::float3(_e275, _e278, _e281);
+    float _e310 = p.x;
+    float _e311 = contrast_curve(_e310, k_4);
+    float _e313 = p.y;
+    float _e314 = contrast_curve(_e313, k_4);
+    float _e316 = p.z;
+    float _e317 = contrast_curve(_e316, k_4);
+    p = metal::float3(_e311, _e314, _e317);
     float bp = 0.12 * blackPoint;
-    metal::float3 _e285 = p;
-    p = metal::clamp((_e285 - metal::float3(bp)) / metal::float3(1.0 - bp), metal::float3(0.0), metal::float3(1.0));
+    metal::float3 _e321 = p;
+    p = metal::clamp((_e321 - metal::float3(bp)) / metal::float3(1.0 - bp), metal::float3(0.0), metal::float3(1.0));
     if (curveN >= 2) {
-        float _e300 = p.x;
-        float _e301 = tone_curve(_e300, curveN, P);
-        float _e303 = p.y;
-        float _e304 = tone_curve(_e303, curveN, P);
-        float _e306 = p.z;
-        float _e307 = tone_curve(_e306, curveN, P);
-        p = metal::float3(_e301, _e304, _e307);
+        float _e336 = p.x;
+        float _e337 = tone_curve(_e336, curveN, P);
+        float _e339 = p.y;
+        float _e340 = tone_curve(_e339, curveN, P);
+        float _e342 = p.z;
+        float _e343 = tone_curve(_e342, curveN, P);
+        p = metal::float3(_e337, _e340, _e343);
     }
-    metal::float3 _e309 = p;
-    float yp = metal::dot(_e309, LUMA_W);
-    float _e313 = p.x;
-    float _e315 = p.y;
-    float _e318 = p.z;
-    float _e321 = p.x;
-    float _e323 = p.y;
-    float _e326 = p.z;
-    float chroma = metal::max(metal::max(_e313, _e315), _e318) - metal::min(metal::min(_e321, _e323), _e326);
+    metal::float3 _e345 = p;
+    float yp = metal::dot(_e345, LUMA_W);
+    float _e349 = p.x;
+    float _e351 = p.y;
+    float _e354 = p.z;
+    float _e357 = p.x;
+    float _e359 = p.y;
+    float _e362 = p.z;
+    float chroma = metal::max(metal::max(_e349, _e351), _e354) - metal::min(metal::min(_e357, _e359), _e362);
     float satGain = (1.0 + saturation) * (1.0 + (vibrance * (1.0 - metal::clamp(chroma * 1.5, 0.0, 1.0))));
-    metal::float3 _e343 = p;
-    p = metal::float3(yp) + ((_e343 - metal::float3(yp)) * satGain);
+    metal::float3 _e379 = p;
+    p = metal::float3(yp) + ((_e379 - metal::float3(yp)) * satGain);
     if (vignette != 0.0) {
         float aspect = outSize.x / outSize.y;
         float d = metal::length((uv_2 - metal::float2(0.5)) * metal::float2(aspect, 1.0)) / metal::length(metal::float2(aspect, 1.0) * 0.5);
         float v_1 = metal::smoothstep(0.35, 1.05, d);
-        metal::float3 _e369 = p;
-        metal::float3 _e377 = p;
-        p = (vignette > 0.0) ? (_e377 * (1.0 - ((vignette * 0.9) * v_1))) : metal::mix(_e369, metal::float3(1.0), (-(vignette) * 0.8) * v_1);
+        metal::float3 _e405 = p;
+        metal::float3 _e413 = p;
+        p = (vignette > 0.0) ? (_e413 * (1.0 - ((vignette * 0.9) * v_1))) : metal::mix(_e405, metal::float3(1.0), (-(vignette) * 0.8) * v_1);
     }
-    metal::float3 _e387 = p;
-    return fs_developOutput { metal::float4(metal::clamp(_e387, metal::float3(0.0), metal::float3(1.0)), 1.0) };
+    metal::float3 _e423 = p;
+    p = metal::clamp(_e423, metal::float3(0.0), metal::float3(1.0));
+    if (hdr) {
+        metal::float3 _e429 = p;
+        metal::float3 _e430 = to_linear(_e429);
+        float _e431 = over;
+        metal::float3 _e434 = soft_cap(_e430 * _e431, metal::exp2(gainStops));
+        metal::float3 _e435 = to_encoded(_e434);
+        return fs_developOutput { metal::float4(_e435, 1.0) };
+    }
+    metal::float3 _e438 = p;
+    return fs_developOutput { metal::float4(_e438, 1.0) };
 }
 """#

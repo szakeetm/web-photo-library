@@ -60,6 +60,11 @@ regenerate them with `demo/take-screenshots.sh`.
   (`shaders/edit.wgsl`) runs in the browser (WebGPU) and on the Mac (Metal, via naga). Edited
   thumbnails/previews are rendered on the Mac, so viewing never needs WebGPU; **Export** renders
   the edit at full resolution (JPEG/HEIC, original metadata kept) for the share sheet or a download.
+- **HDR.** iPhone HDR photos (Apple and ISO 21496-1 gain maps) stay HDR everywhere: thumbnails and
+  previews carry the gain map, and the editor works in HDR on HDR screens (extended-range WebGPU
+  canvas, the gain map sent alongside the preview). Saved edits keep HDR: crop/rotate/straighten
+  carry the original gain map through the same geometry, other edits get a gain map computed from
+  the SDR and HDR renditions. The SDR look is unchanged, so SDR screens see what they always did.
 - **People.** Faces are found and recognised on the Mac (Apple Vision for detection, a FaceNet
   model on the Neural Engine for recognition; nothing leaves the Mac) and grouped into people
   automatically. Name a group, combine two groups that are the same person, remove a face that

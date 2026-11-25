@@ -115,29 +115,50 @@ public final class EditService: Sendable {
         let store = derivatives()
         let missing = formats.filter { !store.exists(id: id, kind: .preview, editVersion: version, format: $0) || !store.exists(id: id, kind: .thumb, editVersion: version, format: $0) }
         guard !missing.isEmpty else { return }
-        let edited = try renderPreview(source: source, recipe: recipe)
-        for f in missing { try store.storeEdited(edited, id: id, version: version, format: f) }
+        let (edited, hdr) = try renderPreview(id: id, source: source, recipe: recipe)
+        for f in missing { try store.storeEdited(edited, hdr: hdr, id: id, version: version, format: f) }
     }
 
     /// Decodes the original at the size the crop needs for a sharp 2048 px preview, then runs the recipe.
-    func renderPreview(source: URL, recipe: EditRecipe) throws -> CGImage {
+    func renderPreview(id: String, source: URL, recipe: EditRecipe) throws -> (CGImage, HDRMetadata) {
         let crop = recipe.crop ?? .full
         let want = Int((Double(DerivativeKind.preview.maxPixel) / max(crop.w, crop.h, 0.05)).rounded(.up))
         let base = try DerivativeStore.downscaled(source: source, maxPixel: min(want, 8192))
-        let out = try EditRenderer.shared().render(base, recipe: recipe)
+        // The editor's own gain map, so the saved preview matches what the editor showed.
+        let (out, hdr) = try render(base, source: source, recipe: recipe) { try self.derivatives().gainMap(id: id, source: source) }
         // A crop of a small original can't reach 2048; a large one may slightly exceed it.
         if max(out.width, out.height) > DerivativeKind.preview.maxPixel {
-            return try DerivativeStore.downscaled(image: out, maxPixel: DerivativeKind.preview.maxPixel)
+            return (try DerivativeStore.downscaled(image: out, maxPixel: DerivativeKind.preview.maxPixel), hdr)
         }
-        return out
+        return (out, hdr)
     }
 
-    /// Full-resolution edited image (orientation applied).
+    /// Full-resolution edited image (orientation applied) and its HDR gain maps.
     public func renderFull(id: String, version: Int) throws -> CGImage {
+        try renderFullHDR(id: id, version: version).0
+    }
+
+    func renderFullHDR(id: String, version: Int) throws -> (CGImage, HDRMetadata) {
         guard let recipe = try recipe(id: id, version: version) else { throw EditError.notFound }
         guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
         let full = try DerivativeStore.downscaled(source: source, maxPixel: 16384)
-        return try EditRenderer.shared().render(full, recipe: recipe)
+        return try render(full, source: source, recipe: recipe) {
+            try NormalizedGainMap.make(source: source, maxPixel: min(2048, max(full.width, full.height) / 2))
+        }
+    }
+
+    /// Runs `recipe` over `base` (the SDR decode of `source`). An HDR original keeps HDR: geometry-only
+    /// edits carry its own gain map through the same geometry; other edits render the HDR rendition too
+    /// and get a gain map computed from the two. SDR originals stay SDR.
+    func render(_ base: CGImage, source: URL, recipe: EditRecipe,
+                gainMap: () throws -> NormalizedGainMap?) throws -> (CGImage, HDRMetadata) {
+        let renderer = try EditRenderer.shared()
+        if recipe.isGeometryOnly {
+            return (try renderer.render(base, recipe: recipe), try HDRMetadata.geometry(of: source, recipe: recipe, renderer: renderer))
+        }
+        guard let map = try gainMap() else { return (try renderer.render(base, recipe: recipe), .none) }
+        let (sdr, hdr) = try renderer.renderHDR(base, gainMap: map, recipe: recipe)
+        return (sdr, try HDRMetadata.derived(sdr: sdr, hdr: hdr))
     }
 
     // MARK: Export
@@ -160,13 +181,13 @@ public final class EditService: Sendable {
             try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: target.path)
             return (target, filename)
         }
-        let image = try renderFull(id: id, version: version)
-        try Self.write(image, to: target, format: format, metadataFrom: source)
+        let (image, hdr) = try renderFullHDR(id: id, version: version)
+        try Self.write(image, hdr: hdr, to: target, format: format, metadataFrom: source)
         Self.pruneExports(in: dir, keep: 12)
         return (target, filename)
     }
 
-    static func write(_ image: CGImage, to target: URL, format: ImageFormat, metadataFrom source: URL) throws {
+    static func write(_ image: CGImage, hdr: HDRMetadata = .none, to target: URL, format: ImageFormat, metadataFrom source: URL) throws {
         var props: [CFString: Any] = [:]
         if let src = CGImageSourceCreateWithURL(source as CFURL, nil),
            let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
@@ -179,6 +200,7 @@ public final class EditService: Sendable {
                 }
             }
         }
+        for (k, v) in hdr.imageProperties { props[k] = v }
         props[kCGImagePropertyOrientation] = 1
         props[kCGImageDestinationLossyCompressionQuality] = format == .heic ? 0.85 : 0.92
         let tmp = target.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
@@ -186,6 +208,7 @@ public final class EditService: Sendable {
             throw DerivativeError.encodeFailed(target.path)
         }
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
+        for map in hdr.gainMaps { CGImageDestinationAddAuxiliaryDataInfo(dest, map.type, map.info as CFDictionary) }
         guard CGImageDestinationFinalize(dest) else {
             try? FileManager.default.removeItem(at: tmp)
             throw DerivativeError.encodeFailed(target.path)

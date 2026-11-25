@@ -48,6 +48,7 @@ public final class Services: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if let s = store { return s }
         let s = DerivativeStore(cacheDir: paths.cacheDir)
+        do { try s.upgradeIfNeeded() } catch { print("Could not clear outdated thumbnails and previews: \(error)") }
         store = s
         return s
     }

@@ -43,6 +43,37 @@ import CryptoKit
         }
     }
 
+    /// HDR rendition references: the fixture plus a gain map (horizontal ramp 0…255 over the top three
+    /// quarters, none below) of `hdrStops` stops. Files hold RGBA half floats (little-endian).
+    static let hdrRecipes = ["identity", "exposure", "light", "everything"]
+    static let hdrStops: Float = 2
+
+    @Test func hdrRendersMatchGoldens() throws {
+        let renderer = try EditRenderer.shared()
+        let fixtures = Self.shaders.appendingPathComponent("fixtures")
+        let src = [UInt8](try Data(contentsOf: fixtures.appendingPathComponent("fixture-96x64.rgba")))
+        let gain = NormalizedGainMap(pixels: [UInt8](try Data(contentsOf: fixtures.appendingPathComponent("gain-96x64.r8"))),
+                                     width: 96, height: 64, stops: Self.hdrStops)
+        let recipes = try JSONDecoder().decode([String: EditRecipe].self, from: Data(contentsOf: fixtures.appendingPathComponent("recipes.json")))
+        let update = ProcessInfo.processInfo.environment["UPDATE_GOLDENS"] == "1"
+        for name in Self.hdrRecipes {
+            let recipe = try #require(recipes[name])
+            let out = try renderer.render(rgba: src, width: 96, height: 64, recipe: try recipe.validated(), gainMap: gain)
+            let hdr = try #require(out.hdr)
+            let golden = fixtures.appendingPathComponent("golden/hdr-\(name).rgba16f")
+            let bytes = hdr.withUnsafeBytes { Data($0) }
+            if update { try bytes.write(to: golden); continue }
+            let expected = try Data(contentsOf: golden).withUnsafeBytes { [UInt16]($0.bindMemory(to: UInt16.self)) }
+            #expect(expected.count == hdr.count, "\(name): size")
+            guard expected.count == hdr.count else { continue }
+            let maxDiff = zip(expected, hdr).map { abs(Float(Float16(bitPattern: $0)) - Float(Float16(bitPattern: $1))) }.max() ?? 0
+            #expect(maxDiff <= 0.01, "\(name): max difference \(maxDiff)")
+            // The ramp reaches above SDR white; the SDR rendition is unchanged by the gain map.
+            #expect(hdr.contains { Float(Float16(bitPattern: $0)) > 1.2 }, "\(name): has HDR highlights")
+            #expect(out.sdr == (try renderer.render(rgba: src, width: 96, height: 64, recipe: try recipe.validated())).pixels)
+        }
+    }
+
     @Test func identityKeepsPixels() throws {
         let renderer = try EditRenderer.shared()
         let src = [UInt8](try Data(contentsOf: Self.shaders.appendingPathComponent("fixtures/fixture-96x64.rgba")))

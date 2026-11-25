@@ -9,6 +9,12 @@
 //
 // Colour: the source texture holds Display-P3-encoded values (sRGB transfer curve); the output is
 // Display-P3-encoded too. Light maths happens in linear P3.
+//
+// HDR: a gain-map photo comes with `gainmap`, a single-channel map (same framing as `src`) where 1.0
+// means "this pixel is 2^stops brighter than its SDR value" (P.v[6].w = stops). With P.v[6].z = 1
+// fs_develop renders HDR: extended-range values (> 1 is brighter than SDR white, encoded with the
+// same curve extended above 1) for a float target, capped softly at the photo's own headroom.
+// With P.v[6].z = 0 the output is the SDR rendition, identical to a photo without a gain map.
 
 struct Params {
     // v[0]  outW, outH, srcW, srcH          (pixels)
@@ -17,7 +23,7 @@ struct Params {
     // v[3]  exposure (EV, -3..3), brilliance, highlights, shadows   (-1..1)
     // v[4]  brightness, contrast, black point, saturation           (-1..1)
     // v[5]  vibrance, warmth, tint, vignette                        (-1..1)
-    // v[6]  sharpen (0..1), curve point count (0 or 2..16), -, -
+    // v[6]  sharpen (0..1), curve point count (0 or 2..16), HDR output (0/1), gain-map stops
     // v[7]  blur direction x, y (luma texels), lumaW, lumaH
     // v[8..15] tone curve points: (x0, y0, x1, y1) per vec4, x ascending, 0..1
     v: array<vec4<f32>, 16>,
@@ -27,6 +33,7 @@ struct Params {
 @group(0) @binding(1) var src: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var luma: texture_2d<f32>;
+@group(0) @binding(4) var gainmap: texture_2d<f32>;
 
 struct VOut {
     @builtin(position) pos: vec4<f32>,
@@ -173,6 +180,16 @@ fn tone_curve(x: f32, n: i32) -> f32 {
     return clamp(y, 0.0, 1.0);
 }
 
+/// Linear HDR colour with its brightest channel rolled off smoothly towards `cap` (above a knee).
+fn soft_cap(c: vec3<f32>, cap: f32) -> vec3<f32> {
+    let m = max(max(c.r, c.g), c.b);
+    let knee = 1.0 + 0.6 * (cap - 1.0);
+    if (m <= knee || cap <= 1.0) { return min(c, vec3<f32>(max(cap, 1.0))); }
+    let room = cap - knee;
+    let m2 = knee + room * (1.0 - exp(-(m - knee) / room));
+    return c * (m2 / m);
+}
+
 /// Symmetric S-curve around 0.5 that keeps 0 and 1 fixed (k > 1 adds contrast).
 fn contrast_curve(p: f32, k: f32) -> f32 {
     let x = clamp(p, 0.0, 1.0);
@@ -205,6 +222,8 @@ fn fs_develop(in: VOut) -> @location(0) vec4<f32> {
     let vignette = P.v[5].w;
     let sharpen = P.v[6].x;
     let curveN = i32(P.v[6].y + 0.5);
+    let hdr = P.v[6].z > 0.5;
+    let gainStops = P.v[6].w;
 
     // Sharpen (unsharp mask on the encoded source; radius ≈ 1 px at 2048 px, scaled with size)
     var enc = raw;
@@ -242,6 +261,19 @@ fn fs_develop(in: VOut) -> @location(0) vec4<f32> {
         c *= pow(ratio, 0.22 * brilliance);
     }
 
+    // HDR: the gain map lifts the photo above SDR white (after the local tone, whose weights come from
+    // the SDR values, so both renditions get the same local adjustments). What exceeds SDR white is
+    // carried as a ratio through the display-referred steps below, which shape the 0..1 part.
+    var over = 1.0;
+    if (hdr) {
+        c *= exp2(textureSampleLevel(gainmap, samp, s, 0.0).r * gainStops);
+        let m = max(max(c.r, c.g), c.b);
+        if (m > 1.0) {
+            over = m;
+            c /= m;
+        }
+    }
+
     // Display-referred adjustments in encoded space
     var p = to_encoded(c);
     p = clamp(p, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -273,5 +305,9 @@ fn fs_develop(in: VOut) -> @location(0) vec4<f32> {
         p = select(mix(p, vec3<f32>(1.0), -vignette * 0.8 * v), p * (1.0 - vignette * 0.9 * v), vignette > 0.0);
     }
 
-    return vec4<f32>(clamp(p, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    p = clamp(p, vec3<f32>(0.0), vec3<f32>(1.0));
+    if (hdr) {
+        return vec4<f32>(to_encoded(soft_cap(to_linear(p) * over, exp2(gainStops))), 1.0);
+    }
+    return vec4<f32>(p, 1.0);
 }

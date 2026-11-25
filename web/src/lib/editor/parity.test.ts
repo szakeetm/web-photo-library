@@ -27,4 +27,27 @@ describe('edit pipeline parity with the server', async () => {
 			expect(max, `max channel difference for ${name}`).toBeLessThanOrEqual(TOLERANCE);
 		});
 	}
+
+	// HDR rendition (gain-map photos): same fixture plus a gain map; see EditRenderTests.hdrRendersMatchGoldens.
+	for (const name of ['identity', 'exposure', 'light', 'everything']) {
+		it(`HDR ${name}`, async () => {
+			renderer!.setSource({ data: new Uint8Array(readFileSync(new URL('fixture-96x64.rgba', dir))), width: 96, height: 64 });
+			renderer!.setGainMap({ pixels: new Uint8Array(readFileSync(new URL('gain-96x64.r8', dir))), width: 96, height: 64, stops: 2 });
+			const out = await renderer!.renderHDRPixels(recipes[name]);
+			renderer!.setGainMap(null);
+			const file = readFileSync(new URL(`golden/hdr-${name}.rgba16f`, dir));
+			const golden = new Uint16Array(file.buffer, file.byteOffset, file.byteLength / 2);
+			expect(out.data.length).toBe(golden.length);
+			let max = 0;
+			for (let i = 0; i < golden.length; i++) max = Math.max(max, Math.abs(half(golden[i]) - half(out.data[i])));
+			expect(max, `max difference for HDR ${name}`).toBeLessThanOrEqual(0.01);
+		});
+	}
 });
+
+function half(h: number) {
+	const e = (h >> 10) & 31;
+	const m = h & 1023;
+	const v = e === 0 ? (m / 1024) * 2 ** -14 : e === 31 ? (m ? NaN : Infinity) : (1 + m / 1024) * 2 ** (e - 15);
+	return h >> 15 ? -v : v;
+}

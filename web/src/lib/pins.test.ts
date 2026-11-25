@@ -8,6 +8,6 @@ describe('albumImageUrls', () => {
 		const a = { id: 'a', ev: 2 } as CatalogAsset;
 		const byId = new Map([['a', a]]);
 		const urls = albumImageUrls({ id: 1, title: 'T', coverId: null, source: 'user', assetIds: ['a', 'gone'] }, byId, 'heic');
-		expect(urls).toEqual(['/api/thumb/a?e=2&fmt=heic', '/api/preview/a?e=2&fmt=heic']);
+		expect(urls).toEqual(['/api/thumb/a?e=2&fmt=heic&r=2', '/api/preview/a?e=2&fmt=heic&r=2']);
 	});
 });

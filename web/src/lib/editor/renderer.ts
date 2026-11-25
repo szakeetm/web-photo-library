@@ -2,6 +2,7 @@
 // shows is what gets saved. The luminance passes depend only on the source image and run once per photo.
 import shaderCode from '../../../../shaders/edit.wgsl?raw';
 import { lumaSize, outputSize, shaderParams, type Recipe } from './recipe';
+import type { GainMap } from './gainmap';
 
 export type Source = ImageBitmap | { data: Uint8Array; width: number; height: number };
 
@@ -12,6 +13,9 @@ export class EditRenderer {
 	private src: GPUTexture | null = null;
 	private lumaA: GPUTexture | null = null;
 	private lumaB: GPUTexture | null = null;
+	/** The photo's gain map (HDR photos), or a 1×1 zero map. */
+	private gain: GPUTexture;
+	private gainStops = 0;
 	width = 0;
 	height = 0;
 
@@ -22,6 +26,26 @@ export class EditRenderer {
 	) {
 		this.module = device.createShaderModule({ code: shaderCode });
 		this.sampler = device.createSampler({ minFilter: 'linear', magFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
+		this.gain = this.gainTexture({ pixels: new Uint8Array(1), width: 1, height: 1, stops: 0 });
+	}
+
+	private gainTexture(map: GainMap) {
+		const tex = this.device.createTexture({ size: [map.width, map.height], format: 'r8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+		// writeTexture needs no row alignment.
+		this.device.queue.writeTexture({ texture: tex }, map.pixels as Uint8Array<ArrayBuffer>, { bytesPerRow: map.width }, [map.width, map.height]);
+		return tex;
+	}
+
+	/** The photo's HDR gain map (same framing as the source), or null for an SDR photo. */
+	setGainMap(map: GainMap | null) {
+		this.gain.destroy();
+		this.gain = this.gainTexture(map ?? { pixels: new Uint8Array(1), width: 1, height: 1, stops: 0 });
+		this.gainStops = map?.stops ?? 0;
+	}
+
+	/** True when a gain map is set: render(…, true) then gives the HDR rendition. */
+	get hasGainMap() {
+		return this.gainStops > 0;
 	}
 
 	/** Null when this browser has no WebGPU (the editor then explains why it is unavailable). */
@@ -98,6 +122,7 @@ export class EditRenderer {
 		const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: ubo } }];
 		if (entry !== 'fs_blur') entries.push({ binding: 1, resource: this.src!.createView() }, { binding: 2, resource: this.sampler });
 		if (entry !== 'fs_luma') entries.push({ binding: 3, resource: (luma ?? this.lumaA!).createView() });
+		if (entry === 'fs_develop') entries.push({ binding: 4, resource: this.gain.createView() });
 		const bind = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
 		const rp = enc.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
 		rp.setPipeline(pipeline);
@@ -111,11 +136,15 @@ export class EditRenderer {
 		return outputSize(recipe, this.width, this.height);
 	}
 
-	/** Renders into `target` (its size must equal outputSize(recipe)). */
-	render(recipe: Recipe, target: GPUTexture) {
+	/**
+	 * Renders into `target` (its size must equal outputSize(recipe)). With `hdr` and a gain map, the HDR
+	 * rendition: extended-range values for a float target (rgba16float canvas with extended tone mapping).
+	 */
+	render(recipe: Recipe, target: GPUTexture, hdr = false) {
 		if (!this.src) throw new Error('no source');
 		const enc = this.device.createCommandEncoder();
-		this.pass(enc, 'fs_develop', target, shaderParams(recipe, target.width, target.height, this.width, this.height));
+		const on = hdr && this.hasGainMap;
+		this.pass(enc, 'fs_develop', target, shaderParams(recipe, target.width, target.height, this.width, this.height, [0, 0], on, this.gainStops));
 		this.submit(enc);
 	}
 
@@ -144,7 +173,28 @@ export class EditRenderer {
 		return out;
 	}
 
+	/** Renders the HDR rendition and reads it back (RGBA half floats as raw bits, extended Display P3). */
+	async renderHDRPixels(recipe: Recipe): Promise<{ data: Uint16Array; width: number; height: number }> {
+		const { w, h } = this.outputSize(recipe);
+		const tex = this.device.createTexture({ size: [w, h], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+		this.render(recipe, tex, true);
+		const bytesPerRow = Math.ceil((w * 8) / 256) * 256;
+		const buf = this.device.createBuffer({ size: bytesPerRow * h, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+		const enc = this.device.createCommandEncoder();
+		enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow }, [w, h]);
+		this.device.queue.submit([enc.finish()]);
+		await buf.mapAsync(GPUMapMode.READ);
+		const src = new Uint16Array(buf.getMappedRange());
+		const out = new Uint16Array(w * h * 4);
+		for (let y = 0; y < h; y++) out.set(src.subarray((y * bytesPerRow) / 2, (y * bytesPerRow) / 2 + w * 4), y * w * 4);
+		buf.unmap();
+		buf.destroy();
+		tex.destroy();
+		return { data: out, width: w, height: h };
+	}
+
 	destroy() {
+		this.gain.destroy();
 		this.src?.destroy();
 		this.lumaA?.destroy();
 		this.lumaB?.destroy();

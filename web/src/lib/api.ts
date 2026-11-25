@@ -74,6 +74,9 @@ export interface ServerInfo {
 	libraryConfigured: boolean;
 	uploadsConfigured: boolean;
 	mapStyleURL: string;
+	commit: string | null;
+	commitDate: string | null;
+	dirty: boolean;
 }
 
 export interface FolderNode {
@@ -256,9 +259,12 @@ async function handle<T>(res: Response): Promise<T> {
 
 /** The server's derivative revision (DerivativeStore.revision): images are cached as immutable, so a new
  *  revision (2: HDR gain maps) needs new URLs. */
-export const thumbUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/thumb/${id}?e=${ev}&fmt=${fmt}`;
-export const previewUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/preview/${id}?e=${ev}&fmt=${fmt}`;
+const REVISION = 2;
+export const thumbUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/thumb/${id}?e=${ev}&fmt=${fmt}&r=${REVISION}`;
+export const previewUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/preview/${id}?e=${ev}&fmt=${fmt}&r=${REVISION}`;
 export const originalUrl = (id: string) => `/api/assets/${id}/original`;
+/** The photo's HDR gain map for the editor (204 for SDR photos). */
+export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
 /** Full-resolution render of the current edit (made on demand on the Mac). */
 export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
 export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;

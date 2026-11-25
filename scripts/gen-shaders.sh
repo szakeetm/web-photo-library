@@ -15,6 +15,7 @@ sed -E \
   -e 's/(constant Params& P) \[\[user\(fake0\)\]\]/\1 [[buffer(0)]]/' \
   -e 's/(texture2d<float, metal::access::sample> src) \[\[user\(fake0\)\]\]/\1 [[texture(0)]]/' \
   -e 's/(texture2d<float, metal::access::sample> luma) \[\[user\(fake0\)\]\]/\1 [[texture(1)]]/' \
+  -e 's/(texture2d<float, metal::access::sample> gainmap) \[\[user\(fake0\)\]\]/\1 [[texture(2)]]/' \
   -e 's/(metal::sampler samp) \[\[user\(fake0\)\]\]/\1 [[sampler(0)]]/' \
   "$tmp" > "$tmp.bound"
 if grep -q 'user(fake' "$tmp.bound"; then

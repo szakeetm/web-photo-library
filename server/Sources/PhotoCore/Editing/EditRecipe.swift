@@ -101,6 +101,16 @@ public struct EditRecipe: Codable, Sendable, Equatable {
         return r
     }
 
+    /// Just the geometry (crop, straighten, quarter turns, flips).
+    public var geometryOnly: EditRecipe {
+        var r = EditRecipe()
+        r.crop = crop; r.straighten = straighten; r.rotate = rotate; r.flipH = flipH; r.flipV = flipV
+        return r
+    }
+
+    /// Changes nothing but the geometry: an HDR photo then keeps its own gain map (transformed alike).
+    public var isGeometryOnly: Bool { withoutGeometry.normalized().isIdentity }
+
     // MARK: Shader parameters (layout documented in shaders/edit.wgsl)
 
     /// Output pixel size for a source of the given (oriented) size.
@@ -118,7 +128,9 @@ public struct EditRecipe: Codable, Sendable, Equatable {
     }
 
     /// 16 × vec4<f32> uniform block.
-    public func shaderParams(outW: Int, outH: Int, srcW: Int, srcH: Int, blur: (Float, Float) = (0, 0)) -> [Float] {
+    /// `hdr`: render the HDR rendition using a gain map of `gainStops` stops (see shaders/edit.wgsl).
+    public func shaderParams(outW: Int, outH: Int, srcW: Int, srcH: Int, blur: (Float, Float) = (0, 0),
+                             hdr: Bool = false, gainStops: Float = 0) -> [Float] {
         var v = [Float](repeating: 0, count: 64)
         func set(_ i: Int, _ a: Double, _ b: Double, _ c: Double, _ d: Double) {
             v[i * 4] = Float(a); v[i * 4 + 1] = Float(b); v[i * 4 + 2] = Float(c); v[i * 4 + 3] = Float(d)
@@ -132,7 +144,7 @@ public struct EditRecipe: Codable, Sendable, Equatable {
         set(3, exposure ?? 0, brilliance ?? 0, highlights ?? 0, shadows ?? 0)
         set(4, brightness ?? 0, contrast ?? 0, blackPoint ?? 0, saturation ?? 0)
         set(5, vibrance ?? 0, warmth ?? 0, tint ?? 0, vignette ?? 0)
-        set(6, sharpen ?? 0, Double(pts.count), 0, 0)
+        set(6, sharpen ?? 0, Double(pts.count), hdr ? 1 : 0, Double(gainStops))
         set(7, Double(blur.0), Double(blur.1), Double(luma.width), Double(luma.height))
         for (i, p) in pts.prefix(16).enumerated() {
             v[32 + i * 2] = Float(p[0]); v[32 + i * 2 + 1] = Float(p[1])

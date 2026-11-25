@@ -15,6 +15,6 @@ let services = try Services(paths: .resolve(), restart: {
     execv(Bundle.main.executablePath ?? args[0], cArgs)
     exit(75)
 })
-print("PhotoServer \(serverVersion) on http://127.0.0.1:\(port) — data \(services.paths.dataDir.path), web \(webRoot.path)")
+print("PhotoServer \(serverVersion) [\(BuildInfo.current.label)] on http://127.0.0.1:\(port) — data \(services.paths.dataDir.path), web \(webRoot.path)")
 let app = buildApplication(services: services, webRoot: webRoot, port: port)
 try await app.runService()

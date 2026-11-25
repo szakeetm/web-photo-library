@@ -5,6 +5,7 @@
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import DeviceStorage from '#lib/components/DeviceStorage.svelte';
 	import { net } from '#lib/net.svelte.ts';
+	import { applyUpdate } from '#lib/sw.ts';
 
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
@@ -157,6 +158,36 @@
 			message = { text: 'Map style saved.' };
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
+		}
+	}
+
+	/** "abc1234 · 25 Nov 2026, 15:20" (+ a note when built from uncommitted changes). */
+	function buildLabel(commit: string | null | undefined, date: string | null | undefined, dirty: boolean | undefined) {
+		if (!commit) return 'unknown build';
+		const when = date ? new Date(date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+		return [commit + (dirty ? ' + local changes' : ''), when].filter(Boolean).join(' · ');
+	}
+	const appBuild = buildLabel(__APP_COMMIT__, __APP_COMMIT_DATE__, __APP_DIRTY__);
+
+	let checking = $state(false);
+	let updateNote = $state<string | null>(null);
+
+	/** Asks the server for its current web app now (instead of waiting for the 5-minute check). */
+	async function checkForUpdate() {
+		checking = true;
+		updateNote = null;
+		try {
+			const info = await net.check();
+			if (!info) {
+				updateNote = "Can't reach the server.";
+			} else if (info.webVersion && info.webVersion !== app.clientVersion) {
+				updateNote = 'Updating…';
+				await applyUpdate();
+			} else {
+				updateNote = 'This is the latest version.';
+			}
+		} finally {
+			checking = false;
 		}
 	}
 
@@ -384,9 +415,17 @@
 		<h3>About</h3>
 		<div class="row">
 			<div class="label">
-				<div>App build {app.clientVersion}</div>
-				<div class="muted small">Server {app.server?.version ?? '?'} · API {app.server?.apiVersion ?? '?'}</div>
+				<div>App {appBuild}</div>
+				<div class="muted small">
+					Server {app.server ? buildLabel(app.server.commit, app.server.commitDate, app.server.dirty) : '?'} · API {app.server?.apiVersion ?? '?'}
+				</div>
+				{#if updateNote}<div class="muted small">{updateNote}</div>{/if}
 			</div>
+		</div>
+		<div class="row actions">
+			<button class="btn" disabled={checking} onclick={checkForUpdate}>{checking ? 'Checking…' : 'Check for Update'}</button>
+			<button class="btn" onclick={() => applyUpdate()}>Reload</button>
+			<span class="muted small">The app also checks on its own every 5 minutes and when you switch back to it.</span>
 		</div>
 	</section>
 </div>

@@ -1,8 +1,23 @@
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vitest/config';
+import { execSync } from 'node:child_process';
+
+/** Git info of the checkout being built, shown in Settings → About. */
+function git(args: string) {
+	try {
+		return execSync(`git ${args}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+	} catch {
+		return '';
+	}
+}
 
 export default defineConfig({
+	define: {
+		__APP_COMMIT__: JSON.stringify(git('rev-parse --short HEAD')),
+		__APP_COMMIT_DATE__: JSON.stringify(git('log -1 --format=%cI')),
+		__APP_DIRTY__: JSON.stringify(git('status --porcelain --untracked-files=no -- .') !== '')
+	},
 	plugins: [
 		sveltekit({
 			compilerOptions: {

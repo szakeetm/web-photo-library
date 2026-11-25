@@ -129,7 +129,17 @@ export function lumaSize(w: number, h: number) {
 }
 
 /** The shader's 16 × vec4<f32> uniform block (layout in shaders/edit.wgsl). */
-export function shaderParams(r: Recipe, outW: number, outH: number, srcW: number, srcH: number, blur: [number, number] = [0, 0]) {
+/** `hdr`: render the HDR rendition with a gain map of `gainStops` stops (see shaders/edit.wgsl). */
+export function shaderParams(
+	r: Recipe,
+	outW: number,
+	outH: number,
+	srcW: number,
+	srcH: number,
+	blur: [number, number] = [0, 0],
+	hdr = false,
+	gainStops = 0
+) {
 	const v = new Float32Array(64);
 	const set = (i: number, a: number, b: number, c: number, d: number) => v.set([a, b, c, d], i * 4);
 	const c = r.crop ?? FULL;
@@ -141,7 +151,7 @@ export function shaderParams(r: Recipe, outW: number, outH: number, srcW: number
 	set(3, r.exposure ?? 0, r.brilliance ?? 0, r.highlights ?? 0, r.shadows ?? 0);
 	set(4, r.brightness ?? 0, r.contrast ?? 0, r.blackPoint ?? 0, r.saturation ?? 0);
 	set(5, r.vibrance ?? 0, r.warmth ?? 0, r.tint ?? 0, r.vignette ?? 0);
-	set(6, r.sharpen ?? 0, pts.length, 0, 0);
+	set(6, r.sharpen ?? 0, pts.length, hdr ? 1 : 0, gainStops);
 	set(7, blur[0], blur[1], luma.w, luma.h);
 	pts.forEach(([x, y], i) => v.set([x, y], 32 + i * 2));
 	return v;

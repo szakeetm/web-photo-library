@@ -10,7 +10,7 @@ export interface CatalogMeta {
 
 /** One cached image (thumbnail or preview) in Cache Storage. */
 export interface ImageEntry {
-	/** Same-origin path + query, e.g. `/api/thumb/<id>?e=0&fmt=heic`. */
+	/** Same-origin path + query, e.g. `/api/thumb/<id>?e=0&fmt=heic&r=2`. */
 	url: string;
 	bytes: number;
 	lastAccess: number;
