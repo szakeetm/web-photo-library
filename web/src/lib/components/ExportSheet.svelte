@@ -1,8 +1,10 @@
 <script lang="ts">
-	// Export: original, or the edit rendered at full resolution on the Mac. Phones get the share sheet
-	// (needs a fresh tap once the file is ready); desktops download.
-	import { CLIENT_API_VERSION, exportUrl, originalUrl, type CatalogAsset } from '#lib/api.ts';
-	import { guardDownloadLink, iosStandalone, saveBlob } from '#lib/download.ts';
+	// Export: original, the edit rendered at full resolution on the Mac, or (videos that needed one) the
+	// converted copy. Phones get the share sheet (needs a fresh tap once the file is ready); desktops
+	// download. Videos download as links (they can be hundreds of MB), except in an iOS Home Screen app,
+	// where any download traps the app: there they are read into memory for the share sheet too.
+	import { api, CLIENT_API_VERSION, exportUrl, originalUrl, videoDownloadUrl, type CatalogAsset } from '#lib/api.ts';
+	import { iosStandalone, saveBlob } from '#lib/download.ts';
 
 	let { asset, onClose }: { asset: CatalogAsset; onClose: () => void } = $props();
 
@@ -11,6 +13,21 @@
 	let error = $state('');
 	let controller: AbortController | null = null;
 	const touch = matchMedia('(pointer: coarse)').matches;
+	const isVideo = $derived(asset.dur != null);
+	/** Bytes received / expected while preparing (null when the size isn't known). */
+	let received = $state(0);
+	let expected = $state<number | null>(null);
+	/** A converted copy of the video exists. */
+	let converted = $state(false);
+
+	$effect(() => {
+		if (asset.dur == null) return;
+		const id = asset.id;
+		api.videoConverted(id).then((c) => { if (id === asset.id) converted = c; }).catch(() => {});
+	});
+
+	const convertedName = $derived(asset.name.replace(/\.[^.]*$/, '') + '-converted.mp4');
+	const pct = $derived(expected ? ` ${Math.min(100, Math.round((received / expected) * 100))}%` : '');
 
 	function filename(res: Response, fallback: string) {
 		const cd = res.headers.get('content-disposition') ?? '';
@@ -24,8 +41,18 @@
 		try {
 			const res = await fetch(url, { signal: controller.signal, headers: { 'X-Client-API-Version': String(CLIENT_API_VERSION) } });
 			if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
-			const blob = await res.blob();
-			file = new File([blob], filename(res, fallback), { type: blob.type });
+			expected = Number(res.headers.get('content-length')) || null;
+			received = 0;
+			const chunks: Uint8Array[] = [];
+			const reader = res.body!.getReader();
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+				received += value.byteLength;
+			}
+			const type = res.headers.get('content-type')?.split(';')[0] ?? '';
+			file = new File(chunks as BlobPart[], filename(res, fallback), { type });
 			if ((touch || iosStandalone) && navigator.canShare?.({ files: [file] })) {
 				phase = 'ready';
 			} else if (iosStandalone) {
@@ -73,11 +100,25 @@
 				Edited photo <span>HEIC, smaller file</span>
 			</button>
 		{/if}
-		{#if asset.dur != null}
+		{#if isVideo && !iosStandalone}
 			<!-- Videos can be hundreds of MB: let the browser download them instead of reading them into memory. -->
-			<a class="opt" href={originalUrl(asset.id)} download={asset.name} onclick={(e) => { guardDownloadLink(e); onClose(); }}>
+			<a class="opt" href={originalUrl(asset.id)} download={asset.name} onclick={onClose}>
 				Original <span>unchanged file</span>
 			</a>
+			{#if converted}
+				<a class="opt" href={videoDownloadUrl(asset.id)} download={convertedName} onclick={onClose}>
+					Converted <span>MP4 (HEVC) that plays everywhere</span>
+				</a>
+			{/if}
+		{:else if isVideo}
+			<button class="opt" onclick={() => prepare(originalUrl(asset.id), asset.name)}>
+				Original <span>unchanged file</span>
+			</button>
+			{#if converted}
+				<button class="opt" onclick={() => prepare(videoDownloadUrl(asset.id), convertedName)}>
+					Converted <span>MP4 (HEVC) that plays everywhere</span>
+				</button>
+			{/if}
 		{:else}
 			<button class="opt" onclick={() => prepare(originalUrl(asset.id), asset.name)}>
 				Original <span>unchanged file{asset.ev > 0 ? ', without edits' : ''}</span>
@@ -86,7 +127,7 @@
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'preparing'}
 		<h3>Preparing…</h3>
-		<p class="muted">{asset.ev > 0 ? 'Rendering at full resolution on the Mac.' : 'Downloading.'}</p>
+		<p class="muted">{asset.ev > 0 && !isVideo ? 'Rendering at full resolution on the Mac.' : `Downloading…${pct}`}</p>
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'ready'}
 		<h3>Ready</h3>

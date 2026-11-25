@@ -591,7 +591,7 @@
 							<img class="high" src={originalUrl(a.id)} alt="" draggable="false" />
 						{/if}
 						{#if s.o === 0 && a.dur != null}
-							<VideoPlayer bind:this={player} asset={a} active={!closing} />
+							<VideoPlayer bind:this={player} asset={a} active={!closing} onDownload={() => (exporting = true)} />
 						{/if}
 						{#if s.o === 0 && a.live && a.dur == null}
 							<LiveOverlay

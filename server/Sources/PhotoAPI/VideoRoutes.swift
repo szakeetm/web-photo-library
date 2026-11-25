@@ -5,7 +5,11 @@ import PhotoCore
 
 /// Video playback (originals or converted previews), Live Photo motion clips and "Convert all".
 extension APIRoutes {
-    struct StatusBody: Encodable { let status: VideoStatus }
+    struct StatusBody: Encodable {
+        let status: VideoStatus
+        /// A converted copy exists (the original needed one), downloadable from `/video/download`.
+        var converted: Bool? = nil
+    }
 
     /// `/video` and `/motion` URLs are unversioned (the file behind them can change, e.g. a re-converted
     /// preview), so they are cached briefly and revalidated by ETag.
@@ -43,7 +47,23 @@ extension APIRoutes {
 
         api.get("assets/:id/video/status") { _, ctx in
             guard let id = validId(ctx), try services.catalog.kind(id: id) == "video" else { throw HTTPError(.notFound) }
-            return try json(StatusBody(status: videos.status(id: id)))
+            let plan = try services.catalog.record(id: id)?.servePlan
+            let converted = plan == "preview" && FileManager.default.fileExists(atPath: videos.previewURL(id: id).path)
+            return try json(StatusBody(status: videos.status(id: id), converted: converted))
+        }
+
+        // The converted copy as a download (only for videos that needed one).
+        api.get("assets/:id/video/download") { req, ctx in
+            guard let id = validId(ctx),
+                  let asset = try services.catalog.record(id: id), asset.kind == "video", asset.servePlan == "preview"
+            else { throw HTTPError(.notFound) }
+            let preview = videos.previewURL(id: id)
+            guard FileManager.default.fileExists(atPath: preview.path) else { throw HTTPError(.notFound) }
+            let base = ((try services.catalog.sourceURL(id: id))?.deletingPathExtension().lastPathComponent) ?? id
+            return try await fileResponse(path: preview.path, contentType: "video/mp4", request: req, context: ctx, extraHeaders: [
+                .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(base + "-converted.mp4"))",
+                .cacheControl: Self.videoCache,
+            ])
         }
 
         api.get("assets/:id/motion") { req, ctx in

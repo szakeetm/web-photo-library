@@ -9,12 +9,11 @@
 	// photo. Here the bar is real DOM the viewer's gesture code skips, and a drag anywhere else on the
 	// video still pages or closes.
 	import { tick, untrack } from 'svelte';
-	import { api, originalUrl, videoUrl, type CatalogAsset } from '#lib/api.ts';
+	import { api, videoUrl, type CatalogAsset } from '#lib/api.ts';
 	import { net } from '#lib/net.svelte.ts';
-	import { guardDownloadLink } from '#lib/download.ts';
 	import { formatDuration } from '#lib/video.ts';
 
-	let { asset, active }: { asset: CatalogAsset; active: boolean } = $props();
+	let { asset, active, onDownload }: { asset: CatalogAsset; active: boolean; onDownload?: () => void } = $props();
 
 	type Phase = 'idle' | 'probing' | 'preparing' | 'ready' | 'unplayable' | 'failed' | 'offline';
 	let phase = $state<Phase>('idle');
@@ -245,7 +244,7 @@
 	<div class="note">
 		<div>{phase === 'unplayable' ? "Can't play this video here" : "Couldn't prepare this video"}</div>
 		{#if error}<div class="detail">{error}</div>{/if}
-		<a class="btn" href={originalUrl(asset.id)} download={asset.name} onclick={guardDownloadLink}>Download original</a>
+		<button class="btn" onclick={() => onDownload?.()}>Download…</button>
 	</div>
 {/if}
 

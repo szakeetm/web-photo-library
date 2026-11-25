@@ -277,6 +277,8 @@ export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
 export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
 export const videoUrl = (id: string) => `/api/assets/${id}/video`;
 export const videoStatusUrl = (id: string) => `/api/assets/${id}/video/status`;
+/** The converted copy of a video that needed one, as a download. */
+export const videoDownloadUrl = (id: string) => `/api/assets/${id}/video/download`;
 export const motionUrl = (id: string) => `/api/assets/${id}/motion`;
 export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;
 
@@ -307,6 +309,8 @@ export const api = {
 	changes: (since: number, catalogId: string) =>
 		call<CatalogDelta>(`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}`),
 	videoStatus: (id: string) => call<{ status: VideoStatus }>(videoStatusUrl(id)).then((r) => r.status),
+	/** Whether a converted copy of the video exists (to download beside the original). */
+	videoConverted: (id: string) => call<{ converted?: boolean }>(videoStatusUrl(id)).then((r) => r.converted === true),
 	videos: () => call<ConvertAllState>('/api/videos'),
 	convertAll: () => call<ConvertAllState>('/api/videos/convert-all', { method: 'POST' }),
 	pauseConversion: () => call<ConvertAllState>('/api/videos/pause', { method: 'POST' }),
