@@ -4,11 +4,13 @@
 	// pressing the badge) plays it too. The clip is always the unedited original (owner's decision), laid
 	// out with `object-fit: contain` in the frame's box like the still.
 	//
-	// Loading: the clip is fetched only for the current slide, once it has been current for 500 ms (or at
-	// once when a hold starts sooner), and dropped (download aborted) when the slide stops being current.
-	// The clip is fetched whole and played from a blob URL, so "ready" is certain (iOS often won't
-	// preload a <video>): the badge's icon spins until then. Anything but a playable answer (404, 202
-	// while converting, 409) or a <video> error fails: the badge goes inert and holds do nothing.
+	// Loading is on demand, to save data: the clip is fetched only when the user first holds the photo
+	// (or hovers/presses the badge), then kept while the slide stays current (later holds play at once)
+	// and dropped (download aborted) when it stops being current. It is fetched whole and played from a
+	// blob URL, so "ready" is certain (iOS often won't preload a <video>). While it loads, the badge's
+	// icon spins and, during a hold, a "Loading Live Photo…" pill shows; the clip plays as soon as it
+	// arrives if the hold is still on. A clip the Mac is still converting (202) is asked for again each
+	// second. Anything else that isn't playable (404, 409, a <video> error) fails: the badge goes inert.
 	import { untrack } from 'svelte';
 	import { motionUrl, type CatalogAsset } from '#lib/api.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -42,18 +44,19 @@
 	const usable = $derived(active && net.online && !zoomed && !failed);
 	const aspect = $derived(still ? still.w / still.h : asset.w / asset.h);
 
-	// Preload once the slide has been current for a moment; drop the clip when it stops being current.
+	// Drop the clip (and forget a failure) when the slide stops being current.
 	$effect(() => {
 		if (!active || !net.online) return;
-		const t = setTimeout(() => (armed = true), 500);
 		return () => {
-			clearTimeout(t);
 			armed = false;
 			failed = false;
 		};
 	});
 
-	// A hold before the preload started loads it now.
+	/** The clip is being downloaded. */
+	const loading = $derived(armed && !ready && !failed && net.online);
+
+	// The first hold (or badge hover) loads the clip.
 	$effect(() => {
 		if (playing && usable) armed = true;
 	});
@@ -64,16 +67,28 @@
 		if (!v || !armed) return;
 		const ctl = new AbortController();
 		let url = '';
-		fetch(motionUrl(asset.id), { signal: ctl.signal })
-			.then(async (res) => {
+		const load = async () => {
+			for (;;) {
+				const res = await fetch(motionUrl(asset.id), { signal: ctl.signal });
+				if (res.status === 202) {
+					// The Mac is converting the clip: ask again shortly.
+					res.body?.cancel();
+					await new Promise((r) => setTimeout(r, 1000));
+					if (ctl.signal.aborted) return;
+					continue;
+				}
 				if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
-				url = URL.createObjectURL(await res.blob());
+				const blob = await res.blob();
+				if (ctl.signal.aborted) return;
+				url = URL.createObjectURL(blob);
 				v.src = url;
 				ready = true;
-			})
-			.catch((e: Error) => {
-				if (e.name !== 'AbortError') failed = true;
-			});
+				return;
+			}
+		};
+		load().catch((e: Error) => {
+			if (e.name !== 'AbortError') failed = true;
+		});
 		return () => {
 			ctl.abort();
 			v.pause();
@@ -150,14 +165,20 @@
 		onended={() => (shown = false)}
 		onerror={onError}
 	></video>
+	{#if playing && loading}
+		<div class="live-wait" role="status">
+			<span class="spinner" aria-hidden="true"></span>
+			Loading Live Photo…
+		</div>
+	{/if}
 	{#if !zoomed}
 		<button
 			type="button"
 			class="live-badge"
 			class:inert={!net.online || failed}
-			class:loading={net.online && !failed && !ready}
+			class:loading
 			tabindex="-1"
-			title={!net.online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : !ready ? 'Live Photo (loading…)' : 'Live Photo: hold the photo to play'}
+			title={!net.online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : loading ? 'Live Photo (loading…)' : 'Live Photo: hold the photo to play'}
 			aria-label="Live Photo"
 			onpointerenter={onEnter}
 			onpointerleave={onLeave}
@@ -225,6 +246,42 @@
 		-webkit-touch-callout: none;
 		-webkit-user-select: none;
 		user-select: none;
+	}
+	.live-wait {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 14px;
+		border-radius: 999px;
+		font-size: 14px;
+		font-weight: 500;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.55);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		pointer-events: none;
+		white-space: nowrap;
+		animation: live-wait-in 0.2s 0.15s both; /* no flash when the clip is already almost there */
+	}
+	.live-wait .spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgba(255, 255, 255, 0.35);
+		border-top-color: #fff;
+		border-radius: 50%;
+		animation: live-spin 0.8s linear infinite;
+	}
+	@keyframes live-wait-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 	.live-badge.loading svg {
 		animation: live-spin 1.2s linear infinite;
