@@ -46,4 +46,26 @@ import Foundation
         #expect(folders.count == 2 && folders.allSatisfy { $0.root == "library" })
         #expect(try db.writer.read { try Asset.fetchOne($0, key: "h1")?.favorite } == true)
     }
+
+    @Test func v7MigrationDefaults() throws {
+        let queue = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(queue, upTo: "v6-places-faces")
+        try queue.write { d in
+            try d.execute(sql: "INSERT INTO asset (id, width, height, mime, takenAt, dateSource, favorite) VALUES ('h1', 1, 1, 'x', '2021-01-01', 'exif', 0)")
+        }
+        try AppDatabase.migrator.migrate(queue)
+        let a = try queue.read { try Asset.fetchOne($0, key: "h1") }
+        #expect(a?.kind == "photo")
+        #expect(a?.probeVersion == 0)
+        #expect(a?.videoHDR == false)
+        #expect(a?.duration == nil)
+        try queue.write { d in
+            try MotionRow(assetId: "h1", root: "library", relPath: "a.mov", size: 1, mtime: 0, codec: "hevc").insert(d)
+        }
+        #expect(throws: (any Error).self) {
+            try queue.write { d in
+                try MotionRow(assetId: "h2", root: "library", relPath: "a.mov", size: 1, mtime: 0, codec: nil).insert(d)
+            }
+        }
+    }
 }

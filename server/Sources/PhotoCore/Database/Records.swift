@@ -29,6 +29,16 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
     public var placeId: Int64? = nil
     public var placeVersion: Int = 0
     public var facesVersion: Int = 0
+    public var kind: String = "photo"
+    public var duration: Double? = nil
+    public var videoCodec: String? = nil
+    public var videoHDR: Bool = false
+    public var servePlan: String? = nil
+    public var videoError: String? = nil
+    public var contentId: String? = nil
+    public var probeVersion: Int = 0
+
+    public static let currentProbeVersion = 1
 
     public static func placeholder(id: String) -> Asset {
         Asset(id: id, width: 0, height: 0, mime: "", takenAt: Date(timeIntervalSince1970: 0), tzOffset: nil,
@@ -36,6 +46,17 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
               lens: nil, iso: nil, aperture: nil, shutter: nil, focal: nil, description: nil, favorite: false,
               favoriteUserSet: false, blurhash: nil, editVersion: 0, missingSince: nil)
     }
+}
+
+/// A Live Photo's paired video, attached to the still's asset instead of being an asset itself.
+public struct MotionRow: Codable, Sendable, Equatable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "motion"
+    public var assetId: String
+    public var root: String
+    public var relPath: String
+    public var size: Int64
+    public var mtime: Double
+    public var codec: String?
 }
 
 public struct FileRow: Codable, Sendable, Equatable, FetchableRecord, MutablePersistableRecord {

@@ -198,6 +198,29 @@ public final class AppDatabase: Sendable {
                 ALTER TABLE asset ADD COLUMN facesVersion INTEGER NOT NULL DEFAULT 0;
                 """)
         }
+        m.registerMigration("v7-videos") { db in
+            try db.execute(sql: """
+                ALTER TABLE asset ADD COLUMN kind TEXT NOT NULL DEFAULT 'photo';
+                ALTER TABLE asset ADD COLUMN duration DOUBLE;
+                ALTER TABLE asset ADD COLUMN videoCodec TEXT;
+                ALTER TABLE asset ADD COLUMN videoHDR BOOLEAN NOT NULL DEFAULT 0;
+                ALTER TABLE asset ADD COLUMN servePlan TEXT;
+                ALTER TABLE asset ADD COLUMN videoError TEXT;
+                ALTER TABLE asset ADD COLUMN contentId TEXT;
+                ALTER TABLE asset ADD COLUMN probeVersion INTEGER NOT NULL DEFAULT 0;
+                CREATE INDEX asset_contentId ON asset(contentId);
+
+                -- Live Photo motion clips: attached to the still, not assets of their own
+                CREATE TABLE motion (
+                    assetId TEXT PRIMARY KEY,
+                    root TEXT NOT NULL,
+                    relPath TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    mtime DOUBLE NOT NULL,
+                    codec TEXT,
+                    UNIQUE (root, relPath));
+                """)
+        }
         return m
     }
 }
