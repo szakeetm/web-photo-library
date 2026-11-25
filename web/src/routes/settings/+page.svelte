@@ -7,7 +7,7 @@
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
 	let recent = $state<Job[]>([]);
-	let picker = $state<'library' | 'data' | null>(null);
+	let picker = $state<'library' | 'data' | 'uploads' | null>(null);
 	let message = $state<{ text: string; error?: boolean } | null>(null);
 	let owner = $state('');
 	let moving = $state(false);
@@ -16,7 +16,8 @@
 		'detect-changes': 'Detect changes',
 		reindex: 'Re-index',
 		'rebuild-caches': 'Rebuild caches',
-		'purge-missing': 'Purge missing'
+		'purge-missing': 'Purge missing',
+		'import-takeout-albums': 'Import Takeout albums'
 	};
 	const phaseNames: Record<string, string> = {
 		scan: 'Scanning library',
@@ -76,6 +77,17 @@
 			message = { text: 'Library folder saved. Scanning…' };
 			app.libraryConfigured = true;
 			await start('detect-changes');
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+
+	async function setUploads(path: string) {
+		picker = null;
+		try {
+			settings = await api.saveSettings({ uploadsPath: path });
+			message = { text: `Uploads will be saved in ${path}.` };
+			await app.reload();
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
 		}
@@ -173,6 +185,18 @@
 			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('rebuild-caches')}>Rebuild caches</button>
 			<button class="btn danger" onclick={() => start('purge-missing')}>Purge missing</button>
 		</div>
+		<div class="row">
+			<div class="label">
+				<div>Uploads folder</div>
+				<div class="muted path">{settings?.uploadsPath ?? 'Not set — uploading is off'}</div>
+				<div class="muted small">Photos uploaded from your devices go here (phone-uploads/, desktop-uploads/), never into the library. Move them into the library whenever you like — albums and favourites follow them.</div>
+			</div>
+			<button class="btn" onclick={() => (picker = 'uploads')}>Choose…</button>
+		</div>
+		<div class="row actions">
+			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('import-takeout-albums')}>Import Takeout albums</button>
+			<span class="muted small">Turns Google Takeout album folders (with metadata.json) into albums. Safe to run again.</span>
+		</div>
 		<p class="hint muted">
 			Detect changes picks up new, changed and removed files. Re-index re-reads dates and locations of every photo.
 			Rebuild caches regenerates thumbnails and previews. Purge missing permanently forgets photos whose files are gone.
@@ -264,6 +288,14 @@
 		title="Choose library folder"
 		start={settings?.libraryPath}
 		onPick={setLibrary}
+		onCancel={() => (picker = null)}
+	/>
+{:else if picker === 'uploads'}
+	<FolderPicker
+		title="Choose uploads folder"
+		start={settings?.uploadsPath ?? settings?.libraryPath}
+		allowCreate
+		onPick={setUploads}
 		onCancel={() => (picker = null)}
 	/>
 {:else if picker === 'data'}

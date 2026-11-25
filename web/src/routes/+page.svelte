@@ -1,17 +1,27 @@
 <script lang="ts">
 	import { app } from '#lib/state.svelte.ts';
 	import { groupByMonth, monthLabel } from '#lib/dates.ts';
+	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
+	import TitleBar from '#lib/components/TitleBar.svelte';
+	import UploadButton from '#lib/components/UploadButton.svelte';
 
+	const selection = new Selection();
 	const sections = $derived(
 		groupByMonth(app.assets).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);
 </script>
 
-<header class="titlebar">
-	<h1>Library</h1>
-	{#if app.loaded}<span class="muted">{app.assets.length.toLocaleString()} photos</span>{/if}
-</header>
+<TitleBar title="Library" subtitle={app.loaded ? `${app.assets.length.toLocaleString()} photos` : undefined}>
+	{#snippet actions()}
+		<UploadButton />
+		{#if app.assets.length}
+			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>
+				{selection.active ? 'Cancel' : 'Select'}
+			</button>
+		{/if}
+	{/snippet}
+</TitleBar>
 
 {#if app.loaded && app.assets.length === 0}
 	<div class="empty">
@@ -23,26 +33,10 @@
 		{/if}
 	</div>
 {:else}
-	<PhotoBrowser {sections} startAtEnd />
+	<PhotoBrowser {sections} {selection} startAtEnd />
 {/if}
 
 <style>
-	.titlebar {
-		position: sticky;
-		top: 0;
-		z-index: 10;
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		padding: calc(env(safe-area-inset-top) + 10px) 14px 8px;
-		background: var(--bg-bar);
-		backdrop-filter: saturate(180%) blur(20px);
-		-webkit-backdrop-filter: saturate(180%) blur(20px);
-	}
-	h1 {
-		margin: 0;
-		font-size: 24px;
-	}
 	.empty {
 		text-align: center;
 		padding: 80px 20px;

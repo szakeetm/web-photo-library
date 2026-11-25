@@ -3,21 +3,74 @@
 	import { blurhashUrl } from '#lib/blurhash.ts';
 	import { app } from '#lib/state.svelte.ts';
 
-	let { id, x, y, size, onOpen }: { id: string; x: number; y: number; size: number; onOpen: (id: string) => void } =
-		$props();
+	let {
+		id,
+		x,
+		y,
+		size,
+		selected = false,
+		selecting = false,
+		onActivate,
+		onLongPress
+	}: {
+		id: string;
+		x: number;
+		y: number;
+		size: number;
+		selected?: boolean;
+		selecting?: boolean;
+		onActivate: (id: string, e: MouseEvent) => void;
+		onLongPress?: (id: string) => void;
+	} = $props();
 	const asset = $derived(app.byId.get(id));
 	let loaded = $state(false);
 	const placeholder = $derived(blurhashUrl(asset?.bh ?? null));
+
+	// Long-press (touch) starts selection; a long press must not also "click".
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let longPressed = false;
+	let start = { x: 0, y: 0 };
+	function down(e: PointerEvent) {
+		if (e.pointerType !== 'touch' || !onLongPress) return;
+		longPressed = false;
+		start = { x: e.clientX, y: e.clientY };
+		timer = setTimeout(() => {
+			longPressed = true;
+			navigator.vibrate?.(10);
+			onLongPress?.(id);
+		}, 450);
+	}
+	function move(e: PointerEvent) {
+		if (timer && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) clearTimeout(timer);
+	}
+	function up() {
+		clearTimeout(timer);
+	}
+	function click(e: MouseEvent) {
+		if (longPressed) {
+			longPressed = false;
+			e.preventDefault();
+			return;
+		}
+		onActivate(id, e);
+	}
 </script>
 
 <button
 	class="thumb"
+	class:selected
 	data-asset-id={id}
 	style="transform: translate({x}px, {y}px); width: {size}px; height: {size}px; {placeholder
 		? `background-image: url(${placeholder})`
 		: ''}"
-	onclick={() => onOpen(id)}
+	onclick={click}
+	onpointerdown={down}
+	onpointermove={move}
+	onpointerup={up}
+	onpointercancel={up}
+	oncontextmenu={(e) => onLongPress && e.preventDefault()}
 	aria-label={asset?.name ?? 'Photo'}
+	aria-pressed={selecting ? selected : undefined}
 >
 	{#if asset}
 		<img
@@ -30,6 +83,9 @@
 		/>
 	{/if}
 	{#if asset?.fav}<span class="fav">♥</span>{/if}
+	{#if selecting}
+		<span class="check" class:on={selected} aria-hidden="true">{selected ? '✓' : ''}</span>
+	{/if}
 </button>
 
 <style>
@@ -44,6 +100,9 @@
 		cursor: pointer;
 		overflow: hidden;
 		contain: strict;
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
 	}
 	img {
 		width: 100%;
@@ -51,12 +110,16 @@
 		object-fit: cover;
 		display: block;
 		opacity: 0;
-		transition: opacity 0.2s;
-		-webkit-user-select: none;
-		user-select: none;
+		transition:
+			opacity 0.2s,
+			transform 0.15s;
 	}
 	img.loaded {
 		opacity: 1;
+	}
+	.selected img {
+		transform: scale(0.9);
+		opacity: 0.75;
 	}
 	.fav {
 		position: absolute;
@@ -65,5 +128,25 @@
 		color: white;
 		font-size: 12px;
 		text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+	}
+	.check {
+		position: absolute;
+		right: 5px;
+		bottom: 5px;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 1.5px solid white;
+		background: rgba(0, 0, 0, 0.15);
+		box-shadow: 0 0 3px rgba(0, 0, 0, 0.4);
+		color: white;
+		font-size: 13px;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.check.on {
+		background: var(--accent);
 	}
 </style>

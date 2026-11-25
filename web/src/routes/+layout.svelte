@@ -12,11 +12,19 @@
 
 	const tabs = [
 		{ href: '/', label: 'Library', icon: 'photos' },
-		{ href: '/folders', label: 'Folders', icon: 'folder' },
+		{ href: '/albums', label: 'Albums', icon: 'albums' },
+		{ href: '/search', label: 'Search', icon: 'search' },
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
+	const albumsSection = ['/albums', '/favorites', '/folders', '/uploads'];
 	const active = (href: string) =>
-		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
+		href === '/'
+			? page.url.pathname === '/'
+			: href === '/albums'
+				? albumsSection.some((p) => page.url.pathname.startsWith(p))
+				: page.url.pathname.startsWith(href);
+	const exact = (href: string) => page.url.pathname === href || page.url.pathname.startsWith(href + '/');
+	const sidebarAlbums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 
 	onMount(async () => {
 		await app.init();
@@ -41,9 +49,20 @@
 <div class="shell">
 	<nav class="sidebar" aria-label="Sections">
 		<div class="brand">Photos</div>
-		{#each tabs as t (t.href)}
-			<a href={t.href} class:active={active(t.href)}><Icon name={t.icon} size={20} /> {t.label}</a>
-		{/each}
+		<a href="/" class:active={page.url.pathname === '/'}><Icon name="photos" size={20} /> Library</a>
+		<a href="/favorites" class:active={exact('/favorites')}><Icon name="heart" size={20} /> Favourites</a>
+		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
+		{#if app.uploadsConfigured}
+			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
+		{/if}
+		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
+		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
+		<div class="albumlist">
+			{#each sidebarAlbums as al (al.id)}
+				<a href="/albums/{al.id}" class:active={page.url.pathname === `/albums/${al.id}`}><Icon name="albums" size={18} /> <span>{al.title}</span></a>
+			{/each}
+		</div>
+		<a class="bottom" href="/settings" class:active={exact('/settings')}><Icon name="settings" size={20} /> Settings</a>
 	</nav>
 	<main>
 		{#if app.error}
@@ -165,6 +184,29 @@
 		}
 		.sidebar a.active {
 			background: rgba(127, 127, 127, 0.18);
+		}
+		.sidebar a span {
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		.group {
+			margin: 14px 10px 2px;
+			font-size: 12px;
+			font-weight: 600;
+			color: var(--fg-secondary);
+		}
+		.sidebar .grouplink {
+			padding: 0;
+			color: inherit;
+		}
+		.albumlist {
+			overflow: auto;
+			flex: 1;
+			min-height: 0;
+		}
+		.bottom {
+			margin-top: 8px;
 		}
 	}
 </style>

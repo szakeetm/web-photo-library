@@ -1,5 +1,5 @@
 import { version } from '$app/env';
-import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type FolderNode, type ImageFmt, type ServerInfo } from './api';
+import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type FolderNode, type ImageFmt, type ServerInfo } from './api';
 import { supportsHeic } from './heic';
 import { sortByLocalTime } from './dates';
 
@@ -7,6 +7,8 @@ class AppState {
 	/** All photos, oldest first (Photos-style: newest at the bottom). */
 	assets = $state.raw<CatalogAsset[]>([]);
 	folders = $state.raw<FolderNode[]>([]);
+	albums = $state.raw<CatalogAlbum[]>([]);
+	uploadsConfigured = $state(false);
 	byId = $derived(new Map(this.assets.map((a) => [a.id, a])));
 	fmt = $state<ImageFmt>('jpeg');
 	loaded = $state(false);
@@ -41,6 +43,8 @@ class AppState {
 			if (snap.format !== CATALOG_FORMAT) this.updateRequired = true;
 			this.assets = sortByLocalTime(snap.assets);
 			this.folders = snap.folders;
+			this.albums = snap.albums;
+			this.uploadsConfigured = snap.folders.some((f) => f.root === 'uploads');
 			this.error = null;
 		} catch (e) {
 			this.error = e instanceof Error ? e.message : String(e);
@@ -48,6 +52,37 @@ class AppState {
 			this.loaded = true;
 		}
 	}
+}
+
+/** Favourite / unfavourite with an optimistic update. */
+export async function setFavorite(ids: string[], favorite: boolean) {
+	const set = new Set(ids);
+	const before = app.assets;
+	app.assets = app.assets.map((a) => (set.has(a.id) ? { ...a, fav: favorite } : a));
+	try {
+		await api.setFavorite(ids, favorite);
+	} catch (e) {
+		app.assets = before;
+		throw e;
+	}
+}
+
+export async function addToAlbum(albumId: number, ids: string[]) {
+	await api.albumAssets(albumId, { add: ids });
+	await app.reload();
+}
+
+export async function removeFromAlbum(albumId: number, ids: string[]) {
+	const set = new Set(ids);
+	app.albums = app.albums.map((al) => (al.id === albumId ? { ...al, assetIds: al.assetIds.filter((i) => !set.has(i)) } : al));
+	await api.albumAssets(albumId, { remove: ids });
+	await app.reload();
+}
+
+export async function createAlbum(title: string, ids: string[] = []) {
+	const album = await api.createAlbum(title, ids);
+	await app.reload();
+	return album;
 }
 
 export const app = new AppState();

@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
-	import { app } from '#lib/state.svelte.ts';
+	import { app, setFavorite } from '#lib/state.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -63,6 +63,10 @@
 	$effect(() => {
 		if (scale >= 1.6 && originalShowable) fullRes = true;
 	});
+
+	function toggleFavorite() {
+		if (asset) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
+	}
 
 	function resetZoom() {
 		scale = 1;
@@ -153,6 +157,7 @@
 				e.preventDefault();
 				close();
 			} else if (e.key === 'i') infoOpen = !infoOpen;
+			else if (e.key === 'f') toggleFavorite();
 		};
 		window.addEventListener('resize', onResize);
 		window.addEventListener('keydown', onKey);
@@ -398,6 +403,8 @@
 				<div class="sub muted">{index + 1} of {ids.length}</div>
 			{/if}
 		</div>
+		<button class="icon-btn heart" class:filled={asset?.fav} onclick={toggleFavorite}
+			aria-label={asset?.fav ? 'Unfavourite' : 'Favourite'} aria-pressed={asset?.fav ?? false}><Icon name="heart" /></button>
 		<button class="icon-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
 			><Icon name="info" /></button
 		>
@@ -551,6 +558,9 @@
 	}
 	.sub {
 		font-size: 12px;
+	}
+	.heart.filled :global(path) {
+		fill: currentColor;
 	}
 	.icon-btn.on {
 		background: rgba(10, 132, 255, 0.15);

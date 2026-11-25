@@ -1,0 +1,116 @@
+<script lang="ts">
+	// Bottom bar for a multi-photo selection.
+	import { originalUrl } from '#lib/api.ts';
+	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum } from '#lib/state.svelte.ts';
+	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
+	import AlbumPicker from './AlbumPicker.svelte';
+	import Icon from './Icon.svelte';
+
+	let { selection, order, albumId }: { selection: Selection; order: string[]; albumId?: number } = $props();
+	let picking = $state(false);
+	let busy = $state(false);
+	const ids = $derived([...selection.ids]);
+	const favNext = $derived(nextFavoriteValue(ids.map((i) => app.byId.get(i)?.fav ?? false)));
+
+	async function run(work: () => Promise<unknown>) {
+		busy = true;
+		try {
+			await work();
+		} catch (e) {
+			alert((e as Error).message);
+		} finally {
+			busy = false;
+		}
+	}
+
+	function download() {
+		// one download per photo; browsers may ask to allow multiple downloads
+		for (const id of ids) {
+			const a = document.createElement('a');
+			a.href = originalUrl(id);
+			a.download = '';
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+		}
+	}
+</script>
+
+<div class="bar" role="toolbar" aria-label="Selection">
+	<button class="btn" onclick={() => selection.clear()}>Done</button>
+	<span class="count">{selection.count ? `${selection.count} selected` : 'Select photos'}</span>
+	<button class="link" onclick={() => selection.selectAll(order)}>All</button>
+	<div class="actions">
+		<button class="icon-btn" disabled={!selection.count || busy} title={favNext ? 'Favourite' : 'Unfavourite'}
+			aria-label={favNext ? 'Favourite' : 'Unfavourite'}
+			onclick={() => run(() => setFavorite(ids, favNext))}>
+			<span class="heart" class:filled={!favNext}><Icon name="heart" /></span>
+		</button>
+		<button class="icon-btn" disabled={!selection.count || busy} title="Add to album" aria-label="Add to album"
+			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
+		{#if albumId != null}
+			<button class="icon-btn danger" disabled={!selection.count || busy} title="Remove from album" aria-label="Remove from album"
+				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
+		{/if}
+		<button class="icon-btn" disabled={!selection.count} title="Download originals" aria-label="Download originals"
+			onclick={download}><Icon name="download" /></button>
+	</div>
+</div>
+
+{#if picking}
+	<AlbumPicker
+		count={selection.count}
+		onCancel={() => (picking = false)}
+		onPick={(id) => run(async () => { picking = false; await addToAlbum(id, ids); selection.clear(); })}
+		onCreate={(title) => run(async () => { picking = false; await createAlbum(title, ids); selection.clear(); })}
+	/>
+{/if}
+
+<style>
+	.bar {
+		position: fixed;
+		z-index: 30;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+		background: var(--bg-bar);
+		backdrop-filter: saturate(180%) blur(20px);
+		-webkit-backdrop-filter: saturate(180%) blur(20px);
+		border-top: 0.5px solid var(--separator);
+		min-height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+	}
+	@media (min-width: 768px) {
+		.bar {
+			left: var(--sidebar-w);
+		}
+	}
+	.count {
+		font-weight: 600;
+		font-size: 14px;
+	}
+	.link {
+		border: none;
+		background: none;
+		color: var(--accent);
+		cursor: pointer;
+		padding: 4px;
+	}
+	.actions {
+		margin-left: auto;
+		display: flex;
+		gap: 2px;
+	}
+	.icon-btn:disabled {
+		opacity: 0.35;
+	}
+	.danger {
+		color: var(--danger);
+	}
+	.heart.filled :global(path) {
+		fill: currentColor;
+	}
+</style>

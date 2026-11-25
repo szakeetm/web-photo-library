@@ -4,11 +4,21 @@
 	import { layoutGrid, visibleRange, columnsFor, type Section } from '#lib/gridLayout.ts';
 	import Thumb from './Thumb.svelte';
 
+	import type { Selection } from '#lib/selection.svelte.ts';
+
 	let {
 		sections,
 		startAtEnd = false,
-		onOpen
-	}: { sections: Section[]; startAtEnd?: boolean; onOpen: (id: string) => void } = $props();
+		selection,
+		onActivate,
+		onLongPress
+	}: {
+		sections: Section[];
+		startAtEnd?: boolean;
+		selection?: Selection;
+		onActivate: (id: string, e: MouseEvent) => void;
+		onLongPress?: (id: string) => void;
+	} = $props();
 
 	const targets = [64, 96, 136, 200, 300];
 	const GAP = 2;
@@ -154,7 +164,16 @@
 			<h2 class="header" style="transform: translateY({b.y}px); height: {b.h}px">{b.label}</h2>
 		{:else}
 			{#each b.items as id, col (id)}
-				<Thumb {id} x={col * (layout.tile + GAP)} y={b.y} size={layout.tile} {onOpen} />
+				<Thumb
+					{id}
+					x={col * (layout.tile + GAP)}
+					y={b.y}
+					size={layout.tile}
+					selecting={selection?.active ?? false}
+					selected={selection?.ids.has(id) ?? false}
+					{onActivate}
+					{onLongPress}
+				/>
 			{/each}
 		{/if}
 	{/each}
