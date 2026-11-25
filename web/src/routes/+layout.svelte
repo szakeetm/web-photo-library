@@ -17,13 +17,12 @@
 
 	const tabs = [
 		{ href: '/', label: 'Library', icon: 'photos' },
-		{ href: '/albums', label: 'Albums', icon: 'albums' },
-		{ href: '/people', label: 'People', icon: 'people' },
-		{ href: '/places', label: 'Places', icon: 'map' },
-		{ href: '/search', label: 'Search', icon: 'search' }
+		{ href: '/albums', label: 'Collections', icon: 'collections' },
+		{ href: '/search', label: 'Search', icon: 'search' },
+		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
-	// Settings is a gear in the Library and Albums title bars on the phone.
-	const albumsSection = ['/albums', '/favorites', '/folders', '/uploads'];
+	// Albums, favourites, folders, uploads, people and places all live under Collections on the phone.
+	const albumsSection = ['/albums', '/favorites', '/folders', '/uploads', '/people', '/places'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'

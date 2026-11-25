@@ -5,7 +5,6 @@
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 	import UploadButton from '#lib/components/UploadButton.svelte';
-	import Icon from '#lib/components/Icon.svelte';
 
 	const selection = new Selection();
 	const sections = $derived(
@@ -21,7 +20,6 @@
 				{selection.active ? 'Cancel' : 'Select'}
 			</button>
 		{/if}
-		<a class="icon-btn settings-link" href="/settings" aria-label="Settings" title="Settings"><Icon name="settings" /></a>
 	{/snippet}
 </TitleBar>
 
@@ -39,14 +37,7 @@
 {/if}
 
 <style>
-	.settings-link {
-		display: inline-flex;
-	}
-	@media (min-width: 768px) {
-		.settings-link {
-			display: none;
-		}
-	}
+
 	.empty {
 		text-align: center;
 		padding: 80px 20px;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { thumbUrl, type CatalogAlbum } from '#lib/api.ts';
+	import { faceThumbUrl, thumbUrl, type CatalogAlbum } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
@@ -15,6 +15,8 @@
 		const ids = new Set(app.folders.filter((f) => f.root === root).map((f) => f.id));
 		return app.assets.filter((a) => a.folders.some((f) => ids.has(f))).length;
 	};
+	/** Face of the person with the most photos, as the People cover. */
+	const topFace = $derived(app.people.find((p) => !p.hidden && p.name && p.coverFaceId != null)?.coverFaceId);
 	const favCover = $derived(app.assets.findLast((a) => a.fav)?.id ?? null);
 
 	async function newAlbum() {
@@ -25,21 +27,20 @@
 	}
 </script>
 
-{#snippet card(href: string, title: string, count: number, cover: string | null, icon: string)}
+{#snippet card(href: string, title: string, count: number, cover: string | null, icon: string, image: string | null = null)}
 	{@const ca = cover ? app.byId.get(cover) : undefined}
 	<a class="card" {href}>
 		<div class="cover">
-			{#if ca}<img src={thumbUrl(ca.id, ca.ev, app.fmt)} alt="" loading="lazy" />{:else}<Icon name={icon} size={40} />{/if}
+			{#if image}<img src={image} alt="" loading="lazy" />{:else if ca}<img src={thumbUrl(ca.id, ca.ev, app.fmt)} alt="" loading="lazy" />{:else}<Icon name={icon} size={40} />{/if}
 		</div>
 		<div class="name">{title}</div>
 		<div class="count muted">{count.toLocaleString()}</div>
 	</a>
 {/snippet}
 
-<TitleBar title="Albums">
+<TitleBar title="Collections">
 	{#snippet actions()}
 		<button class="btn" onclick={newAlbum}>New Album</button>
-		<a class="icon-btn settings-link" href="/settings" aria-label="Settings" title="Settings"><Icon name="settings" /></a>
 	{/snippet}
 </TitleBar>
 
@@ -54,7 +55,7 @@
 
 <h2 class="section">People & Places</h2>
 <div class="cards">
-	{@render card('/people', 'People', app.people.filter((p) => !p.hidden && p.name).length, null, 'people')}
+	{@render card('/people', 'People', app.people.filter((p) => !p.hidden && p.name).length, null, 'people', topFace != null ? faceThumbUrl(topFace) : null)}
 	{@render card('/places', 'Places', app.places.length, app.assets.findLast((a) => a.pl != null)?.id ?? null, 'map')}
 </div>
 
@@ -67,14 +68,7 @@
 </div>
 
 <style>
-	.settings-link {
-		display: inline-flex;
-	}
-	@media (min-width: 768px) {
-		.settings-link {
-			display: none;
-		}
-	}
+
 	.section {
 		font-size: 19px;
 		margin: 14px 14px 8px;

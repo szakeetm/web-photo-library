@@ -206,9 +206,22 @@
 		window.addEventListener('keydown', onKey);
 		stage.addEventListener('gesturestart', onGestureStart, { passive: false });
 		stage.addEventListener('gesturechange', onGestureChange, { passive: false });
+		// iOS Safari: unless the page's own pinch-zoom is refused, Safari takes the two-finger gesture
+		// (our pointers get cancelled, so the photo doesn't zoom) and leaves the page zoomed, after which
+		// swipes pan the page instead of changing photos. While the viewer is open, the viewer zooms.
+		const refuse = (e: Event) => e.preventDefault();
+		const onTouchMove = (e: TouchEvent) => {
+			if (e.touches.length > 1) e.preventDefault();
+		};
+		document.addEventListener('gesturestart', refuse, { passive: false });
+		document.addEventListener('gesturechange', refuse, { passive: false });
+		document.addEventListener('touchmove', onTouchMove, { passive: false });
 		return () => {
 			stage.removeEventListener('gesturestart', onGestureStart);
 			stage.removeEventListener('gesturechange', onGestureChange);
+			document.removeEventListener('gesturestart', refuse);
+			document.removeEventListener('gesturechange', refuse);
+			document.removeEventListener('touchmove', onTouchMove);
 			document.documentElement.style.overflow = '';
 			window.removeEventListener('resize', onResize);
 			window.removeEventListener('keydown', onKey);
@@ -366,6 +379,8 @@
 	function onGestureChange(e: Event) {
 		e.preventDefault();
 		e.stopPropagation();
+		// On iPhone the same pinch also arrives as two touch pointers, which zoom around the fingers.
+		if (pointers.size >= 2) return;
 		const g = e as unknown as { scale: number; clientX: number; clientY: number };
 		zoomAt(gestureStart * g.scale, g.clientX ?? vw / 2, g.clientY ?? vh / 2);
 	}
