@@ -403,8 +403,15 @@
 	}
 
 	/** One-line gesture state for the debug overlay. */
-	const debugState = () =>
-		`ptrs=${pointers.size}[${[...pointers.keys()].join(',')}] axis=${axis ?? '-'} scale=${scale.toFixed(2)}${animating ? ' ANIM' : ''}${fullRes ? ' FULL' : ''}${chrome ? '' : ' nochrome'}${infoOpen ? ' info' : ''}`;
+	const debugState = () => {
+		// What is actually drawn: the zoomed frame's on-screen width vs the viewport, and the images' state.
+		const frame = stage?.querySelector<HTMLElement>('.slide.current .frame');
+		const r = frame?.getBoundingClientRect();
+		const imgs = [...(frame?.querySelectorAll<HTMLImageElement>('img') ?? [])]
+			.map((i) => `${i.classList.contains('low') ? 'low' : i.src.includes('/original') ? 'orig' : 'prev'}:${i.complete ? i.naturalWidth + 'x' + i.naturalHeight : 'loading'}`)
+			.join(' ');
+		return `ptrs=${pointers.size}[${[...pointers.keys()].join(',')}] axis=${axis ?? '-'} scale=${scale.toFixed(2)}${animating ? ' ANIM' : ''}${fullRes ? ' FULL' : ''}${chrome ? '' : ' nochrome'}${infoOpen ? ' info' : ''} drawn=${r ? (r.width / vw).toFixed(2) : '?'}× ${imgs}`;
+	};
 
 	// Safari trackpad pinch
 	let gestureStart = 1;
