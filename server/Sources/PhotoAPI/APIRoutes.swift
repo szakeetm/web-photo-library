@@ -3,7 +3,7 @@ import Hummingbird
 import HTTPTypes
 import PhotoCore
 
-struct ErrorBody: Encodable { let error: String }
+struct ErrorBody: Encodable { let error: String; var updateRequired: Bool? = nil }
 
 func json<T: Encodable>(_ value: T, status: HTTPResponse.Status = .ok) throws -> Response {
     let enc = JSONEncoder()
@@ -15,8 +15,8 @@ func json<T: Encodable>(_ value: T, status: HTTPResponse.Status = .ok) throws ->
                     body: .init(byteBuffer: buffer))
 }
 
-func errorResponse(_ status: HTTPResponse.Status, _ message: String) -> Response {
-    (try? json(ErrorBody(error: message), status: status)) ?? Response(status: status)
+func errorResponse(_ status: HTTPResponse.Status, _ message: String, updateRequired: Bool? = nil) -> Response {
+    (try? json(ErrorBody(error: message, updateRequired: updateRequired), status: status)) ?? Response(status: status)
 }
 
 /// Runs blocking work off the cooperative thread pool.
@@ -30,9 +30,21 @@ func blocking<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async thr
 
 struct APIRoutes {
     let services: Services
+    let webRoot: URL?
+
+    /// Build id of the served web app (SvelteKit writes _app/version.json).
+    var webVersion: String? {
+        guard let root = webRoot,
+              let data = try? Data(contentsOf: root.appendingPathComponent("_app/version.json")),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return obj["version"] as? String
+    }
     let fileIO = FileIO()
 
-    struct Health: Encodable { let ok: Bool; let version: String; let libraryConfigured: Bool }
+    struct Health: Encodable {
+        let ok: Bool; let version: String; let apiVersion: Int; let minClientApiVersion: Int
+        let webVersion: String?; let libraryConfigured: Bool
+    }
     struct SettingsBody: Codable { var libraryPath: String?; var ownerLogin: String? }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let ownerLogin: String?
@@ -47,7 +59,8 @@ struct APIRoutes {
         let api = router.group("api")
 
         api.get("health") { _, _ in
-            try json(Health(ok: true, version: serverVersion,
+            try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion, minClientApiVersion: minClientApiVersion,
+                            webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil))
         }
 

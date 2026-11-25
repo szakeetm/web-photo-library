@@ -286,6 +286,23 @@ Sidecar matching must handle Takeout quirks, with unit tests per case:
   `GET /api/jobs` (progress; polled or SSE)
 - `GET /api/health` (fast, for offline detection)
 
+### 6.12 Versioning & updates (owner request)
+- **API contract:** server constants `apiVersion` and `minClientApiVersion`. Every `/api` response
+  carries `X-API-Version` and `X-Server-Version`; every client request sends `X-Client-API-Version`.
+  A client older than `minClientApiVersion` gets `426 {error, updateRequired: true}` (health stays
+  reachable). Client banner: server newer → "Update available"; client too old → "Update now"
+  (blocking); server older than client → warning.
+- **Payload formats:** catalog snapshot has `format`; a device replica with another format is
+  discarded and re-synced. Edit recipes carry `schema` (int). The server keeps an ordered list of
+  recipe upgrade functions (`schema n → n+1`); on startup a DB migration upgrades stored recipes,
+  and recipes posted by older clients are upgraded on write. A recipe with a newer `schema` than the
+  server knows is rejected with 409 "update the server". Database schema changes use GRDB migrations.
+- **Updating the app:** the web app is served by the Mac server, so updating the server updates the
+  app. Clients detect a new web build via SvelteKit's `version.json` (polled every 5 min, on focus,
+  and on visibility change) and offer "Update" (reload). With the service worker (milestone 3) the
+  new version downloads in the background and is applied on "Update" or the next cold launch; offline
+  devices keep running the cached version. Same on iOS Home Screen apps and desktop installs.
+
 ## 7. Web client
 
 ### 7.1 Stack

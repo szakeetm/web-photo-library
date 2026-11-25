@@ -15,7 +15,11 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var name: String
 }
 
+/// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
+public let catalogFormat = 1
+
 public struct CatalogSnapshot: Codable, Sendable {
+    public var format = catalogFormat
     public var seq: Int64
     public var assets: [CatalogAsset]
     public var folders: [FolderNode]

@@ -43,6 +43,7 @@ import UniformTypeIdentifiers
         try FileManager.default.createDirectory(at: web.appendingPathComponent("_app"), withIntermediateDirectories: true)
         try Data("<html>index</html>".utf8).write(to: web.appendingPathComponent("index.html"))
         try Data("console.log(1)".utf8).write(to: web.appendingPathComponent("_app/x.js"))
+        try Data(#"{"version":"1795605986338"}"#.utf8).write(to: web.appendingPathComponent("_app/version.json"))
         let restarted = Flag()
         let services = try Services(paths: AppPaths(dataDir: base.appendingPathComponent("data")),
                                     bootstrapDir: base.appendingPathComponent("boot"), inMemory: false,
@@ -190,5 +191,40 @@ import UniformTypeIdentifiers
         #expect(AppPaths.resolve(bootstrapDir: e.services.bootstrapDir).dataDir.path == dest.path)
         try await Task.sleep(for: .seconds(1))
         #expect(e.restarted.isSet)
+    }
+
+    @Test func everyApiResponseCarriesVersions() async throws {
+        let e = try env()
+        try await e.app.test(.router) { client in
+            for uri in ["/api/health", "/api/catalog", "/api/nope"] {
+                try await client.execute(uri: uri, method: .get) { res in
+                    #expect(res.headers[HTTPField.Name("X-API-Version")!] == String(apiVersion), "\(uri)")
+                    #expect(res.headers[HTTPField.Name("X-Server-Version")!] == serverVersion)
+                }
+            }
+            try await client.execute(uri: "/api/health", method: .get) { res in
+                let body = String(buffer: res.body)
+                #expect(body.contains("\"apiVersion\":\(apiVersion)") && body.contains("\"minClientApiVersion\":\(minClientApiVersion)"))
+                #expect(body.contains("\"webVersion\":\"1795605986338\""))
+            }
+            try await client.execute(uri: "/api/catalog", method: .get) { res in
+                #expect(String(buffer: res.body).contains("\"format\":\(catalogFormat)"))
+            }
+        }
+    }
+
+    @Test func tooOldClientGetsUpgradeRequired() async throws {
+        let e = try env()
+        try await e.app.test(.router) { client in
+            let h: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: "0"]
+            try await client.execute(uri: "/api/catalog", method: .get, headers: h) { res in
+                #expect(res.status == .upgradeRequired)
+                #expect(String(buffer: res.body).contains("updateRequired"))
+            }
+            // health must stay reachable so the client can learn what to do
+            try await client.execute(uri: "/api/health", method: .get, headers: h) { res in #expect(res.status == .ok) }
+            let ok: HTTPFields = [HTTPField.Name("X-Client-API-Version")!: String(apiVersion)]
+            try await client.execute(uri: "/api/catalog", method: .get, headers: ok) { res in #expect(res.status == .ok) }
+        }
     }
 }
