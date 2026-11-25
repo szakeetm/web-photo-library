@@ -36,17 +36,32 @@ extension LibraryScanner {
                 continue   // unchanged motion clip: no probing
             }
 
+            let stem = stills[stemKey(v.relPath)]
+            // A same-named clip of the still that already has another (identical-size) clip is a Takeout
+            // duplicate: drop it without probing.
+            if let stem, let taken = try db.writer.read({ try MotionRow.fetchOne($0, key: stem.id) }),
+               taken.root != rootName || taken.relPath != v.relPath, taken.size == v.size, old == nil {
+                continue
+            }
+
+            // Duration and content id: from the catalog for an unchanged video asset, else from a probe
+            // (which attachMotion and indexCandidate reuse).
             var probe: VideoProbeResult?
-            var stillId = stills[stemKey(v.relPath)]
-            if stillId == nil {
-                let contentId: String?
-                if let old, oldUnchanged, oldCurrent {
-                    contentId = try db.writer.read { try String.fetchOne($0, sql: "SELECT contentId FROM asset WHERE id = ?", arguments: [old.assetId]) }
-                } else {
-                    probe = VideoProbe.probe(url: v.url)
-                    contentId = probe?.contentId
+            let contentId: String?, duration: Double?
+            if let old, oldUnchanged, oldCurrent {
+                let row = try db.writer.read {
+                    try Row.fetchOne($0, sql: "SELECT contentId, duration FROM asset WHERE id = ?", arguments: [old.assetId])
                 }
-                if let contentId { stillId = try photo(withContentId: contentId) }
+                contentId = row?["contentId"]
+                duration = row?["duration"]
+            } else {
+                probe = VideoProbe.probe(url: v.url)
+                contentId = probe?.contentId
+                duration = probe?.duration
+            }
+            var stillId = try contentId.flatMap(photo(withContentId:))
+            if stillId == nil, let stem, Self.isStemMotion(duration: duration, videoContentId: contentId, stillContentId: stem.contentId) {
+                stillId = stem.id
             }
 
             if let stillId {
@@ -156,18 +171,31 @@ extension LibraryScanner {
         }
     }
 
-    /// "dir/lowercased-stem" → asset id of the first present photo with that name in this root.
-    private func stillsByStem() throws -> [String: String] {
+    /// Longest clip a same-name-only match treats as Live Photo motion (Apple's are about 3 s).
+    static let maxStemMotionDuration = 6.0
+
+    /// A video that matches a still by folder + basename only is its motion clip when it is short and
+    /// their Live Photo ids don't contradict each other (a content-id match needs neither test).
+    static func isStemMotion(duration: Double?, videoContentId: String?, stillContentId: String?) -> Bool {
+        guard let duration, duration <= maxStemMotionDuration else { return false }
+        if let v = videoContentId, let s = stillContentId, v != s { return false }
+        return true
+    }
+
+    private struct Still { let id: String; let contentId: String? }
+
+    /// "dir/lowercased-stem" → the first present photo with that name in this root.
+    private func stillsByStem() throws -> [String: Still] {
         let rows = try db.writer.read { d in
             try Row.fetchAll(d, sql: """
-                SELECT f.relPath, f.assetId FROM file f JOIN asset a ON a.id = f.assetId
+                SELECT f.relPath, f.assetId, a.contentId FROM file f JOIN asset a ON a.id = f.assetId
                 WHERE f.root = ? AND a.kind = 'photo' AND a.missingSince IS NULL ORDER BY f.relPath
                 """, arguments: [rootName])
         }
-        var out: [String: String] = [:]
+        var out: [String: Still] = [:]
         for r in rows {
             let key = stemKey(r["relPath"])
-            if out[key] == nil { out[key] = r["assetId"] }
+            if out[key] == nil { out[key] = Still(id: r["assetId"], contentId: r["contentId"]) }
         }
         return out
     }

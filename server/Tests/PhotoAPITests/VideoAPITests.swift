@@ -134,9 +134,39 @@ import HummingbirdTesting
                 #expect(res.headers[.contentType] == "video/quicktime")
                 #expect(res.headers[.acceptRanges] == "bytes")
                 #expect(Data(buffer: res.body) == file)
+                #expect(res.headers[.cacheControl] == "private, max-age=3600")
+                #expect(res.headers[.cacheControl]?.contains("immutable") == false)
             }
             try await client.execute(uri: "/api/assets/\(id)/video/status", method: .get) { res in
                 #expect(String(buffer: res.body).contains(#""state":"ready""#))
+            }
+        }
+    }
+
+    @Test func videoETagRevalidates() async throws {
+        let e = try await env { try await Self.writeVideo($0.appendingPathComponent("clip.mov")) }
+        let id = try asset(e, "clip.mov").id
+        let uri = "/api/assets/\(id)/video"
+        try await e.app.test(.router) { client in
+            let tag = try await client.execute(uri: uri, method: .get) { res in
+                #expect(res.status == .ok)
+                return try #require(res.headers[.eTag])
+            }
+            #expect(tag.hasPrefix("\"") && tag.hasSuffix("\""))
+            try await client.execute(uri: uri, method: .get, headers: [.ifNoneMatch: tag]) { res in
+                #expect(res.status == .notModified)
+                #expect(res.body.readableBytes == 0)
+                #expect(res.headers[.eTag] == tag)
+            }
+            try await client.execute(uri: uri, method: .get, headers: [.ifNoneMatch: "\"0-0\""]) { res in
+                #expect(res.status == .ok)
+            }
+            // A range for another version of the file gets the whole (current) file.
+            try await client.execute(uri: uri, method: .get, headers: [.range: "bytes=0-1", .ifRange: "\"0-0\""]) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: uri, method: .get, headers: [.range: "bytes=0-1", .ifRange: tag]) { res in
+                #expect(res.status == .partialContent)
             }
         }
     }
@@ -161,7 +191,8 @@ import HummingbirdTesting
             try await client.execute(uri: "/api/assets/\(id)/video", method: .get) { res in
                 #expect(res.status == .ok)
                 #expect(res.headers[.contentType] == "video/mp4")
-                #expect(res.headers[.cacheControl] == "private, max-age=31536000, immutable")
+                #expect(res.headers[.cacheControl] == "private, max-age=3600")
+                #expect(res.headers[.eTag] != nil)
                 #expect(Data(buffer: res.body) == (try? Data(contentsOf: e.services.videos.previewURL(id: id))))
             }
         }
@@ -297,6 +328,22 @@ import HummingbirdTesting
             }
             try await client.execute(uri: "/api/thumb/\(id)?e=1", method: .get) { res in
                 #expect(res.status == .notFound)
+            }
+        }
+    }
+
+    /// A poster already on disk is served straight from the cache (no source lookup, no render queue).
+    @Test func cachedVideoPosterServedDirectly() async throws {
+        let e = try await env { try await Self.writeVideo($0.appendingPathComponent("clip.mov"), width: 320, height: 240) }
+        let id = try asset(e, "clip.mov").id
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/preview/\(id)?fmt=jpeg", method: .get) { res in #expect(res.status == .ok) }
+            try FileManager.default.removeItem(at: e.root.appendingPathComponent("clip.mov"))
+            for kind in ["thumb", "preview"] {
+                try await client.execute(uri: "/api/\(kind)/\(id)?fmt=jpeg", method: .get) { res in
+                    #expect(res.status == .ok)
+                    #expect(res.headers[.contentType] == "image/jpeg")
+                }
             }
         }
     }

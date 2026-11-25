@@ -67,6 +67,55 @@ import GRDB
         #expect(try motions(db).count == 1)
     }
 
+    @Test func longSameNameVideoStaysVideo() async throws {
+        let root = Fixtures.tempDir()
+        Fixtures.writeJPEG(to: root.appendingPathComponent("a/trip.jpg"))
+        try await Fixtures.writeVideo(to: root.appendingPathComponent("a/trip.mov"), width: 320, height: 240, seconds: 8)
+        let (db, s) = try make(root)
+        let r = try await scan(s)
+        #expect(r.liveMotion == 0 && r.added == 2)
+        #expect(try motions(db).isEmpty)
+        #expect(try assets(db).map(\.kind).sorted() == ["photo", "video"])
+        // Stays a video on rescan.
+        let again = try await scan(s)
+        #expect(again.liveMotion == 0 && again.unchanged == 2)
+        #expect(try motions(db).isEmpty)
+    }
+
+    @Test func sameNameDifferentContentIdStaysVideo() async throws {
+        let root = Fixtures.tempDir()
+        Fixtures.writeJPEG(to: root.appendingPathComponent("a/IMG_5.jpg"))
+        let (db, s) = try make(root)
+        _ = try await scan(s)
+        try write(db) { try $0.execute(sql: "UPDATE asset SET contentId = 'A'") }
+        try await Fixtures.writeVideo(to: root.appendingPathComponent("a/IMG_5.mov"), width: 320, height: 240, contentId: "B")
+        let r = try await scan(s)
+        #expect(r.liveMotion == 0 && r.added == 1)
+        #expect(try motions(db).isEmpty)
+        #expect(try assets(db).contains { $0.kind == "video" && $0.contentId == "B" })
+    }
+
+    @Test func contentIdMatchIgnoresDuration() async throws {
+        let root = Fixtures.tempDir()
+        Fixtures.writeJPEG(to: root.appendingPathComponent("a/IMG_6.heic"), type: .heic)
+        let (db, s) = try make(root)
+        _ = try await scan(s)
+        try write(db) { try $0.execute(sql: "UPDATE asset SET contentId = 'L'") }
+        try await Fixtures.writeVideo(to: root.appendingPathComponent("a/IMG_6.mov"), width: 320, height: 240, seconds: 8, contentId: "L")
+        let r = try await scan(s)
+        #expect(r.liveMotion == 1 && r.added == 0)
+        #expect(try motions(db).count == 1)
+    }
+
+    @Test func stemMotionRule() {
+        #expect(LibraryScanner.isStemMotion(duration: 3, videoContentId: nil, stillContentId: nil))
+        #expect(LibraryScanner.isStemMotion(duration: 6.0, videoContentId: "A", stillContentId: nil))
+        #expect(LibraryScanner.isStemMotion(duration: 2, videoContentId: "A", stillContentId: "A"))
+        #expect(!LibraryScanner.isStemMotion(duration: 6.01, videoContentId: nil, stillContentId: nil))
+        #expect(!LibraryScanner.isStemMotion(duration: nil, videoContentId: nil, stillContentId: nil))
+        #expect(!LibraryScanner.isStemMotion(duration: 2, videoContentId: "A", stillContentId: "B"))
+    }
+
     @Test func contentIdMotionAttached() async throws {
         let root = Fixtures.tempDir()
         Fixtures.writeJPEG(to: root.appendingPathComponent("a/IMG_2.heic"), type: .heic)

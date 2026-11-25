@@ -34,15 +34,29 @@ enum ByteRange: Equatable {
 }
 
 /// Streams a file, honouring a single byte range (Safari needs this to play video).
+/// With `etag`, the response carries a validator from the file's size and mtime, answers a matching
+/// `If-None-Match` with 304, and ignores a `Range` whose `If-Range` names another version.
 func fileResponse(path: String, contentType: String, request: Request, context: BasicRequestContext,
-                  extraHeaders: HTTPFields = [:]) async throws -> Response {
+                  extraHeaders: HTTPFields = [:], etag: Bool = false) async throws -> Response {
     guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
           let size = (attrs[.size] as? NSNumber)?.intValue else { throw HTTPError(.notFound) }
     var headers = extraHeaders
     headers[.acceptRanges] = "bytes"
     headers[.contentType] = contentType
+    var rangeHeader = request.headers[.range]
+    if etag {
+        let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let tag = "\"\(size)-\(Int64((mtime * 1000).rounded()))\""
+        headers[.eTag] = tag
+        if let inm = request.headers[.ifNoneMatch],
+           inm.split(separator: ",").contains(where: { let t = $0.trimmingCharacters(in: .whitespaces); return t == tag || t == "W/" + tag || t == "*" }) {
+            headers[.contentType] = nil
+            return Response(status: .notModified, headers: headers)
+        }
+        if let ifRange = request.headers[.ifRange], ifRange != tag { rangeHeader = nil }
+    }
     let fileIO = FileIO()
-    switch ByteRange(header: request.headers[.range], size: size) {
+    switch ByteRange(header: rangeHeader, size: size) {
     case .full:
         return Response(status: .ok, headers: headers, body: try await fileIO.loadFile(path: path, context: context))
     case .partial(let range):

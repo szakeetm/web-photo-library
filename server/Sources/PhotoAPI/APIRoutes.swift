@@ -517,11 +517,15 @@ struct APIRoutes {
         if try isVideo(id) {
             // Videos have no edits; their poster is the thumbnail and preview.
             guard ev == 0 else { throw HTTPError(.notFound) }
-            guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
-            let made = try await renderLimiter.run {
-                try await blocking { try store.ensurePoster(id: id, source: source, format: format, ffmpeg: services.ffmpeg) }
+            if store.exists(id: id, kind: kind, format: format) {
+                url = store.url(id: id, kind: kind, format: format)
+            } else {
+                guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+                let made = try await renderLimiter.run {
+                    try await blocking { try store.ensurePoster(id: id, source: source, format: format, ffmpeg: services.ffmpeg) }
+                }
+                url = kind == .thumb ? made.thumb : made.preview
             }
-            url = kind == .thumb ? made.thumb : made.preview
         } else if ev > 0, store.exists(id: id, kind: kind, editVersion: ev, format: format) {
             url = store.url(id: id, kind: kind, editVersion: ev, format: format)
         } else {

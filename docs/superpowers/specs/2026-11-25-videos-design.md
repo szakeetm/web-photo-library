@@ -91,6 +91,9 @@ What the owner said:
     changes / Re-index re-probe photos whose `contentId` was never read.
   - The basename test stays because Takeout JPGs may have lost the maker note, and the ID test
     catches pairs whose names differ (e.g. after renaming or "IMG_0040 Copy.heic").
+  - A basename-only match counts only for clips of at most 6 s, and not when both files carry
+    content ids that differ (so `trip.jpg` + a long `trip.mov` stay a photo and a video). A
+    content-id match needs no duration test.
   - Ordering: a video is classified after the stills in its scan, so a pair found in one pass is
     never briefly shown as a video.
 - Probe via AVFoundation (`AVURLAsset`: dimensions with rotation applied, duration, codec, creation
@@ -161,8 +164,9 @@ ffmpeg not found — install with `brew install ffmpeg` (VP9 videos can't play w
     here — Download" state.
 - **Byte-range support** (`Range`, `206`, `Content-Range`, `Accept-Ranges: bytes`) on this route and
   on `assets/:id/original`. Correct `Content-Type` (`video/mp4`, `video/quicktime`).
-- Cache headers: preview `private, max-age=31536000, immutable` keyed by a version query param;
-  originals as today.
+- Cache headers: `/video` and `/motion` URLs are unversioned, so previews and originals served
+  there get `private, max-age=3600` plus an `ETag` (`"<size>-<mtime ms>"`, honoured by
+  `If-None-Match` → 304 and `If-Range`); never `immutable`.
 
 ### Live Photos *(added at approval, owner's request)*
 

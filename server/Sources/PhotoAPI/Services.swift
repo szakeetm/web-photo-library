@@ -42,7 +42,7 @@ public final class Services: @unchecked Sendable {
         let box = StoreBox()
         edits = EditService(db: db, catalog: catalog, derivatives: { box.get() })
         var getStore: (() -> DerivativeStore)!
-        jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir], dataDir: paths.dataDir)
+        jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir], dataDir: paths.dataDir, ffmpeg: ffmpeg)
         videos = VideoConversions(db: db, catalog: catalog, cacheDir: paths.cacheDir, ffmpeg: ffmpeg)
         getStore = { [unowned self] in self.derivatives() }
         box.get = getStore

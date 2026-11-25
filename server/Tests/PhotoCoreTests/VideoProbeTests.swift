@@ -27,6 +27,14 @@ import ImageIO
         #expect(VideoProbe.servePlan(codec: "h264", ext: "avi", width: 640, height: 480) == "preview")
     }
 
+    @Test func safariPlayable() {
+        #expect(VideoProbe.safariPlayable(codec: "h264", ext: "MOV"))
+        #expect(VideoProbe.safariPlayable(codec: "hevc", ext: "m4v"))
+        #expect(!VideoProbe.safariPlayable(codec: "vp9", ext: "mp4"))
+        #expect(!VideoProbe.safariPlayable(codec: "h264", ext: "mkv"))
+        #expect(!VideoProbe.safariPlayable(codec: nil, ext: "mov"))
+    }
+
     @Test func probeReadsFixture() async throws {
         let url = Fixtures.tempDir().appendingPathComponent("a.mov")
         try await Fixtures.writeVideo(to: url, width: 1280, height: 720, seconds: 2, contentId: "ABC",

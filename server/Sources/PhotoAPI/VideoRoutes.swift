@@ -7,7 +7,9 @@ import PhotoCore
 extension APIRoutes {
     struct StatusBody: Encodable { let status: VideoStatus }
 
-    static let previewCache = "private, max-age=31536000, immutable"
+    /// `/video` and `/motion` URLs are unversioned (the file behind them can change, e.g. a re-converted
+    /// preview), so they are cached briefly and revalidated by ETag.
+    static let videoCache = "private, max-age=3600"
     static let originalCache = "private, max-age=3600"
 
     func registerVideoRoutes(on api: RouterGroup<BasicRequestContext>) {
@@ -32,7 +34,7 @@ extension APIRoutes {
                 return try json(StatusBody(status: status), status: .accepted)
             case .unavailable, .failed:
                 guard let original else { throw HTTPError(.notFound) }
-                guard Self.safariPlayable(codec: asset.videoCodec, url: original) else {
+                guard VideoProbe.safariPlayable(codec: asset.videoCodec, ext: original.pathExtension) else {
                     return errorResponse(.conflict, "unplayable")
                 }
                 return try await serveOriginal(original, req, ctx)
@@ -48,8 +50,8 @@ extension APIRoutes {
             guard let id = validId(ctx),
                   let motion = try services.catalog.motion(id: id)
             else { throw HTTPError(.notFound) }
-            // H.264/HEVC clips play as they are and are never converted.
-            if Self.playableCodecs.contains(motion.codec ?? "") {
+            // Clips Safari plays (H.264/HEVC in MOV/MP4) are served as they are and never converted.
+            if VideoProbe.safariPlayable(codec: motion.codec, ext: (motion.relPath as NSString).pathExtension) {
                 guard let url = try services.catalog.motionURL(id: id) else { throw HTTPError(.notFound) }
                 return try await serveOriginal(url, req, ctx)
             }
@@ -72,22 +74,14 @@ extension APIRoutes {
         }
     }
 
-    static let playableCodecs: Set<String> = ["h264", "hevc"]
-    static let playableExtensions: Set<String> = ["mov", "mp4", "m4v"]
-
-    /// Safari plays H.264/HEVC in QuickTime/MP4 containers.
-    static func safariPlayable(codec: String?, url: URL) -> Bool {
-        playableCodecs.contains(codec ?? "") && playableExtensions.contains(url.pathExtension.lowercased())
-    }
-
     func serveOriginal(_ url: URL, _ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
         let type = url.pathExtension.lowercased() == "mov" ? "video/quicktime" : "video/mp4"
         return try await fileResponse(path: url.path, contentType: type, request: req, context: ctx,
-                                      extraHeaders: [.cacheControl: Self.originalCache])
+                                      extraHeaders: [.cacheControl: Self.videoCache], etag: true)
     }
 
     func servePreview(_ url: URL, _ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
         try await fileResponse(path: url.path, contentType: "video/mp4", request: req, context: ctx,
-                               extraHeaders: [.cacheControl: Self.previewCache])
+                               extraHeaders: [.cacheControl: Self.videoCache], etag: true)
     }
 }

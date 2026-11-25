@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Export: original, or the edit rendered at full resolution on the Mac. Phones get the share sheet
 	// (needs a fresh tap once the file is ready); desktops download.
-	import { exportUrl, originalUrl, type CatalogAsset } from '#lib/api.ts';
+	import { CLIENT_API_VERSION, exportUrl, originalUrl, type CatalogAsset } from '#lib/api.ts';
 
 	let { asset, onClose }: { asset: CatalogAsset; onClose: () => void } = $props();
 
@@ -21,7 +21,7 @@
 		phase = 'preparing';
 		controller = new AbortController();
 		try {
-			const res = await fetch(url, { signal: controller.signal, headers: { 'X-Client-API-Version': '3' } });
+			const res = await fetch(url, { signal: controller.signal, headers: { 'X-Client-API-Version': String(CLIENT_API_VERSION) } });
 			if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
 			const blob = await res.blob();
 			file = new File([blob], filename(res, fallback), { type: blob.type });
@@ -79,9 +79,16 @@
 				Edited photo <span>HEIC, smaller file</span>
 			</button>
 		{/if}
-		<button class="opt" onclick={() => prepare(originalUrl(asset.id), asset.name)}>
-			Original <span>unchanged file{asset.ev > 0 ? ', without edits' : ''}</span>
-		</button>
+		{#if asset.dur != null}
+			<!-- Videos can be hundreds of MB: let the browser download them instead of reading them into memory. -->
+			<a class="opt" href={originalUrl(asset.id)} download={asset.name} onclick={onClose}>
+				Original <span>unchanged file</span>
+			</a>
+		{:else}
+			<button class="opt" onclick={() => prepare(originalUrl(asset.id), asset.name)}>
+				Original <span>unchanged file{asset.ev > 0 ? ', without edits' : ''}</span>
+			</button>
+		{/if}
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'preparing'}
 		<h3>Preparing…</h3>
@@ -147,6 +154,8 @@
 		font-weight: 500;
 		cursor: pointer;
 		text-align: left;
+		color: inherit;
+		text-decoration: none;
 	}
 	.opt span {
 		font-weight: 400;

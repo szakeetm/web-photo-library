@@ -335,7 +335,7 @@
 				<div class="label">
 					<div>{videoTotal} videos · {vid.needed} need a preview · {vid.converted} converted ({fmtBytes(vid.bytes)})</div>
 					{#if !vid.ffmpeg}
-						<div class="muted small">ffmpeg not found — install with brew install ffmpeg (VP9 videos can't play without it; 4K videos play full size)</div>
+						<div class="muted small">ffmpeg not found — install with brew install ffmpeg (VP9 videos can't play without it; 4K videos play full size). Restart the server after installing.</div>
 					{:else if vid.state === 'running'}
 						<div class="muted small">
 							Converting {vid.done} of {vid.total}{#if vid.current} · {vid.current}{/if}{#if vid.progress != null} {Math.round(vid.progress * 100)}%{/if}

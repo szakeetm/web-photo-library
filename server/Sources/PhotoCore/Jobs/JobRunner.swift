@@ -22,6 +22,8 @@ public final class JobRunner: @unchecked Sendable {
     let excluding: [URL]
     /// Where the face model lives (<data location>/models); nil disables faces (tests).
     let dataDir: URL?
+    /// The ffmpeg found at start-up, for video posters; nil when it isn't installed.
+    let ffmpeg: URL?
     private var analyzer: FaceAnalyzer?
     private let queue = DispatchQueue(label: "photo.jobs", qos: .utility)
     private let group = DispatchGroup()
@@ -34,8 +36,9 @@ public final class JobRunner: @unchecked Sendable {
     public var onClearCaches: (() throws -> Void)?
 
     public init(db: AppDatabase, settings: SettingsStore, derivatives: @escaping () -> DerivativeStore,
-                serverTZ: TimeZone = .current, excluding: [URL] = [], dataDir: URL? = nil) {
+                serverTZ: TimeZone = .current, excluding: [URL] = [], dataDir: URL? = nil, ffmpeg: URL? = FFmpeg.locate()) {
         self.db = db
+        self.ffmpeg = ffmpeg
         self.dataDir = dataDir
         self.excluding = excluding
         self.settings = settings
@@ -267,7 +270,7 @@ public final class JobRunner: @unchecked Sendable {
         let store = store ?? derivatives()
         let isVideo = try db.writer.read { try String.fetchOne($0, sql: "SELECT kind FROM asset WHERE id = ?", arguments: [assetId]) } == "video"
         var made = isVideo
-            ? try store.ensurePoster(id: assetId, source: source, format: .heic, ffmpeg: FFmpeg.locate())
+            ? try store.ensurePoster(id: assetId, source: source, format: .heic, ffmpeg: ffmpeg)
             : try store.ensureAll(id: assetId, source: source, format: .heic)
         // An edited photo also gets its current edit's preview + thumbnail; the placeholder follows the edit.
         // Edits never apply to videos.

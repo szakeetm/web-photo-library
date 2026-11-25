@@ -26,10 +26,12 @@ public enum VideoProbe {
 
     /// "original" when the file plays natively in browsers (h264/hevc in mov/mp4/m4v, short side <= 1080), else "preview".
     public static func servePlan(codec: String, ext: String, width: Int, height: Int) -> String {
-        let native = ["h264", "hevc"].contains(codec.lowercased())
-            && ["mov", "mp4", "m4v"].contains(ext.lowercased())
-            && min(width, height) <= 1080
-        return native ? "original" : "preview"
+        safariPlayable(codec: codec, ext: ext) && min(width, height) <= 1080 ? "original" : "preview"
+    }
+
+    /// Safari plays H.264/HEVC in QuickTime/MP4 containers.
+    public static func safariPlayable(codec: String?, ext: String) -> Bool {
+        ["h264", "hevc"].contains(codec?.lowercased() ?? "") && ["mov", "mp4", "m4v"].contains(ext.lowercased())
     }
 
     /// "+38.2451+021.7381+025.034/" → (38.2451, 21.7381)
