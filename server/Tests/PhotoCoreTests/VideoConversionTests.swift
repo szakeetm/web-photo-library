@@ -300,6 +300,64 @@ import GRDB
     }
 
     @Test(.enabled(if: FFmpeg.locate() != nil))
+    func requestJumpsAheadOfConvertAll() async throws {
+        let root = Fixtures.tempDir()
+        for (i, name) in ["a", "b", "c"].enumerated() {
+            let url = root.appendingPathComponent("\(name).webm")
+            try vp9(url)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_600_000_000 - Double(i) * 86_400)], ofItemAtPath: url.path)
+        }
+        let e = try env(root)
+        try await scan(e)
+        let all = try assets(e.db)
+        let ids = all.map(\.id)   // newest first: the "Convert all" order
+        try #require(ids.count == 3 && Set(all.map(\.takenAt)).count == 3)
+        let launches = Box()
+        let hold = DispatchSemaphore(value: 0)
+        e.conv.onLaunch = { if launches.inc() <= 3 { hold.wait() } }
+        e.conv.startAll()
+        try await waitFor { launches.value == 1 }
+        #expect(e.conv.status(id: ids[0]) == .converting(0))
+        // The oldest video, last in the list, is opened while the newest converts.
+        #expect(e.conv.request(id: ids[2]) == .queued)
+        #expect(e.conv.request(id: ids[2]) == .queued)
+        hold.signal()
+        try await waitFor { launches.value == 2 }
+        #expect(e.conv.status(id: ids[2]) == .converting(0))
+        #expect(e.conv.status(id: ids[1]) == .queued)
+        #expect(e.conv.allState().current != nil)
+        hold.signal()
+        try await waitFor { launches.value == 3 }
+        #expect(e.conv.status(id: ids[2]) == .ready)
+        #expect(e.conv.status(id: ids[1]) == .converting(0))
+        #expect(e.conv.allState().done == 2)
+        hold.signal()
+        try await waitFor { let s = e.conv.allState(); return s.state == "idle" && s.done == s.total }
+        #expect(e.conv.allState().done == 3 && launches.value == 3)
+    }
+
+    @Test(.enabled(if: FFmpeg.locate() != nil))
+    func clearAfterPauseDoesNotResurrect() async throws {
+        let root = Fixtures.tempDir()
+        try vp9(root.appendingPathComponent("a.webm"))
+        let e = try env(root)
+        try await scan(e)
+        let id = try #require(try assets(e.db).first?.id)
+        let launches = Box()
+        let hold = DispatchSemaphore(value: 0)
+        e.conv.onLaunch = { if launches.inc() == 1 { hold.wait() } }
+        e.conv.startAll()
+        try await waitFor { launches.value == 1 }
+        e.conv.pause()
+        try e.conv.clear()
+        hold.signal()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(launches.value == 1)
+        #expect(!FileManager.default.fileExists(atPath: e.conv.previewURL(id: id).path))
+        #expect(e.conv.allState().state == "paused")
+    }
+
+    @Test(.enabled(if: FFmpeg.locate() != nil))
     func failureRecorded() async throws {
         let root = Fixtures.tempDir()
         var junk = Data(count: 4096)

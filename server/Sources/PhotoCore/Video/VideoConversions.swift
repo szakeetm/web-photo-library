@@ -65,11 +65,14 @@ public final class VideoConversions: @unchecked Sendable {
     private final class Running: @unchecked Sendable {
         let job: Job
         let fromAll: Bool
+        /// An on-demand job taken out of the "Convert all" list: it still counts toward `done`.
+        let counted: Bool
+        var forAll: Bool { fromAll || counted }
         var progress = 0.0
         var name: String?
         var process: Process?
         var cancelled: Cancel?
-        init(job: Job, fromAll: Bool) { self.job = job; self.fromAll = fromAll }
+        init(job: Job, fromAll: Bool, counted: Bool = false) { self.job = job; self.fromAll = fromAll; self.counted = counted }
     }
 
     /// Guards everything below.
@@ -82,6 +85,8 @@ public final class VideoConversions: @unchecked Sendable {
     private var done = 0
     private var total = 0
     private var motionFailures: [String: String] = [:]
+    /// "Convert all" ids moved to `onDemand` by a request.
+    private var promoted = Set<String>()
 
     public init(db: AppDatabase, catalog: CatalogService, cacheDir: URL, ffmpeg: URL?) {
         self.db = db
@@ -128,15 +133,26 @@ public final class VideoConversions: @unchecked Sendable {
     public func request(id: String, motion: Bool = false) -> VideoStatus {
         let job = Job(id: id, motion: motion)
         cond.lock()
-        if let s = liveStatus(job) { cond.unlock(); return s }
+        if let s = liveStatusPromoting(job) { cond.unlock(); return s }
         cond.unlock()
         let stored = storedStatus(job)
         guard stored == .queued else { return stored }
         cond.lock(); defer { cond.unlock() }
-        if let s = liveStatus(job) { return s }
+        if let s = liveStatusPromoting(job) { return s }
         onDemand.append(job)
         startWorker()
         return .queued
+    }
+
+    /// Lock held. Like `liveStatus`, but a video waiting in the "Convert all" list jumps ahead.
+    private func liveStatusPromoting(_ job: Job) -> VideoStatus? {
+        if !job.motion, !onDemand.contains(job), running?.job != job, let i = allList.firstIndex(of: job.id) {
+            allList.remove(at: i)
+            promoted.insert(job.id)
+            onDemand.append(job)
+            startWorker()
+        }
+        return liveStatus(job)
     }
 
     /// Lock held.
@@ -186,6 +202,7 @@ public final class VideoConversions: @unchecked Sendable {
         cond.lock(); defer { cond.unlock() }
         guard runState == "running" else { return }
         allList.removeAll()
+        promoted.removeAll()
         if let r = running, r.fromAll { cancel(r, .discard) }
         runState = "paused"
     }
@@ -201,7 +218,7 @@ public final class VideoConversions: @unchecked Sendable {
             bytes += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
         cond.lock(); defer { cond.unlock() }
-        let current = running.flatMap { $0.fromAll && $0.cancelled == nil ? $0 : nil }
+        let current = running.flatMap { $0.forAll && $0.cancelled == nil ? $0 : nil }
         return ConvertAllState(state: runState, done: done, total: total,
                                current: current.map { $0.name ?? $0.job.id }, progress: current?.progress,
                                needed: needed, converted: converted, bytes: bytes, ffmpeg: ffmpeg != nil)
@@ -214,6 +231,7 @@ public final class VideoConversions: @unchecked Sendable {
         cond.lock(); defer { cond.unlock() }
         onDemand.removeAll { $0.id == id }
         allList.removeAll { $0 == id }
+        promoted.remove(id)
         if let r = running, r.job.id == id { cancel(r, .discard) }
         motionFailures[id] = nil
         try? FileManager.default.removeItem(at: previewURL(id: id))
@@ -230,7 +248,8 @@ public final class VideoConversions: @unchecked Sendable {
 
     /// Lock held.
     private func cancel(_ r: Running, _ how: Cancel) {
-        r.cancelled = how
+        // A discarded job (paused or removed) is never brought back by a later requeue.
+        if how == .discard || r.cancelled == nil { r.cancelled = how }
         if let p = r.process, p.isRunning { kill(p.processIdentifier, SIGKILL) }
     }
 
@@ -251,7 +270,8 @@ public final class VideoConversions: @unchecked Sendable {
             cond.lock()
             let r: Running
             if !onDemand.isEmpty {
-                r = Running(job: onDemand.removeFirst(), fromAll: false)
+                let job = onDemand.removeFirst()
+                r = Running(job: job, fromAll: false, counted: !job.motion && promoted.remove(job.id) != nil)
             } else if !allList.isEmpty {
                 r = Running(job: Job(id: allList.removeFirst(), motion: false), fromAll: true)
             } else {
@@ -267,12 +287,13 @@ public final class VideoConversions: @unchecked Sendable {
             switch r.cancelled {
             case .requeue:
                 if r.fromAll { allList.insert(r.job.id, at: 0) } else { onDemand.insert(r.job, at: 0) }
+                if r.counted { promoted.insert(r.job.id) }
             case .discard:
                 break
             case nil:
-                if r.fromAll {
+                if r.forAll {
                     done += 1
-                    if allList.isEmpty && runState == "running" { runState = "idle" }
+                    if allList.isEmpty && promoted.isEmpty && runState == "running" { runState = "idle" }
                 }
             }
             cond.unlock()
@@ -290,7 +311,7 @@ public final class VideoConversions: @unchecked Sendable {
             return Source(url: url, width: p.width, height: p.height, hdr: p.hdr, duration: p.duration)
         }
         guard let a = try db.writer.read({ try Asset.fetchOne($0, key: id) }), a.kind == "video",
-              a.servePlan == "preview", r.fromAll || a.videoError == nil else { return nil }
+              a.servePlan == "preview", r.forAll || a.videoError == nil else { return nil }
         guard let url = try catalog.sourceURL(id: id) else { throw ConversionError("Original file not found") }
         return Source(url: url, width: a.width, height: a.height, hdr: a.videoHDR, duration: a.duration ?? 0)
     }
