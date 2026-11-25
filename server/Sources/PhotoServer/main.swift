@@ -1,0 +1,2 @@
+import PhotoCore
+print("PhotoServer")
