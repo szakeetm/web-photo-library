@@ -32,6 +32,8 @@
 	let tx = $state(0);
 	let ty = $state(0);
 	let fullRes = $state(false);
+	/** Previews that finished loading (their blurred placeholder is hidden). */
+	let ready = $state(new Set<string>());
 
 	const SLIDE_GAP = 24;
 	const pitch = $derived(vw + SLIDE_GAP);
@@ -369,8 +371,16 @@
 						style={s.o === 0 ? `transform: translate(${tx}px, ${ty}px) scale(${scale})` : ''}
 						class:animating
 					>
-						<img class="low" src={thumbUrl(a.id, a.ev, app.fmt)} alt="" draggable="false" />
-						<img class="high" src={previewUrl(a.id, a.ev, app.fmt)} alt={a.name} draggable="false" />
+						{#if !ready.has(a.id)}
+							<img class="low" src={thumbUrl(a.id, a.ev, app.fmt)} alt="" draggable="false" />
+						{/if}
+						<img
+							class="high"
+							src={previewUrl(a.id, a.ev, app.fmt)}
+							alt={a.name}
+							draggable="false"
+							onload={() => (ready = new Set(ready).add(a.id))}
+						/>
 						{#if s.o === 0 && fullRes}
 							<img class="high" src={originalUrl(a.id)} alt="" draggable="false" />
 						{/if}
