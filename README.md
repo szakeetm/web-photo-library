@@ -10,7 +10,7 @@ to a web app (desktop + iPhone PWA) over Tailscale. See
 
 ## Develop
 ```sh
-cd server && swift test          # server tests
+cd server && swift test -j 1     # server tests (-j 1: CLT macro plugin is flaky with parallel jobs)
 cd web && npm install && npm run build
 cd server && WEB_ROOT=../web/build swift run PhotoServer   # http://127.0.0.1:8787
 ```
