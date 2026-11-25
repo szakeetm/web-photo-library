@@ -15,7 +15,7 @@
 	{#if back}<a class="back" href={back} aria-label="Back"><Icon name="back" size={20} /></a>{/if}
 	<div class="titles">
 		{#if crumbs}<nav class="crumbs muted">{@render crumbs()}</nav>{/if}
-		<h1>{title} {#if subtitle}<span class="sub muted">{subtitle}</span>{/if}</h1>
+		<h1><span class="t">{title}</span> {#if subtitle}<span class="sub muted">{subtitle}</span>{/if}</h1>
 	</div>
 	{#if actions}<div class="actions">{@render actions()}</div>{/if}
 </header>
@@ -62,6 +62,20 @@
 		font-size: 14px;
 		font-weight: 400;
 		margin-left: 4px;
+	}
+	/* Phones: the subtitle (count, download status) gets its own line instead of being cut off. */
+	@media (max-width: 600px) {
+		h1 .t,
+		h1 .sub {
+			display: block;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		h1 .sub {
+			margin: 1px 0 0;
+			font-size: 13px;
+			line-height: 1.2;
+		}
 	}
 	.actions {
 		display: flex;

@@ -4,6 +4,9 @@
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
+	import { pins, pinProgress, pinStatus } from '#lib/pins.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
+	import type { PinRecord } from '#lib/db.ts';
 
 	const present = (al: CatalogAlbum) => al.assetIds.filter((i) => app.byId.has(i));
 	const albums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
@@ -27,14 +30,19 @@
 	}
 </script>
 
-{#snippet card(href: string, title: string, count: number, cover: string | null, icon: string, image: string | null = null)}
+{#snippet card(href: string, title: string, count: number, cover: string | null, icon: string, image: string | null = null, pin: PinRecord | undefined = undefined)}
 	{@const ca = cover ? app.byId.get(cover) : undefined}
 	<a class="card" {href}>
 		<div class="cover">
 			{#if image}<img src={image} alt="" loading="lazy" />{:else if ca}<img src={thumbUrl(ca.id, ca.ev, app.fmt)} alt="" loading="lazy" />{:else}<Icon name={icon} size={40} />{/if}
 		</div>
 		<div class="name">{title}</div>
-		<div class="count muted">{count.toLocaleString()}</div>
+		<div class="count muted">
+			{count.toLocaleString()}
+			{#if pin}<span class="dl" title={pinStatus(pin, net.online)}
+					>· {pin.state === 'done' ? 'Downloaded' : `${Math.floor(pinProgress(pin) * 100)}%`}</span
+				>{/if}
+		</div>
 	</a>
 {/snippet}
 
@@ -49,7 +57,7 @@
 	{@render card('/favorites', 'Favourites', app.assets.filter((a) => a.fav).length, favCover, 'heart')}
 	{#each albums as al (al.id)}
 		{@const p = present(al)}
-		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums')}
+		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id])}
 	{/each}
 </div>
 
@@ -61,14 +69,17 @@
 
 <h2 class="section">Folders</h2>
 <div class="cards">
-	{#if libraryRoot}{@render card('/folders', 'Library folders', rootCount('library'), firstIn('library'), 'folder')}{/if}
+	{#if libraryRoot}{@render card('/folders', 'Library folders', rootCount('library'), firstIn('library'), 'folder', null, pins.folderPin(libraryRoot))}{/if}
 	{#if uploadsRoot}
-		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload')}
+		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}
 	{/if}
 </div>
 
 <style>
 
+	.dl {
+		color: var(--accent);
+	}
 	.section {
 		font-size: 19px;
 		margin: 14px 14px 8px;
