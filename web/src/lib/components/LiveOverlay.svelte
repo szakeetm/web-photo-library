@@ -205,6 +205,7 @@
 			class="live-badge"
 			class:inert={!online || failed}
 			class:loading
+			class:playing={shown}
 			tabindex="-1"
 			title={!online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : loading ? 'Live Photo (loading…)' : 'Live Photo: hold the photo to play'}
 			aria-label="Live Photo"
@@ -318,6 +319,10 @@
 		to {
 			transform: rotate(360deg);
 		}
+	}
+	/* Hidden while the motion plays (as in Photos). Only visually: a mouse hovering it keeps playing. */
+	.live-badge.playing {
+		opacity: 0;
 	}
 	.live-badge.inert {
 		opacity: 0.4;
