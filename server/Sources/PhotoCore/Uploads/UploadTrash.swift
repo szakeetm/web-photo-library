@@ -64,7 +64,9 @@ public enum UploadTrash {
                 try ChangeLog.record(d, entity: "asset", id: id, op: "update")
             }
         }
-        for id in ids { removeEmptyDirs(from: root.appendingPathComponent("\(dirName)/\(id)"), upTo: root) }
+        // the emptied folders under .trash/<id>/ (and .trash itself once empty)
+        let left = files.flatMap { [$0.relPath] + ($0.sidecarRelPath.map { [$0] } ?? []) } + motions.map(\.relPath)
+        for rel in left { removeEmptyDirs(from: root.appendingPathComponent((rel as NSString).deletingLastPathComponent), upTo: root) }
         return ids
     }
 
