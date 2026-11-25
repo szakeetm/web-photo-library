@@ -74,7 +74,7 @@
 
 	function removeForever() {
 		const n = ids.length;
-		if (!confirm(`Delete ${n === 1 ? 'this photo' : `${n} photos`} permanently? This can't be undone in the app (the files go to the Mac's Trash).`)) return;
+		if (!confirm(`Delete ${n === 1 ? 'this photo' : `${n} photos`} permanently? The files are deleted from disk; this can't be undone.`)) return;
 		run(async () => {
 			await deleteForever(ids);
 			selection.clear();

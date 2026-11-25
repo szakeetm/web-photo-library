@@ -350,7 +350,7 @@ export const api = {
 	trash: () => call<TrashItem[]>('/api/trash'),
 	restoreTrash: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/trash/restore', { method: 'POST', body: JSON.stringify({ ids }) }),
-	/** Deletes Trash items for good (their files go to the macOS Trash); all of them without ids. */
+	/** Deletes Trash items for good (their files are deleted from disk); all of them without ids. */
 	deleteForever: (ids?: string[]) =>
 		call<{ deleted: string[] }>('/api/trash/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	updatePerson: (id: number, patch: { name?: string | null; hidden?: boolean; coverFaceId?: number }) =>

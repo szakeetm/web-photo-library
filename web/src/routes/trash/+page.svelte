@@ -18,7 +18,7 @@
 
 	async function empty() {
 		const n = app.trash.length;
-		if (!confirm(`Delete ${n === 1 ? 'this photo' : `all ${n} photos`} permanently? This can't be undone in the app (the files go to the Mac's Trash).`)) return;
+		if (!confirm(`Delete ${n === 1 ? 'this photo' : `all ${n} photos`} permanently? The files are deleted from disk; this can't be undone.`)) return;
 		busy = true;
 		try {
 			await deleteForever();

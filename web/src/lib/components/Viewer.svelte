@@ -185,7 +185,7 @@
 	}
 
 	function deletePermanently() {
-		if (!confirm("Delete this photo permanently? It can't be restored from the app (the file goes to the Mac's Trash).")) return;
+		if (!confirm("Delete this photo permanently? The file is deleted from disk; this can't be undone.")) return;
 		leave((id) => deleteForever([id]));
 	}
 

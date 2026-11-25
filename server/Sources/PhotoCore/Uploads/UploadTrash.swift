@@ -2,12 +2,12 @@ import Foundation
 import GRDB
 
 public enum UploadDeleteError: Error, Equatable, CustomStringConvertible {
-    case notFound(String), notAnUpload(String), trashFailed(String)
+    case notFound(String), notAnUpload(String), fileError(String)
     public var description: String {
         switch self {
         case .notFound(let id): "Photo \(id) doesn't exist."
         case .notAnUpload(let name): "\(name) isn't an upload. Only uploaded photos can be deleted; the library is never changed."
-        case .trashFailed(let why): "Couldn't move the file to the Trash: \(why)"
+        case .fileError(let why): "Couldn't move or delete the file: \(why)"
         }
     }
 }
@@ -18,19 +18,29 @@ public struct TrashItem: Codable, Sendable {
     public var trashedAt: String
 }
 
-/// The app's Trash for deleted uploads. Deleting only hides a photo (its file stays where it is);
-/// it can be restored until it is deleted for good (by hand or after `keepDays`), when its file goes
-/// to the macOS Trash and it leaves the catalog. Photos with any file outside the uploads folder
-/// (i.e. in the library) are refused, so the library is never touched.
+/// The Trash for deleted uploads, kept in the uploads folder itself: deleting moves a photo's files
+/// to `<uploads>/.trash/<id>/<original path>` (hidden, so scans ignore it) and hides the photo.
+/// Restoring moves them back; deleting for good (by hand or after `keepDays`) removes them from disk.
+/// Photos with any file outside the uploads folder (i.e. in the library) are refused, so the
+/// library is never touched.
 public enum UploadTrash {
     public static let keepDays = 30
+    public static let dirName = ".trash"
+
+    static func trashedRel(_ id: String, _ rel: String) -> String { "\(dirName)/\(id)/\(rel)" }
+    static func originalRel(_ id: String, _ rel: String) -> String {
+        let prefix = "\(dirName)/\(id)/"
+        return rel.hasPrefix(prefix) ? String(rel.dropFirst(prefix.count)) : rel
+    }
 
     /// Moves uploaded photos to the Trash.
-    public static func trash(ids: [String], db: AppDatabase) throws -> [String] {
-        let ids = Array(Set(ids))
+    public static func trash(ids: [String], db: AppDatabase, uploadsRoot: URL) throws -> [String] {
+        let already = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash") })
+        let ids = Array(Set(ids).subtracting(already))
         guard !ids.isEmpty else { return [] }
-        _ = try check(ids: ids, db: db)
-        try db.writer.write { d in
+        let (files, motions) = try check(ids: ids, db: db)
+        let root = try rootURL(uploadsRoot)
+        try relocate(files: files, motions: motions, root: root, db: db) { id, rel in trashedRel(id, rel) } record: { d in
             for id in ids {
                 try d.execute(sql: "INSERT OR IGNORE INTO trash (assetId, trashedAt) VALUES (?, ?)", arguments: [id, Date()])
                 try ChangeLog.record(d, entity: "asset", id: id, op: "update")
@@ -40,18 +50,22 @@ public enum UploadTrash {
     }
 
     /// Puts photos back where they were (albums, favourites and edits were kept).
-    public static func restore(ids: [String], db: AppDatabase) throws -> [String] {
-        try db.writer.write { d in
-            var done: [String] = []
-            for id in Set(ids) {
+    public static func restore(ids: [String], db: AppDatabase, uploadsRoot: URL) throws -> [String] {
+        let inTrash = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash") })
+        let ids = Array(Set(ids).intersection(inTrash))
+        guard !ids.isEmpty else { return [] }
+        let (files, motions) = try check(ids: ids, db: db, requireFiles: false)
+        let root = try rootURL(uploadsRoot)
+        try relocate(files: files, motions: motions, root: root, db: db) { id, rel in
+            freeRel(originalRel(id, rel), root: root)
+        } record: { d in
+            for id in ids {
                 try d.execute(sql: "DELETE FROM trash WHERE assetId = ?", arguments: [id])
-                if d.changesCount > 0 {
-                    try ChangeLog.record(d, entity: "asset", id: id, op: "update")
-                    done.append(id)
-                }
+                try ChangeLog.record(d, entity: "asset", id: id, op: "update")
             }
-            return done
         }
+        for id in ids { removeEmptyDirs(from: root.appendingPathComponent("\(dirName)/\(id)"), upTo: root) }
+        return ids
     }
 
     /// Everything in the Trash, most recently deleted first.
@@ -67,7 +81,7 @@ public enum UploadTrash {
         }
     }
 
-    /// Deletes photos in the Trash for good (all of them when `ids` is nil). Others are ignored.
+    /// Deletes photos in the Trash from disk (all of them when `ids` is nil). Others are ignored.
     public static func deleteForever(ids: [String]?, db: AppDatabase, uploadsRoot: URL) throws -> [String] {
         let inTrash = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash") })
         let chosen = ids.map { Set($0).intersection(inTrash) } ?? inTrash
@@ -101,28 +115,105 @@ public enum UploadTrash {
         }
     }
 
-    /// Files to the macOS Trash, then the photos leave the catalog.
+    static func rootURL(_ uploadsRoot: URL) throws -> URL { uploadsRoot.standardizedFileURL.resolvingSymlinksInPath() }
+
+    /// A path inside the uploads folder (refuses anything that would escape it).
+    static func inside(_ root: URL, _ rel: String) throws -> URL {
+        let url = root.appendingPathComponent(rel).standardizedFileURL
+        guard url.path.hasPrefix(root.path + "/") else { throw UploadDeleteError.notAnUpload(rel) }
+        return url
+    }
+
+    /// `rel`, or `name (2).ext`… when something else already took that place.
+    static func freeRel(_ rel: String, root: URL) -> String {
+        guard FileManager.default.fileExists(atPath: root.appendingPathComponent(rel).path) else { return rel }
+        let dir = (rel as NSString).deletingLastPathComponent
+        let name = (rel as NSString).lastPathComponent
+        let ext = (name as NSString).pathExtension, stem = (name as NSString).deletingPathExtension
+        for n in 2... {
+            let candidate = ext.isEmpty ? "\(stem) (\(n))" : "\(stem) (\(n)).\(ext)"
+            let r = dir.isEmpty ? candidate : dir + "/" + candidate
+            if !FileManager.default.fileExists(atPath: root.appendingPathComponent(r).path) { return r }
+        }
+        return rel
+    }
+
+    /// Moves the photos' files (photo, sidecar, Live Photo clip) to `target(id, relPath)` and updates
+    /// their rows in the same step as `record`. Moves already made are undone if one fails.
+    static func relocate(files: [FileRow], motions: [MotionRow], root: URL, db: AppDatabase,
+                         target: (String, String) -> String, record: @escaping (Database) throws -> Void) throws {
+        var moved: [(from: URL, to: URL)] = []
+        func move(_ id: String, _ rel: String) throws -> String {
+            let newRel = target(id, rel)
+            let from = try inside(root, rel), to = try inside(root, newRel)
+            if FileManager.default.fileExists(atPath: from.path) {
+                try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.moveItem(at: from, to: to)
+                moved.append((from, to))
+            }
+            return newRel
+        }
+        var newFiles: [FileRow] = [], newMotions: [MotionRow] = []
+        do {
+            for var f in files {
+                f.relPath = try move(f.assetId, f.relPath)
+                f.sidecarRelPath = try f.sidecarRelPath.map { try move(f.assetId, $0) }
+                newFiles.append(f)
+            }
+            for m in motions {
+                var n = m
+                n.relPath = try move(m.assetId, m.relPath)
+                newMotions.append(n)
+            }
+            try db.writer.write { d in
+                for f in newFiles { try f.update(d) }
+                for m in newMotions { try m.update(d) }
+                try record(d)
+            }
+        } catch {
+            for m in moved.reversed() { try? FileManager.default.moveItem(at: m.to, to: m.from) }
+            if let e = error as? UploadDeleteError { throw e }
+            throw UploadDeleteError.fileError(error.localizedDescription)
+        }
+    }
+
+    /// Removes `dir` and then its parents while they are empty (ignoring .DS_Store), never `root` itself.
+    static func removeEmptyDirs(from dir: URL, upTo root: URL) {
+        var dir = dir.standardizedFileURL
+        let fm = FileManager.default
+        while dir.path.hasPrefix(root.path + "/") {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir.path), names.allSatisfy({ $0 == ".DS_Store" }) else { return }
+            guard (try? fm.removeItem(at: dir)) != nil else { return }
+            dir = dir.deletingLastPathComponent().standardizedFileURL
+        }
+    }
+
+    /// Deletes the files from disk, then the photos leave the catalog.
     static func purge(ids: [String], db: AppDatabase, uploadsRoot: URL) throws -> [String] {
         let ids = Array(Set(ids))
         guard !ids.isEmpty else { return [] }
-        let root = uploadsRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let root = try rootURL(uploadsRoot)
         let (files, motions) = try check(ids: ids, db: db, requireFiles: false)  // a file may have vanished meanwhile
-        let paths = files.flatMap { [$0.relPath] + ($0.sidecarRelPath.map { [$0] } ?? []) } + motions.map(\.relPath)
         var urls: [URL] = []
-        for rel in paths {
-            let url = root.appendingPathComponent(rel).standardizedFileURL
-            guard url.path.hasPrefix(root.path + "/") else { throw UploadDeleteError.notAnUpload(rel) }
-            urls.append(url)
+        for f in files {
+            urls.append(try inside(root, f.relPath))
+            if let s = f.sidecarRelPath { urls.append(try inside(root, s)) }
         }
+        for m in motions { urls.append(try inside(root, m.relPath)) }
 
-        // 2. Files to the Trash (already gone is fine).
+        // 1. Files off the disk (already gone is fine), then their emptied folders.
         for url in urls where FileManager.default.fileExists(atPath: url.path) {
-            do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch {
-                throw UploadDeleteError.trashFailed(error.localizedDescription)
+            do { try FileManager.default.removeItem(at: url) } catch {
+                throw UploadDeleteError.fileError(error.localizedDescription)
             }
         }
+        for url in urls { removeEmptyDirs(from: url.deletingLastPathComponent(), upTo: root) }
+        for f in files {
+            let original = (originalRel(f.assetId, f.relPath) as NSString).deletingLastPathComponent
+            if !original.isEmpty { removeEmptyDirs(from: root.appendingPathComponent(original), upTo: root) }
+        }
 
-        // 3. Catalog: the photos, their album memberships, edits, faces, clips; then emptied folders.
+        // 2. Catalog: the photos, their album memberships, edits, faces, clips; then emptied folders.
         try db.writer.write { d in
             let list = ids.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" }.joined(separator: ",")
             for id in ids { try ChangeLog.record(d, entity: "asset", id: id, op: "delete") }
@@ -137,6 +228,7 @@ public enum UploadTrash {
                 var parents = Set<Int64>()
                 for fid in candidates {
                     guard let f = try Folder.fetchOne(d, key: fid), f.root == Roots.uploads, !f.relPath.isEmpty,
+                          !FileManager.default.fileExists(atPath: root.appendingPathComponent(f.relPath).path),
                           try FileRow.filter(Column("folderId") == fid).fetchCount(d) == 0,
                           try Folder.filter(Column("parentId") == fid).fetchCount(d) == 0 else { continue }
                     try f.delete(d)

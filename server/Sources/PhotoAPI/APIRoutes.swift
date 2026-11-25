@@ -383,7 +383,7 @@ struct APIRoutes {
         api.post("uploads") { req, ctx in try await upload(req, ctx) }
 
         // The Trash for uploads: deleting moves uploaded photos there (anything in the library is
-        // refused); they can be restored, or deleted for good (files to the macOS Trash).
+        // refused); they can be restored, or deleted from disk for good.
         @Sendable func validIds(_ ids: [String]) -> Bool { ids.allSatisfy { $0.count == 64 && $0.allSatisfy(\.isHexDigit) } }
         @Sendable func uploadsRoot() throws -> URL? {
             try services.settings.get(.uploadsPath).map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -401,7 +401,7 @@ struct APIRoutes {
                 switch e {
                 case .notFound: return errorResponse(.notFound, e.description)
                 case .notAnUpload: return errorResponse(.forbidden, e.description)
-                case .trashFailed: return errorResponse(.internalServerError, e.description)
+                case .fileError: return errorResponse(.internalServerError, e.description)
                 }
             }
         }
@@ -409,7 +409,8 @@ struct APIRoutes {
         api.post("uploads/delete") { req, ctx in
             let body = try await req.decode(as: DeleteBody.self, context: ctx)
             guard validIds(body.ids) else { throw HTTPError(.badRequest) }
-            return try await trashCall { try UploadTrash.trash(ids: body.ids, db: db) }
+            guard let root = try uploadsRoot() else { return errorResponse(.conflict, UploadError.notConfigured.description) }
+            return try await trashCall { try UploadTrash.trash(ids: body.ids, db: db, uploadsRoot: root) }
         }
         api.get("trash") { _, _ in
             if let root = try uploadsRoot() {
@@ -425,7 +426,8 @@ struct APIRoutes {
         api.post("trash/restore") { req, ctx in
             let body = try await req.decode(as: DeleteBody.self, context: ctx)
             guard validIds(body.ids) else { throw HTTPError(.badRequest) }
-            return try await trashCall { try UploadTrash.restore(ids: body.ids, db: db) }
+            guard let root = try uploadsRoot() else { return errorResponse(.conflict, UploadError.notConfigured.description) }
+            return try await trashCall { try UploadTrash.restore(ids: body.ids, db: db, uploadsRoot: root) }
         }
         // ids omitted: empty the Trash
         api.post("trash/delete") { req, ctx in
@@ -492,7 +494,7 @@ struct APIRoutes {
         return try await uploadLocks.withLock(received.sha256) {
             do {
                 // uploading a photo that is in the Trash brings it back
-                _ = try UploadTrash.restore(ids: [received.sha256], db: services.db)
+                _ = try UploadTrash.restore(ids: [received.sha256], db: services.db, uploadsRoot: root)
                 if let existing = try services.catalog.catalogAsset(id: received.sha256) {
                     try? FileManager.default.removeItem(at: received.tempURL)
                     return try json(UploadResponse(asset: existing, duplicate: true))

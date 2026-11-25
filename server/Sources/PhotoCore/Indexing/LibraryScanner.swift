@@ -125,7 +125,10 @@ public final class LibraryScanner: @unchecked Sendable {
 
         // 2. Files that disappeared — but never those under folders we failed to read.
         for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(\(rootName) root)" : d); its photos were left untouched.") }
-        func underFailedDir(_ rel: String) -> Bool { failedDirs.contains { d in d.isEmpty || rel.hasPrefix(d + "/") } }
+        // Also keeps the uploads Trash (a hidden folder scans don't list): those photos aren't gone.
+        func underFailedDir(_ rel: String) -> Bool {
+            rel.hasPrefix(UploadTrash.dirName + "/") || failedDirs.contains { d in d.isEmpty || rel.hasPrefix(d + "/") }
+        }
         let seen = Set(images.map(\.relPath)).union(videos.map(\.relPath))
         let gone = existing.values.filter { !seen.contains($0.relPath) && !underFailedDir($0.relPath) }
         if !gone.isEmpty {
