@@ -306,7 +306,7 @@ export const api = {
 	catalog: () => call<CatalogSnapshot>('/api/catalog'),
 	changes: (since: number, catalogId: string) =>
 		call<CatalogDelta>(`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}`),
-	videoStatus: (id: string) => call<VideoStatus>(videoStatusUrl(id)),
+	videoStatus: (id: string) => call<{ status: VideoStatus }>(videoStatusUrl(id)).then((r) => r.status),
 	videos: () => call<ConvertAllState>('/api/videos'),
 	convertAll: () => call<ConvertAllState>('/api/videos/convert-all', { method: 'POST' }),
 	pauseConversion: () => call<ConvertAllState>('/api/videos/pause', { method: 'POST' }),
