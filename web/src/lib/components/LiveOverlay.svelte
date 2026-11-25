@@ -5,14 +5,16 @@
 	// out with `object-fit: contain` in the frame's box like the still.
 	//
 	// Loading is on demand, to save data: the clip is fetched only when the user first holds the photo
-	// (or hovers/presses the badge), then kept while the slide stays current (later holds play at once)
-	// and dropped (download aborted) when it stops being current. It is fetched whole and played from a
+	// (or hovers/presses the badge), and then kept in the device cache (imageCache: same size limit and
+	// eviction as previews). A cached clip is loaded from there as soon as the slide is current, so it
+	// plays at once, offline too. A download in progress is aborted when the slide stops being current. It is fetched whole and played from a
 	// blob URL, so "ready" is certain (iOS often won't preload a <video>). While it loads, the badge's
 	// icon spins and, during a hold, a "Loading Live Photo…" pill shows; the clip plays as soon as it
 	// arrives if the hold is still on. A clip the Mac is still converting (202) is asked for again each
 	// second. Anything else that isn't playable (404, 409, a <video> error) fails: the badge goes inert.
 	import { untrack } from 'svelte';
 	import { motionUrl, type CatalogAsset } from '#lib/api.ts';
+	import { cachedClip, hasClip, motionKey, storeClip } from '#lib/imageCache.ts';
 	import { net } from '#lib/net.svelte.ts';
 
 	let {
@@ -38,23 +40,39 @@
 	let failed = $state(false);
 	/** The clip is downloaded and can play. */
 	let ready = $state(false);
+	/** The clip is in the device cache (known once the slide is current). */
+	let cached = $state(false);
 	/** A frame of the playing clip is on screen (fades in over the still). */
 	let shown = $state(false);
 
-	const usable = $derived(active && net.online && !zoomed && !failed);
+	const online = $derived(net.online || cached);
+	const usable = $derived(active && online && !zoomed && !failed);
 	const aspect = $derived(still ? still.w / still.h : asset.w / asset.h);
 
-	// Drop the clip (and forget a failure) when the slide stops being current.
+	// When the slide becomes current, a cached clip is loaded at once (no network). Drop the clip (and
+	// forget a failure) when the slide stops being current.
 	$effect(() => {
-		if (!active || !net.online) return;
+		if (!active) return;
+		const id = asset.id;
+		let live = true;
+		hasClip(motionKey(id))
+			.then((hit) => {
+				if (live && hit) {
+					cached = true;
+					armed = true;
+				}
+			})
+			.catch(() => {});
 		return () => {
+			live = false;
 			armed = false;
 			failed = false;
+			cached = false;
 		};
 	});
 
 	/** The clip is being downloaded. */
-	const loading = $derived(armed && !ready && !failed && net.online);
+	const loading = $derived(armed && !ready && !failed && online);
 
 	// The first hold (or badge hover) loads the clip.
 	$effect(() => {
@@ -68,6 +86,15 @@
 		const ctl = new AbortController();
 		let url = '';
 		const load = async () => {
+			const key = motionKey(asset.id);
+			const hit = await cachedClip(key).catch(() => null);
+			if (ctl.signal.aborted) return;
+			if (hit) {
+				url = URL.createObjectURL(hit);
+				v.src = url;
+				ready = true;
+				return;
+			}
 			for (;;) {
 				const res = await fetch(motionUrl(asset.id), { signal: ctl.signal });
 				if (res.status === 202) {
@@ -80,6 +107,7 @@
 				if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
 				const blob = await res.blob();
 				if (ctl.signal.aborted) return;
+				storeClip(key, blob).catch(() => {}); // full or unavailable storage: just don't keep it
 				url = URL.createObjectURL(blob);
 				v.src = url;
 				ready = true;
@@ -175,10 +203,10 @@
 		<button
 			type="button"
 			class="live-badge"
-			class:inert={!net.online || failed}
+			class:inert={!online || failed}
 			class:loading
 			tabindex="-1"
-			title={!net.online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : loading ? 'Live Photo (loading…)' : 'Live Photo: hold the photo to play'}
+			title={!online ? 'Live Photo (needs a connection)' : failed ? "Live Photo (motion can't be played)" : loading ? 'Live Photo (loading…)' : 'Live Photo: hold the photo to play'}
 			aria-label="Live Photo"
 			onpointerenter={onEnter}
 			onpointerleave={onLeave}

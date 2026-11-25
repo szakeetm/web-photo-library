@@ -74,6 +74,7 @@
 				aria-label="Cache used"><div style="width: {pct}%"></div></div>
 			<div class="muted small">
 				{fmt(u.total)} of {fmtLimit(limit)} · thumbnails {fmt(u.thumbs)} · previews {fmt(u.previews)}
+				{#if u.clips}· Live Photo clips {fmt(u.clips)}{/if}
 				{#if u.pinned}· downloads {fmt(u.pinned)}{/if}
 			</div>
 			{#if quota}<div class="muted small">The browser allows this app up to {fmt(quota)}.{persisted === false ? ' Storage may be cleared by the system when space is low.' : ''}</div>{/if}
@@ -93,7 +94,7 @@
 	{/if}
 </div>
 <p class="hint muted">
-	Photos you look at are kept here so they open instantly and work offline; the oldest are removed when the limit is
+	Photos you look at (and Live Photo clips you play) are kept here so they open instantly and work offline; the oldest are removed when the limit is
 	reached. Downloaded albums and folders are always kept (thumbnails and previews, not full resolution; a folder
 	includes its subfolders). Download one from its ⋯ menu.
 </p>

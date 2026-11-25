@@ -372,7 +372,7 @@
 		} else if (pointers.size === 1) {
 			axis = null;
 			start = { ...start, x: e.clientX, y: e.clientY, t: performance.now(), tx, ty };
-			if (asset?.live && !isVideo && scale === 1 && net.online && e.button === 0) {
+			if (asset?.live && !isVideo && scale === 1 && e.button === 0) {
 				clearTimeout(holdTimer);
 				holdTimer = setTimeout(() => {
 					holdTimer = undefined;
@@ -380,6 +380,10 @@
 					if (pointers.size !== 1 || axis || scale !== 1) return;
 					holding = true;
 					livePlaying = true;
+					// A tap just before the hold must not toggle the chrome (and hide the LIVE badge) mid-play.
+					clearTimeout(tapTimer);
+					tapTimer = undefined;
+					lastTap = 0;
 				}, 300);
 			}
 		}

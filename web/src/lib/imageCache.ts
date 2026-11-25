@@ -129,20 +129,51 @@ export async function evictToLimit(limit: number) {
 	return victims.length;
 }
 
+// ---- Live Photo motion clips ----------------------------------------------------------------------
+// Kept in the same cache, under the same size limit and eviction, as thumbnails and previews. Fetched
+// only when the user holds a Live Photo (LiveOverlay), so replays and offline plays need no network.
+
+/** Cache key of a Live Photo's motion clip (asset ids are content hashes, so it never goes stale). */
+export const motionKey = (id: string) => `/api/assets/${id}/motion`;
+
+/** Whether the clip is cached (doesn't read it). */
+export async function hasClip(key: string): Promise<boolean> {
+	return !!(await (await caches.open(IMAGE_CACHE)).match(absolute(key)));
+}
+
+/** The cached clip, or null (marks it as just used). */
+export async function cachedClip(key: string): Promise<Blob | null> {
+	const hit = await (await caches.open(IMAGE_CACHE)).match(absolute(key));
+	if (!hit) return null;
+	touchImages([key]).catch(() => {});
+	return hit.blob();
+}
+
+/** Keeps a downloaded clip on the device, then trims the cache to its limit. */
+export async function storeClip(key: string, blob: Blob) {
+	const cache = await caches.open(IMAGE_CACHE);
+	await cache.put(absolute(key), new Response(blob, { headers: { 'content-type': blob.type || 'video/quicktime' } }));
+	await recordImage(key, blob.size);
+	await evictToLimit(await getLimit());
+}
+
 export interface CacheUsage {
 	total: number;
 	thumbs: number;
 	previews: number;
+	/** Live Photo motion clips */
+	clips: number;
 	pinned: number;
 	count: number;
 	byAlbum: Map<number, number>;
 }
 
 export function summarize(entries: ImageEntry[]): CacheUsage {
-	const u: CacheUsage = { total: 0, thumbs: 0, previews: 0, pinned: 0, count: entries.length, byAlbum: new Map() };
+	const u: CacheUsage = { total: 0, thumbs: 0, previews: 0, clips: 0, pinned: 0, count: entries.length, byAlbum: new Map() };
 	for (const e of entries) {
 		u.total += e.bytes;
 		if (e.url.startsWith('/api/thumb/')) u.thumbs += e.bytes;
+		else if (e.url.endsWith('/motion')) u.clips += e.bytes;
 		else u.previews += e.bytes;
 		if (e.pins.length) u.pinned += e.bytes;
 		for (const p of e.pins) u.byAlbum.set(p, (u.byAlbum.get(p) ?? 0) + e.bytes);

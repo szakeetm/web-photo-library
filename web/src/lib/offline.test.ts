@@ -81,7 +81,7 @@ describe('image cache bookkeeping', () => {
 			{ url: '/api/preview/a?e=0&fmt=heic', bytes: 100, lastAccess: 0, pins: [1, 2] },
 			{ url: '/api/preview/b?e=0&fmt=heic', bytes: 50, lastAccess: 0, pins: [] }
 		]);
-		expect(u).toMatchObject({ total: 160, thumbs: 10, previews: 150, pinned: 110, count: 3 });
+		expect(u).toMatchObject({ total: 160, thumbs: 10, previews: 150, clips: 0, pinned: 110, count: 3 });
 		expect([...u.byAlbum]).toEqual([[1, 110], [2, 100]]);
 	});
 
