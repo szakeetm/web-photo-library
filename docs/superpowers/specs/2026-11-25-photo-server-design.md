@@ -287,21 +287,26 @@ Sidecar matching must handle Takeout quirks, with unit tests per case:
 - `GET /api/health` (fast, for offline detection)
 
 ### 6.12 Versioning & updates (owner request)
-- **API contract:** server constants `apiVersion` and `minClientApiVersion`. Every `/api` response
-  carries `X-API-Version` and `X-Server-Version`; every client request sends `X-Client-API-Version`.
-  A client older than `minClientApiVersion` gets `426 {error, updateRequired: true}` (health stays
-  reachable). Client banner: server newer → "Update available"; client too old → "Update now"
-  (blocking); server older than client → warning.
+- **Old clients are not supported (owner decision):** a client must match the server; an outdated
+  client is updated, never served in compatibility mode. No backward-compatibility code paths for
+  old clients on the server.
+- **API contract:** server constant `apiVersion`. Every `/api` response carries `X-API-Version` and
+  `X-Server-Version`; every client request sends `X-Client-API-Version`. A client whose API version
+  differs from the server's gets `426 {error, updateRequired: true}` (health stays reachable) and
+  shows a blocking "Update now" that reloads into the server's current build.
 - **Payload formats:** catalog snapshot has `format`; a device replica with another format is
   discarded and re-synced. Edit recipes carry `schema` (int). The server keeps an ordered list of
-  recipe upgrade functions (`schema n → n+1`); on startup a DB migration upgrades stored recipes,
-  and recipes posted by older clients are upgraded on write. A recipe with a newer `schema` than the
-  server knows is rejected with 409 "update the server". Database schema changes use GRDB migrations.
+  recipe upgrade functions (`schema n → n+1`); on startup a DB migration upgrades stored recipes to
+  the current schema (this upgrades old *data*, not old clients). A posted recipe whose `schema`
+  differs from the server's current schema is rejected with 409 `updateRequired`. Database schema
+  changes use GRDB migrations.
 - **Updating the app:** the web app is served by the Mac server, so updating the server updates the
   app. Clients detect a new web build via SvelteKit's `version.json` (polled every 5 min, on focus,
-  and on visibility change) and offer "Update" (reload). With the service worker (milestone 3) the
-  new version downloads in the background and is applied on "Update" or the next cold launch; offline
-  devices keep running the cached version. Same on iOS Home Screen apps and desktop installs.
+  and on visibility change) and show a blocking "Update now" (reload). With the service worker
+  (milestone 3) the new version downloads in the background and is applied on "Update now" or the
+  next cold launch. Offline devices keep running the cached version (view-only, see §7.5); on
+  reconnecting they hit the version check and must update before doing anything else. Same on iOS
+  Home Screen apps and desktop installs.
 
 ## 7. Web client
 
@@ -360,7 +365,7 @@ MapLibre GL JS, WebGPU for the editor. Virtualised justified/square grid.
 - **Offline detection**: `/api/health` with ~2 s timeout plus request failures → offline
   badge; periodic retry. Offline mode is view-only: edit/album/favourite controls disabled,
   uncached images show BlurHash placeholders, map shows only cached tiles.
-- App updates: new service worker waits; "Update available" prompt applies on reload.
+- App updates: new service worker waits; blocking "Update now" applies it on reload (§6.12).
 
 ## 8. Suggested milestones (builder may reorder)
 1. Server skeleton, settings + folder browser, indexing (hash, metadata, sidecars),

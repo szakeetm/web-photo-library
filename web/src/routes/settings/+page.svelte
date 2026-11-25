@@ -222,7 +222,7 @@
 		<h3>About</h3>
 		<div class="row">
 			<div class="label">
-				<div>App {app.clientVersion}</div>
+				<div>App build {app.clientVersion}</div>
 				<div class="muted small">Server {app.server?.version ?? '?'} · API {app.server?.apiVersion ?? '?'}</div>
 			</div>
 		</div>
