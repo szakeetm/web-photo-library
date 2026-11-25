@@ -334,6 +334,7 @@ struct APIRoutes {
         }
         api.post("assets/:id/edits") { req, ctx in
             guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            if try isVideo(id) { return Self.notEditable }
             let body: SaveEdit
             do { body = try await req.decode(as: SaveEdit.self, context: ctx) } catch {
                 return errorResponse(.badRequest, "Invalid edit.")
@@ -351,11 +352,13 @@ struct APIRoutes {
         }
         api.post("assets/:id/auto-enhance") { _, ctx in
             guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            if try isVideo(id) { return Self.notEditable }
             let edits = services.edits
             return try await editCall { try json(AutoRecipe(recipe: try await blocking { try edits.autoEnhance(id: id) })) }
         }
         api.get("assets/:id/export") { req, ctx in
             guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            if try isVideo(id) { return Self.notEditable }
             let format = req.uri.queryParameters.get("fmt").flatMap(ImageFormat.init(rawValue:)) ?? .jpeg
             let edits = services.edits
             return try await editCall {
@@ -376,14 +379,13 @@ struct APIRoutes {
 
         api.post("uploads") { req, ctx in try await upload(req, ctx) }
 
-        api.get("assets/:id/original") { _, ctx in
+        api.get("assets/:id/original") { req, ctx in
             guard let id = validId(ctx), let url = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
-            let body = try await fileIO.loadFile(path: url.path, context: ctx)
-            return Response(status: .ok, headers: [
-                .contentType: contentType(forExtension: url.pathExtension),
-                .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(url.lastPathComponent))",
-                .cacheControl: "private, max-age=3600",
-            ], body: body)
+            return try await fileResponse(path: url.path, contentType: contentType(forExtension: url.pathExtension), request: req,
+                                          context: ctx, extraHeaders: [
+                                              .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(url.lastPathComponent))",
+                                              .cacheControl: Self.originalCache,
+                                          ])
         }
 
         for kind in DerivativeKind.allCases {
@@ -393,13 +395,16 @@ struct APIRoutes {
         // The photo's HDR gain map for the editor (NormalizedGainMap wire format); 204 for SDR photos.
         api.get("gainmap/:id") { _, ctx in
             guard let id = validId(ctx), let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            let cache = "public, max-age=31536000, immutable"
+            if try isVideo(id) { return Response(status: .noContent, headers: [.cacheControl: cache]) }
             let store = services.derivatives()
             let data = try await renderLimiter.run { try await blocking { try store.ensureGainMap(id: id, source: source) } }
-            let cache = "public, max-age=31536000, immutable"
             guard let data else { return Response(status: .noContent, headers: [.cacheControl: cache]) }
             return Response(status: .ok, headers: [.contentType: "application/octet-stream", .cacheControl: cache],
                             body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
+
+        registerVideoRoutes(on: api)
     }
 
     func upload(_ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
@@ -493,6 +498,10 @@ struct APIRoutes {
         }
     }
 
+    static var notEditable: Response { errorResponse(.badRequest, "Videos can't be edited.") }
+
+    func isVideo(_ id: String) throws -> Bool { try services.catalog.kind(id: id) == "video" }
+
     func validId(_ ctx: BasicRequestContext) -> String? {
         guard let id = ctx.parameters.get("id"), id.count == 64, id.allSatisfy({ $0.isHexDigit }) else { return nil }
         return id
@@ -505,12 +514,12 @@ struct APIRoutes {
         guard ev >= 0 else { throw HTTPError(.notFound) }
         let store = services.derivatives()
         let url: URL
-        if try services.catalog.kind(id: id) == "video" {
+        if try isVideo(id) {
             // Videos have no edits; their poster is the thumbnail and preview.
             guard ev == 0 else { throw HTTPError(.notFound) }
             guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
             let made = try await renderLimiter.run {
-                try await blocking { try store.ensurePoster(id: id, source: source, format: format, ffmpeg: FFmpeg.locate()) }
+                try await blocking { try store.ensurePoster(id: id, source: source, format: format, ffmpeg: services.ffmpeg) }
             }
             url = kind == .thumb ? made.thumb : made.preview
         } else if ev > 0, store.exists(id: id, kind: kind, editVersion: ev, format: format) {

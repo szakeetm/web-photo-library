@@ -17,12 +17,15 @@ public final class Services: @unchecked Sendable {
     public let edits: EditService
     public let jobs: JobRunner
     public let videos: VideoConversions
+    /// The ffmpeg used for video previews and posters; nil when it isn't installed.
+    public let ffmpeg: URL?
     private let lock = NSLock()
     private var store: DerivativeStore?
 
     public init(paths: AppPaths, bootstrapDir: URL = AppPaths.standardBootstrapDir, inMemory: Bool = false,
-                restart: @escaping @Sendable () -> Void = {}) throws {
+                restart: @escaping @Sendable () -> Void = {}, ffmpeg: URL? = FFmpeg.locate()) throws {
         self.paths = paths
+        self.ffmpeg = ffmpeg
         self.bootstrapDir = bootstrapDir
         self.restart = restart
         let configured = Bootstrap.load(from: bootstrapDir).dataDir.map { PathOverlap.normalized($0) == PathOverlap.normalized(paths.dataDir.path) } ?? false
@@ -40,7 +43,7 @@ public final class Services: @unchecked Sendable {
         edits = EditService(db: db, catalog: catalog, derivatives: { box.get() })
         var getStore: (() -> DerivativeStore)!
         jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir], dataDir: paths.dataDir)
-        videos = VideoConversions(db: db, catalog: catalog, cacheDir: paths.cacheDir, ffmpeg: FFmpeg.locate())
+        videos = VideoConversions(db: db, catalog: catalog, cacheDir: paths.cacheDir, ffmpeg: ffmpeg)
         getStore = { [unowned self] in self.derivatives() }
         box.get = getStore
         jobs.onPurge = { [videos] ids in ids.forEach(videos.remove(id:)) }

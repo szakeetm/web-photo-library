@@ -19,10 +19,14 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var pl: Int64? = nil
     /// People in the photo (person ids).
     public var pp: [Int64]? = nil
+    /// Duration in seconds, rounded to 0.1 (videos only).
+    public var dur: Double? = nil
+    /// True when the photo is a Live Photo (has a motion clip).
+    public var live: Bool? = nil
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 4
+public let catalogFormat = 5
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -97,7 +101,8 @@ public final class CatalogService: Sendable {
         }
         let rows = try Row.fetchAll(d, sql: """
             SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
-                   a.lat, a.lon, a.placeId,
+                   a.lat, a.lon, a.placeId, a.kind, a.duration,
+                   EXISTS (SELECT 1 FROM motion m WHERE m.assetId = a.id) AS live,
                    (SELECT GROUP_CONCAT(DISTINCT fc.personId) FROM face fc JOIN person p ON p.id = fc.personId
                      WHERE fc.assetId = a.id AND p.hidden = 0) AS people,
                    GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
@@ -112,11 +117,13 @@ public final class CatalogService: Sendable {
                 let lat: Double? = r["lat"], lon: Double? = r["lon"]
                 let round5 = { (v: Double) in (v * 1e5).rounded() / 1e5 }
                 let people = ((r["people"] as String?) ?? "").split(separator: ",").compactMap { Int64($0) }.sorted()
+                let duration: Double? = (r["kind"] as String) == "video" ? r["duration"] : nil
                 return CatalogAsset(id: r["id"], w: r["width"], h: r["height"], t: Self.iso.string(from: r["takenAt"]),
                                     tz: r["tzOffset"], fav: r["favorite"], bh: r["blurhash"], ev: r["editVersion"],
                                     folders: Array(Set(folders)).sorted(), name: (rel as NSString).lastPathComponent,
                                     loc: (lat != nil && lon != nil && !(lat == 0 && lon == 0)) ? [round5(lat!), round5(lon!)] : nil,
-                                    pl: r["placeId"], pp: people.isEmpty ? nil : people)
+                                    pl: r["placeId"], pp: people.isEmpty ? nil : people,
+                                    dur: duration.map { ($0 * 10).rounded() / 10 }, live: (r["live"] as Bool) ? true : nil)
         }
     }
 
@@ -209,9 +216,19 @@ public final class CatalogService: Sendable {
         try db.writer.read { try String.fetchOne($0, sql: "SELECT kind FROM asset WHERE id = ?", arguments: [id]) }
     }
 
+    /// The asset's database record alone (no files, faces or place).
+    public func record(id: String) throws -> Asset? {
+        try db.writer.read { try Asset.fetchOne($0, key: id) }
+    }
+
+    /// The still's Live Photo motion row.
+    public func motion(id: String) throws -> MotionRow? {
+        try db.writer.read { try MotionRow.fetchOne($0, key: id) }
+    }
+
     /// The still's Live Photo motion clip, if it is still on disk as scanned.
     public func motionURL(id: String) throws -> URL? {
-        guard let row = try db.writer.read({ try MotionRow.fetchOne($0, key: id) }) else { return nil }
+        guard let row = try motion(id: id) else { return nil }
         return Self.unchanged(try rootURLs()[row.root], row.relPath, size: row.size, mtime: row.mtime)
     }
 
