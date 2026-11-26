@@ -310,6 +310,8 @@ export const videoStatusUrl = (id: string) => `/api/assets/${id}/video/status`;
 export const videoDownloadUrl = (id: string) => `/api/assets/${id}/video/download`;
 export const motionUrl = (id: string) => `/api/assets/${id}/motion`;
 export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;
+/** A Live Photo's motion clip as a file (the original MOV, named like the still). */
+export const motionDownloadUrl = (id: string) => `/api/assets/${id}/motion/download`;
 
 /** Preview conversion of a video (or Live Photo clip), as the server reports it. */
 export interface VideoStatus {

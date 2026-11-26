@@ -174,7 +174,8 @@ public final class EditService: Sendable {
         guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
         let dir = derivatives().cacheDir.appendingPathComponent("exports", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let target = dir.appendingPathComponent("\(id)_e\(version).\(format.rawValue)")
+        // "_l": exports that keep the Live Photo pairing (older cached exports lack it)
+        let target = dir.appendingPathComponent("\(id)_e\(version)_l.\(format.rawValue)")
         let base = (source.lastPathComponent as NSString).deletingPathExtension
         let filename = "\(base)-edited.\(format == .heic ? "heic" : "jpg")"
         if FileManager.default.fileExists(atPath: target.path) {
@@ -199,6 +200,13 @@ public final class EditService: Sendable {
                     props[key] = dict
                 }
             }
+        }
+        // Keep a Live Photo's content identifier (Apple maker note, key 17): Photos pairs the edited
+        // still with the original motion clip when both are imported together.
+        if let src = CGImageSourceCreateWithURL(source as CFURL, nil),
+           let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+           let apple = p[kCGImagePropertyMakerAppleDictionary] as? [String: Any], let cid = apple["17"] {
+            props[kCGImagePropertyMakerAppleDictionary] = ["17": cid]
         }
         for (k, v) in hdr.imageProperties { props[k] = v }
         props[kCGImagePropertyOrientation] = 1

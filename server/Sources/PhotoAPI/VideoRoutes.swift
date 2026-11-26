@@ -88,6 +88,20 @@ extension APIRoutes {
             }
         }
 
+        // A Live Photo's motion clip as a file: the original, named like the still (IMG_1234.HEIC →
+        // IMG_1234.MOV) so the pair stays recognisable; Photos pairs them by their content identifier.
+        api.get("assets/:id/motion/download") { req, ctx in
+            guard let id = validId(ctx), let url = try services.catalog.motionURL(id: id),
+                  let still = try services.catalog.fileURL(id: id)
+            else { throw HTTPError(.notFound) }
+            let name = still.deletingPathExtension().lastPathComponent + "." + url.pathExtension.uppercased()
+            return try await fileResponse(path: url.path, contentType: contentType(forExtension: url.pathExtension), request: req,
+                                          context: ctx, extraHeaders: [
+                                              .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(name))",
+                                              .cacheControl: Self.originalCache,
+                                          ])
+        }
+
         api.get("videos") { _, _ in try json(try await blocking { videos.allState() }) }
         api.post("videos/convert-all") { _, _ in
             try json(try await blocking { videos.startAll(); return videos.allState() })
