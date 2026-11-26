@@ -99,6 +99,19 @@ class AppState {
 		// download for offline use or Settings → Keep on this device.
 		if (!isFirefox) navigator.storage?.persist?.()?.catch(() => {});
 		net.onReconnect(() => this.reload());
+		// Changes made on another device: the server is asked for what changed (a small delta) when
+		// the app comes back to the screen (iOS resumes a Home Screen app instead of restarting it)
+		// and every half minute while it is on screen.
+		let lastSync = Date.now();
+		const refresh = (minAge: number) => {
+			if (document.visibilityState !== 'visible' || !net.online || Date.now() - lastSync < minAge) return;
+			lastSync = Date.now();
+			this.reload();
+		};
+		document.addEventListener('visibilitychange', () => refresh(2_000));
+		window.addEventListener('focus', () => refresh(2_000));
+		window.addEventListener('pageshow', () => refresh(2_000));
+		setInterval(() => refresh(25_000), 30_000);
 		this.fmt = (await supportsHeic()) ? 'heic' : 'jpeg';
 		// Show the device copy immediately (works offline), then bring it up to date.
 		try {
