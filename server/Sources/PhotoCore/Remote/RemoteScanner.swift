@@ -68,9 +68,15 @@ public final class RemoteScanner: @unchecked Sendable {
         let motions = try db.writer.read { d in
             Dictionary(try MotionRow.filter(Column("root") == source.root).fetchAll(d).map { ($0.relPath, $0) }, uniquingKeysWith: { a, _ in a })
         }
+        // fetched before but not kept (a Live Photo clip whose photo has one already, an unreadable video)
+        let skipped = try db.writer.read { d in
+            Dictionary(try Row.fetchAll(d, sql: "SELECT relPath, size, mtime FROM remote_skip WHERE root = ?", arguments: [source.root])
+                .map { ($0["relPath"] as String, ($0["size"] as Int64, $0["mtime"] as Double)) }, uniquingKeysWith: { a, _ in a })
+        }
         func changed(_ f: Rclone.RemoteFile) -> Bool {
             if let r = existing[f.path] { return r.size != f.size || r.mtime != f.mtime }
             if let m = motions[f.path] { return m.size != f.size || m.mtime != f.mtime }
+            if let s = skipped[f.path] { return s.0 != f.size || s.1 != f.mtime }
             return true
         }
         let todo = (images + videos).filter(changed).sorted { $0.path < $1.path }
@@ -142,6 +148,7 @@ public final class RemoteScanner: @unchecked Sendable {
                     .map { (id: $0["assetId"] as String, url: mirror.appendingPathComponent($0["relPath"] as String)) }
             }
             render(made)
+            try rememberSkipped(batch)
             done += batch.count
             progress(done, todo.count)
             OriginalsCache.evict(dataDir: dataDir, budget: cacheBudget, force: true)
@@ -149,7 +156,37 @@ public final class RemoteScanner: @unchecked Sendable {
         report.removed += try scanner.finishBatches(present: Set((images + videos).map(\.path)), videos: Set(videos.map(\.path)),
                                                     dirs: Array(dirs))
         try nameRootFolder(scanner)
+        try forgetSkipped(present: Set((images + videos).map(\.path)))
         return report
+    }
+
+    /// The files of a batch the scan didn't keep (no file row, not a Live Photo clip) are remembered with
+    /// their size and date, so the next scan doesn't fetch them again; those kept are forgotten.
+    func rememberSkipped(_ batch: [Rclone.RemoteFile]) throws {
+        let paths = String(decoding: try JSONEncoder().encode(batch.map(\.path)), as: UTF8.self)
+        try db.writer.write { d in
+            let kept = Set(try String.fetchAll(d, sql: """
+                SELECT relPath FROM file WHERE root = ? AND relPath IN (SELECT value FROM json_each(?))
+                UNION SELECT relPath FROM motion WHERE root = ? AND relPath IN (SELECT value FROM json_each(?))
+                """, arguments: [source.root, paths, source.root, paths]))
+            for f in batch {
+                if kept.contains(f.path) {
+                    try d.execute(sql: "DELETE FROM remote_skip WHERE root = ? AND relPath = ?", arguments: [source.root, f.path])
+                } else {
+                    try d.execute(sql: "INSERT OR REPLACE INTO remote_skip (root, relPath, size, mtime) VALUES (?, ?, ?, ?)",
+                                  arguments: [source.root, f.path, f.size, f.mtime])
+                }
+            }
+        }
+    }
+
+    /// Skipped files no longer on the remote are forgotten.
+    func forgetSkipped(present: Set<String>) throws {
+        try db.writer.write { d in
+            for p in try String.fetchAll(d, sql: "SELECT relPath FROM remote_skip WHERE root = ?", arguments: [source.root]) where !present.contains(p) {
+                try d.execute(sql: "DELETE FROM remote_skip WHERE root = ? AND relPath = ?", arguments: [source.root, p])
+            }
+        }
     }
 
     /// The source's top folder is shown with the source's name ("pcloud:Photos/Trips" → "Trips").

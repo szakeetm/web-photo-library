@@ -116,6 +116,25 @@ struct RemoteSourceTests {
         #expect(try e.db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM asset WHERE missingSince IS NOT NULL") } == 1)
     }
 
+    @Test func aFileFetchedButNotKeptIsNotFetchedAgainUntilItChanges() throws {
+        let e = try env()
+        let clip = e.remote.appendingPathComponent("2021/broken.mp4")
+        try Data("not a movie".utf8).write(to: clip)
+        let (first, _) = try e.scan()
+        #expect(first.added == 2 && first.skipped == 1, "\(first)")
+        // nothing new: the unreadable clip isn't fetched (or reported) again
+        let (again, _) = try e.scan()
+        #expect(again.skipped == 0 && again.added == 0 && again.unchanged == 3, "\(again)")
+        // changed on the remote: looked at again
+        try Data("still not a movie".utf8).write(to: clip)
+        let (changed, _) = try e.scan()
+        #expect(changed.skipped == 1, "\(changed)")
+        // gone from the remote: forgotten
+        try FileManager.default.removeItem(at: clip)
+        _ = try e.scan()
+        #expect(try e.db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM remote_skip") } == 0)
+    }
+
     @Test func theSamePhotoInTwoSourcesIsOnePhoto() throws {
         let e = try env()
         let library = Fixtures.tempDir()

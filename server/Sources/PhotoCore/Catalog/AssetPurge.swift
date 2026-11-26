@@ -25,6 +25,7 @@ public enum AssetPurge {
         return try db.writer.write { d in
             let orphaned = try before.filter { try Int.fetchOne(d, sql: "SELECT count(*) FROM file WHERE assetId = ?", arguments: [$0]) == 0 }
             try purge(orphaned, d)
+            try d.execute(sql: "DELETE FROM remote_skip WHERE root = ?", arguments: [root])
             return orphaned
         }
     }

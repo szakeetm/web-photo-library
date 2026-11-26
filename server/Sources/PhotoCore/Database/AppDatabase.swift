@@ -311,6 +311,14 @@ public final class AppDatabase: Sendable {
                 WHERE assignment = 'user' AND personId IN (SELECT id FROM person WHERE name IS NOT NULL)
                 """)
         }
+        m.registerMigration("v18-remote-skip") { db in
+            // Files of a remote source that were fetched and looked at but aren't kept (a Live Photo clip
+            // whose photo already has one, a video nothing can read): not fetched again until they change.
+            try db.execute(sql: """
+                CREATE TABLE remote_skip (root TEXT NOT NULL, relPath TEXT NOT NULL, size INTEGER NOT NULL,
+                                          mtime DOUBLE NOT NULL, PRIMARY KEY (root, relPath));
+                """)
+        }
         return m
     }
 }
