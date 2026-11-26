@@ -1,6 +1,7 @@
 import { version } from '$app/env';
 import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type DateChange, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem, type DownloadProgress } from './api';
 import { supportsHeic } from './heic';
+import { isFirefox } from './platform';
 import { sortByLocalTime } from './dates';
 import { buildIndex } from './assetIndex';
 import { net } from './net.svelte';
@@ -93,8 +94,10 @@ class AppState {
 		if (this.started) return;
 		this.started = true;
 		net.start();
-		// Ask the browser not to clear the device copy and image cache under storage pressure.
-		navigator.storage?.persist?.()?.catch(() => {});
+		// Ask the browser not to clear the device copy and image cache under storage pressure. Safari and
+		// Chrome decide on their own; Firefox would ask the user, unprompted, so there it waits for a
+		// download for offline use or Settings → Keep on this device.
+		if (!isFirefox) navigator.storage?.persist?.()?.catch(() => {});
 		net.onReconnect(() => this.reload());
 		this.fmt = (await supportsHeic()) ? 'heic' : 'jpeg';
 		// Show the device copy immediately (works offline), then bring it up to date.

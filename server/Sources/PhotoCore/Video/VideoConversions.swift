@@ -44,11 +44,15 @@ public struct ConvertAllState: Codable, Sendable, Equatable {
     public var needed: Int     // videos with servePlan == preview and no preview
     public var converted: Int; public var bytes: Int64
     public var ffmpeg: Bool
+    /// Conversions not played for this many days are deleted (nil = kept).
+    public var keepDays: Int?
 }
 
 /// Converts videos (and unplayable Live Photo motion clips) into HEVC MP4 previews with ffmpeg,
 /// one at a time on a dedicated thread. On-demand requests run before "Convert all" work.
-/// All state is in memory except `asset.videoError` (failures of videos, not of motion clips).
+/// Browsers that can't decode HEVC (Chrome and Firefox on Linux, Windows PCs without HEVC support) ask
+/// for H.264 copies instead (`h264`), made on demand only.
+/// All state is in memory except `asset.videoError` (failures of HEVC previews of videos).
 public final class VideoConversions: @unchecked Sendable {
     let db: AppDatabase
     let catalog: CatalogService
@@ -59,7 +63,13 @@ public final class VideoConversions: @unchecked Sendable {
     /// ffmpeg is killed when it writes no progress for this long.
     var stallTimeout: TimeInterval = 60
 
-    private struct Job: Equatable { let id: String; let motion: Bool }
+    private struct Job: Hashable {
+        let id: String
+        let motion: Bool
+        var h264 = false
+        /// A "Convert all" job: an HEVC preview of a video.
+        var plain: Bool { !motion && !h264 }
+    }
     private enum Cancel { case discard, requeue }
     /// Mutated only with `cond` held.
     private final class Running: @unchecked Sendable {
@@ -84,7 +94,8 @@ public final class VideoConversions: @unchecked Sendable {
     private var runState = "idle"
     private var done = 0
     private var total = 0
-    private var motionFailures: [String: String] = [:]
+    /// Failures of motion clips and H.264 copies (HEVC previews of videos keep theirs in the catalog).
+    private var failures: [Job: String] = [:]
     /// "Convert all" ids moved to `onDemand` by a request.
     private var promoted = Set<String>()
 
@@ -103,11 +114,15 @@ public final class VideoConversions: @unchecked Sendable {
 
     private func dir(_ id: String) -> URL { videoDir.appendingPathComponent(String(id.prefix(2)), isDirectory: true) }
 
-    public func previewURL(id: String) -> URL { dir(id).appendingPathComponent("\(id).mp4") }
+    public func previewURL(id: String, h264: Bool = false) -> URL { dir(id).appendingPathComponent(h264 ? "\(id).h264.mp4" : "\(id).mp4") }
 
-    public func motionPreviewURL(id: String) -> URL { dir(id).appendingPathComponent("\(id).motion.mp4") }
+    public func motionPreviewURL(id: String, h264: Bool = false) -> URL {
+        dir(id).appendingPathComponent(h264 ? "\(id).motion.h264.mp4" : "\(id).motion.mp4")
+    }
 
-    private func output(_ job: Job) -> URL { job.motion ? motionPreviewURL(id: job.id) : previewURL(id: job.id) }
+    private func output(_ job: Job) -> URL {
+        job.motion ? motionPreviewURL(id: job.id, h264: job.h264) : previewURL(id: job.id, h264: job.h264)
+    }
 
     private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
 
@@ -119,8 +134,8 @@ public final class VideoConversions: @unchecked Sendable {
     // MARK: - Status
 
     /// A video (or, with `motion`, a still's motion clip) that is neither converted nor failed reports `.queued`.
-    public func status(id: String, motion: Bool = false) -> VideoStatus {
-        let job = Job(id: id, motion: motion)
+    public func status(id: String, motion: Bool = false, h264: Bool = false) -> VideoStatus {
+        let job = Job(id: id, motion: motion, h264: h264)
         cond.lock()
         let live = liveStatus(job)
         cond.unlock()
@@ -130,8 +145,8 @@ public final class VideoConversions: @unchecked Sendable {
     /// Requests a conversion ahead of "Convert all" work; a conversion already queued or running is shared.
     /// A failed video is not retried here ("Convert all" or a re-index does that).
     @discardableResult
-    public func request(id: String, motion: Bool = false) -> VideoStatus {
-        let job = Job(id: id, motion: motion)
+    public func request(id: String, motion: Bool = false, h264: Bool = false) -> VideoStatus {
+        let job = Job(id: id, motion: motion, h264: h264)
         cond.lock()
         if let s = liveStatusPromoting(job) { cond.unlock(); return s }
         cond.unlock()
@@ -146,7 +161,7 @@ public final class VideoConversions: @unchecked Sendable {
 
     /// Lock held. Like `liveStatus`, but a video waiting in the "Convert all" list jumps ahead.
     private func liveStatusPromoting(_ job: Job) -> VideoStatus? {
-        if !job.motion, !onDemand.contains(job), running?.job != job, let i = allList.firstIndex(of: job.id) {
+        if job.plain, !onDemand.contains(job), running?.job != job, let i = allList.firstIndex(of: job.id) {
             allList.remove(at: i)
             promoted.insert(job.id)
             onDemand.append(job)
@@ -158,22 +173,25 @@ public final class VideoConversions: @unchecked Sendable {
     /// Lock held.
     private func liveStatus(_ job: Job) -> VideoStatus? {
         if let r = running, r.job == job, r.cancelled == nil { return .converting(r.progress) }
-        if onDemand.contains(job) || (!job.motion && allList.contains(job.id)) { return .queued }
+        if onDemand.contains(job) || (job.plain && allList.contains(job.id)) { return .queued }
         return nil
     }
 
     /// From disk and the catalog, ignoring the queue.
     private func storedStatus(_ job: Job) -> VideoStatus {
         if exists(output(job)) { return .ready }
-        if job.motion {
+        if !job.plain {
             cond.lock()
-            let failure = motionFailures[job.id]
+            let failure = failures[job]
             cond.unlock()
             if let failure { return .failed(failure) }
+        }
+        if job.motion {
             guard ffmpeg != nil, (try? db.writer.read({ try MotionRow.fetchOne($0, key: job.id) })) != nil else { return .unavailable }
             return .queued
         }
         guard let a = try? db.writer.read({ try Asset.fetchOne($0, key: job.id) }), a.kind == "video" else { return .unavailable }
+        if job.h264 { return ffmpeg == nil ? .unavailable : .queued }
         if a.servePlan != "preview" { return .ready }
         if let e = a.videoError { return .failed(e) }
         return ffmpeg == nil ? .unavailable : .queued
@@ -214,14 +232,16 @@ public final class VideoConversions: @unchecked Sendable {
         var converted = 0
         var bytes: Int64 = 0
         for url in files() where url.pathExtension == "mp4" && !url.lastPathComponent.contains(".tmp.") {
-            if !url.lastPathComponent.hasSuffix(".motion.mp4") { converted += 1 }
+            // HEVC previews of videos ("<id>.mp4"), not motion clips or H.264 copies ("<id>.motion.mp4", "<id>.h264.mp4")
+            if url.deletingPathExtension().pathExtension.isEmpty { converted += 1 }
             bytes += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
         cond.lock(); defer { cond.unlock() }
         let current = running.flatMap { $0.forAll && $0.cancelled == nil ? $0 : nil }
         return ConvertAllState(state: runState, done: done, total: total,
                                current: current.map { $0.name ?? $0.job.id }, progress: current?.progress,
-                               needed: needed, converted: converted, bytes: bytes, ffmpeg: ffmpeg != nil)
+                               needed: needed, converted: converted, bytes: bytes, ffmpeg: ffmpeg != nil,
+                               keepDays: (try? SettingsStore(db: db).get(.videoCacheDays)) ?? nil)
     }
 
     // MARK: - Cache maintenance
@@ -233,17 +253,61 @@ public final class VideoConversions: @unchecked Sendable {
         allList.removeAll { $0 == id }
         promoted.remove(id)
         if let r = running, r.job.id == id { cancel(r, .discard) }
-        motionFailures[id] = nil
-        try? FileManager.default.removeItem(at: previewURL(id: id))
-        try? FileManager.default.removeItem(at: motionPreviewURL(id: id))
+        failures = failures.filter { $0.key.id != id }
+        for h264 in [false, true] {
+            try? FileManager.default.removeItem(at: previewURL(id: id, h264: h264))
+            try? FileManager.default.removeItem(at: motionPreviewURL(id: id, h264: h264))
+        }
     }
 
     /// Deletes every preview (Rebuild caches). A running conversion starts over.
     public func clear() throws {
         cond.lock(); defer { cond.unlock() }
         if let r = running { cancel(r, .requeue) }
-        motionFailures.removeAll()
+        failures.removeAll()
         if exists(videoDir) { try FileManager.default.removeItem(at: videoDir) }
+    }
+
+    /// Marks a converted file as played now. Its access time is the "last played" clock (set explicitly,
+    /// since volumes may be mounted noatime); it's written at most once an hour, and the modification
+    /// time (the ETag) is left alone.
+    public func touch(_ url: URL) {
+        var st = stat()
+        guard stat(url.path, &st) == 0 else { return }
+        let now = Date().timeIntervalSince1970
+        guard now - Double(st.st_atimespec.tv_sec) > 3600 else { return }
+        var times = [timespec(tv_sec: Int(now), tv_nsec: 0), st.st_mtimespec]
+        _ = utimensat(AT_FDCWD, url.path, &times, 0)
+    }
+
+    /// Deletes converted files not played (nor made) in the last `days` days. Returns how many and their size.
+    @discardableResult
+    public func cleanUp(olderThanDays days: Int, now: Date = Date()) -> (files: Int, bytes: Int64) {
+        let cutoff = now.timeIntervalSince1970 - Double(days) * 86400
+        var count = 0
+        var bytes: Int64 = 0
+        for url in files() where url.pathExtension == "mp4" && !url.lastPathComponent.contains(".tmp.") {
+            var st = stat()
+            guard stat(url.path, &st) == 0 else { continue }
+            let last = max(Double(st.st_atimespec.tv_sec), Double(st.st_mtimespec.tv_sec))
+            guard last < cutoff else { continue }
+            if (try? FileManager.default.removeItem(at: url)) != nil {
+                count += 1
+                bytes += Int64(st.st_size)
+            }
+        }
+        return (count, bytes)
+    }
+
+    /// Applies the `videoCacheDays` setting now and then every hour.
+    public func startCleanupScheduler(settings: SettingsStore, every: TimeInterval = 3600) {
+        Thread.detachNewThread { [weak self] in
+            Thread.sleep(forTimeInterval: 60)  // let the server settle first
+            while let s = self {
+                if let days = (try? settings.get(.videoCacheDays)) ?? nil { s.cleanUp(olderThanDays: days) }
+                Thread.sleep(forTimeInterval: every)
+            }
+        }
     }
 
     /// Lock held.
@@ -271,7 +335,7 @@ public final class VideoConversions: @unchecked Sendable {
             let r: Running
             if !onDemand.isEmpty {
                 let job = onDemand.removeFirst()
-                r = Running(job: job, fromAll: false, counted: !job.motion && promoted.remove(job.id) != nil)
+                r = Running(job: job, fromAll: false, counted: job.plain && promoted.remove(job.id) != nil)
             } else if !allList.isEmpty {
                 r = Running(job: Job(id: allList.removeFirst(), motion: false), fromAll: true)
             } else {
@@ -310,8 +374,9 @@ public final class VideoConversions: @unchecked Sendable {
             guard let p = VideoProbe.probe(url: url) else { throw ConversionError("Unreadable motion clip") }
             return Source(url: url, width: p.width, height: p.height, hdr: p.hdr, duration: p.duration)
         }
-        guard let a = try db.writer.read({ try Asset.fetchOne($0, key: id) }), a.kind == "video",
-              a.servePlan == "preview", r.forAll || a.videoError == nil else { return nil }
+        guard let a = try db.writer.read({ try Asset.fetchOne($0, key: id) }), a.kind == "video" else { return nil }
+        // An H.264 copy is made for any video a browser asks one for (the route serves H.264 originals as they are).
+        guard r.job.h264 || (a.servePlan == "preview" && (r.forAll || a.videoError == nil)) else { return nil }
         guard let url = try catalog.originals.original(id: id) else { throw ConversionError("Original file not found") }
         return Source(url: url, width: a.width, height: a.height, hdr: a.videoHDR, duration: a.duration ?? 0)
     }
@@ -339,7 +404,7 @@ public final class VideoConversions: @unchecked Sendable {
 
         let p = Process()
         p.executableURL = ffmpeg
-        p.arguments = Self.arguments(source: src.url, output: tmp, width: src.width, height: src.height, hdr: src.hdr)
+        p.arguments = Self.arguments(source: src.url, output: tmp, width: src.width, height: src.height, hdr: src.hdr, h264: r.job.h264)
         p.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         p.standardOutput = pipe
@@ -415,8 +480,8 @@ public final class VideoConversions: @unchecked Sendable {
     }
 
     private func fail(_ r: Running, _ message: String) {
-        if r.job.motion {
-            cond.lock(); motionFailures[r.job.id] = message; cond.unlock()
+        if !r.job.plain {
+            cond.lock(); failures[r.job] = message; cond.unlock()
         } else {
             try? db.writer.write {
                 try $0.execute(sql: "UPDATE asset SET videoError = ? WHERE id = ?", arguments: [message, r.job.id])
@@ -425,8 +490,8 @@ public final class VideoConversions: @unchecked Sendable {
     }
 
     private func succeeded(_ r: Running) {
-        if r.job.motion {
-            cond.lock(); motionFailures[r.job.id] = nil; cond.unlock()
+        if !r.job.plain {
+            cond.lock(); failures[r.job] = nil; cond.unlock()
         } else {
             try? db.writer.write {
                 try $0.execute(sql: "UPDATE asset SET videoError = NULL WHERE id = ? AND videoError IS NOT NULL", arguments: [r.job.id])

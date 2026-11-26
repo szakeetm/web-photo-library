@@ -29,6 +29,12 @@
 		}
 	}
 
+	/** Asks for persistent storage (Firefox asks the user; Chrome and Safari decide on their own, e.g. once installed). */
+	async function keep() {
+		await navigator.storage?.persist?.().catch(() => false);
+		await refresh();
+	}
+
 	onMount(() => {
 		refresh();
 		const t = setInterval(refresh, 3000);
@@ -87,7 +93,10 @@
 				{#if u.clips}· Live Photo clips {fmt(u.clips)}{/if}
 				{#if u.pinned}· downloads {fmt(u.pinned)}{/if}
 			</div>
-			{#if quota}<div class="muted small">The browser allows this app up to {fmt(quota)}.{persisted === false ? ' Storage may be cleared by the system when space is low.' : ''}</div>{/if}
+			{#if quota}<div class="muted small">The browser allows this app up to {fmt(quota)}.{persisted === false ? ' The browser may clear it when the disk is nearly full.' : ''}</div>{/if}
+			{#if persisted === false}
+				<button class="btn keep" onclick={keep}>Keep on this device</button>
+			{/if}
 		{:else}
 			<div class="muted small">Not available in this browser window (private mode?).</div>
 		{/if}
@@ -123,6 +132,9 @@
 {/if}
 
 <style>
+	.keep {
+		margin-top: 6px;
+	}
 	.meter {
 		height: 6px;
 		border-radius: 3px;

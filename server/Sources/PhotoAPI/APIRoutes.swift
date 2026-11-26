@@ -66,6 +66,8 @@ struct APIRoutes {
         let mapStyleURL: String?; let defaultMapStyleURL: String
         /// Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them.
         let analysisPending: Int; let analysisTotal: Int
+        /// rclone on this Mac (for backups and remote sources); nil when it isn't installed
+        let rclone: RcloneInfo.Info?
     }
     static let defaultMapStyle = "https://tiles.openfreemap.org/styles/liberty"
     struct PersonPatch: Decodable { var name: String??; var hidden: Bool?; var coverFaceId: Int64? }
@@ -565,6 +567,7 @@ struct APIRoutes {
 
         registerVideoRoutes(on: api)
         registerExportRoutes(on: api)
+        registerBackupRoutes(on: api)
     }
 
     func upload(_ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
@@ -727,6 +730,7 @@ struct APIRoutes {
                                          faceModelInstalled: FaceAnalyzer.modelInstalled(dataDir: services.paths.dataDir),
                                          faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,
                                          mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle,
-                                         analysisPending: analysis.pending, analysisTotal: analysis.total))
+                                         analysisPending: analysis.pending, analysisTotal: analysis.total,
+                                         rclone: RcloneInfo.current()))
     }
 }

@@ -134,7 +134,7 @@
 			</a>
 			{#if converted}
 				<a class="opt" href={videoDownloadUrl(asset.id)} download={convertedName} onclick={onClose}>
-					Converted <span>MP4 (HEVC) that plays everywhere</span>
+					Converted <span>MP4 (HEVC), for Apple devices, phones and most PCs</span>
 				</a>
 			{/if}
 		{:else if isVideo}
@@ -143,7 +143,7 @@
 			</button>
 			{#if converted}
 				<button class="opt" onclick={() => prepare(videoDownloadUrl(asset.id), convertedName)}>
-					Converted <span>MP4 (HEVC) that plays everywhere</span>
+					Converted <span>MP4 (HEVC), for Apple devices, phones and most PCs</span>
 				</button>
 			{/if}
 		{:else}

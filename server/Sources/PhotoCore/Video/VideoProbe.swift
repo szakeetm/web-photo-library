@@ -29,9 +29,10 @@ public enum VideoProbe {
         safariPlayable(codec: codec, ext: ext) && min(width, height) <= 1080 ? "original" : "preview"
     }
 
-    /// Safari plays H.264/HEVC in QuickTime/MP4 containers.
-    public static func safariPlayable(codec: String?, ext: String) -> Bool {
-        ["h264", "hevc"].contains(codec?.lowercased() ?? "") && ["mov", "mp4", "m4v"].contains(ext.lowercased())
+    /// Browsers play H.264 and HEVC in QuickTime/MP4 containers; with `h264Only`, H.264 alone (Chrome and
+    /// Firefox without HEVC decoding: Linux, and Windows PCs without HEVC support in their graphics).
+    public static func safariPlayable(codec: String?, ext: String, h264Only: Bool = false) -> Bool {
+        (h264Only ? ["h264"] : ["h264", "hevc"]).contains(codec?.lowercased() ?? "") && ["mov", "mp4", "m4v"].contains(ext.lowercased())
     }
 
     /// "+38.2451+021.7381+025.034/" → (38.2451, 21.7381)

@@ -30,6 +30,8 @@ extension SettingKey where T == String? {
 extension SettingKey where T == Int? {
     /// Parallel workers for indexing and image generation (nil = default, up to 8).
     public static let workers = SettingKey("workers", default: nil)
+    /// Converted videos (previews, H.264 copies, motion clips) not played for this many days are deleted (nil = kept).
+    public static let videoCacheDays = SettingKey("videoCacheDays", default: nil)
 }
 
 /// Untyped JSON value, used to expose all settings over the API.

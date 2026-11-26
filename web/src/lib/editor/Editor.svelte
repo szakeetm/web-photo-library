@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import { api, previewUrl, type CatalogAsset, type EditHistory } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
+	import { shortcut } from '#lib/platform.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import { EditRenderer } from './renderer';
 	import { fetchGainMap } from './gainmap';
@@ -95,7 +96,7 @@
 			renderer = await EditRenderer.create();
 			if (!renderer) {
 				throw new Error(
-					"Editing needs WebGPU, which this browser doesn't offer. Use a current Safari (iOS / macOS 26) or Chrome."
+					"Editing needs WebGPU, which this browser doesn't offer (or has turned off). Use a current Chrome, Edge or Safari, or Firefox on Windows or a Mac."
 				);
 			}
 			const [h, blob, gainMap] = await Promise.all([
@@ -145,13 +146,19 @@
 				return;
 			}
 			// An HDR photo draws extended-range values (brighter than SDR white) where the display allows.
-			gpuCtx.configure({
+			const config: GPUCanvasConfiguration = {
 				device: renderer!.device,
 				format: hdr ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat(),
 				colorSpace: 'display-p3',
 				toneMapping: { mode: hdr ? 'extended' : 'standard' },
 				alphaMode: 'opaque'
-			});
+			};
+			try {
+				gpuCtx.configure(config);
+			} catch {
+				// a browser without Display-P3 canvases: sRGB (colors outside sRGB are clipped on screen only)
+				gpuCtx.configure({ ...config, colorSpace: 'srgb' });
+			}
 		}
 		if (frameRequested) return;
 		frameRequested = true;
@@ -319,6 +326,10 @@
 			e.preventDefault();
 			if (e.shiftKey) session.redo();
 			else session.undo();
+		} else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'y') {
+			// Windows and Linux redo
+			e.preventDefault();
+			session.redo();
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			if (mode === 'crop') mode = 'adjust';
@@ -369,8 +380,8 @@
 		<header class="toolbar">
 			<button class="tb" onclick={cancel}>Cancel</button>
 			<div class="spacer"></div>
-			<button class="tb icon" onclick={() => session.undo()} disabled={!session.canUndo} title="Undo (⌘Z)" aria-label="Undo"><Icon name="undo" size={18} /></button>
-			<button class="tb icon" onclick={() => session.redo()} disabled={!session.canRedo} title="Redo (⇧⌘Z)" aria-label="Redo"><Icon name="redo" size={18} /></button>
+			<button class="tb icon" onclick={() => session.undo()} disabled={!session.canUndo} title="Undo ({shortcut('Z')})" aria-label="Undo"><Icon name="undo" size={18} /></button>
+			<button class="tb icon" onclick={() => session.redo()} disabled={!session.canRedo} title="Redo ({shortcut('Z', true)})" aria-label="Redo"><Icon name="redo" size={18} /></button>
 			<button
 				class="tb icon"
 				title="Hold to compare with the original (\)"
@@ -380,8 +391,8 @@
 				onpointerleave={() => (showOriginal = false)}><Icon name="compare" size={18} /></button
 			>
 			<!-- the rotate icon points counter-clockwise; mirrored it points clockwise -->
-			<button class="tb icon" onclick={() => rotate(false)} title="Rotate left (⌘[)" aria-label="Rotate left"><Icon name="rotate" size={18} /></button>
-			<button class="tb icon" onclick={() => rotate(true)} title="Rotate right (⌘])" aria-label="Rotate right"
+			<button class="tb icon" onclick={() => rotate(false)} title="Rotate left ({shortcut('[')})" aria-label="Rotate left"><Icon name="rotate" size={18} /></button>
+			<button class="tb icon" onclick={() => rotate(true)} title="Rotate right ({shortcut(']')})" aria-label="Rotate right"
 				><span class="mirror"><Icon name="rotate" size={18} /></span></button
 			>
 			<button class="tb" class:active={mode === 'crop'} onclick={() => (mode = mode === 'crop' ? 'adjust' : 'crop')} title="Crop & straighten (C)">

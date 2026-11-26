@@ -310,7 +310,7 @@
 						The iPhone saves them as a photo and a separate video: a web app can't save Live Photos. Imported together into Photos
 						on a Mac, they become a Live Photo again.
 					{:else}
-						Import the photo and its .MOV together into Photos to get the Live Photo back (edits included).
+						Import the photo and its .MOV together into Apple Photos to get the Live Photo back (edits included). Elsewhere they stay a photo and a short video.
 					{/if}
 				</p>
 			</fieldset>
@@ -374,7 +374,7 @@
 							it's made in one go, and a dropped connection means starting over.
 							{canWriteFolders
 								? 'A folder gets the files one by one, and an interrupted export picks up where it stopped.'
-								: 'Open this page in Chrome or Edge to save into a folder, export on the Mac itself, or choose fewer.'}
+								: 'Open this page in Chrome or Edge to save into a folder, export on the Mac that hosts the library, or choose fewer.'}
 						</p>
 					{:else if target === 'files'}
 						<p class="note muted">

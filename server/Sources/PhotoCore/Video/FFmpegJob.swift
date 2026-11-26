@@ -2,19 +2,25 @@ import Foundation
 
 /// The ffmpeg command line and its `-progress` output, for VideoConversions.
 extension VideoConversions {
-    /// HEVC (VideoToolbox) MP4 for Safari: short side scaled to 1080 when larger, HLG kept as 10-bit HDR.
-    /// `width`/`height` are the display size; ffmpeg autorotates before the scale filter.
-    static func arguments(source: URL, output: URL, width: Int, height: Int, hdr: Bool) -> [String] {
+    /// HEVC (VideoToolbox) MP4: short side scaled to 1080 when larger, HLG kept as 10-bit HDR. With `h264`,
+    /// an 8-bit H.264 MP4 instead, for browsers that can't decode HEVC (an HLG source keeps its color tags:
+    /// HLG is made to look right on SDR displays too). `width`/`height` are the display size; ffmpeg
+    /// autorotates before the scale filter.
+    static func arguments(source: URL, output: URL, width: Int, height: Int, hdr: Bool, h264: Bool = false) -> [String] {
         var a = ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source.path,
                  "-map", "0:v:0", "-map", "0:a:0?"]
         if min(width, height) > 1080 {
             a += ["-vf", width <= height ? "scale=1080:-2" : "scale=-2:1080"]
         }
-        a += ["-c:v", "hevc_videotoolbox", "-b:v", "4M", "-tag:v", "hvc1"]
-        a += hdr
-            ? ["-profile:v", "main10", "-pix_fmt", "p010le", "-color_primaries", "bt2020",
-               "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc"]
-            : ["-pix_fmt", "yuv420p"]
+        if h264 {
+            a += ["-c:v", "h264_videotoolbox", "-b:v", "6M", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+        } else {
+            a += ["-c:v", "hevc_videotoolbox", "-b:v", "4M", "-tag:v", "hvc1"]
+            a += hdr
+                ? ["-profile:v", "main10", "-pix_fmt", "p010le", "-color_primaries", "bt2020",
+                   "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc"]
+                : ["-pix_fmt", "yuv420p"]
+        }
         a += ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-map_metadata", "-1",
               "-progress", "pipe:1", "-nostats", output.path]
         return a

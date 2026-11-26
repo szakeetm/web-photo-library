@@ -1,12 +1,16 @@
 <script lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
-	import { api, type ConvertAllState, type Job, type JobKind, type Settings } from '#lib/api.ts';
+	import { api, type BackupStatus, type ConvertAllState, type Job, type JobKind, type Settings } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import DeviceStorage from '#lib/components/DeviceStorage.svelte';
+	import RemotePicker from '#lib/components/RemotePicker.svelte';
+	import RestoreSheet from '#lib/components/RestoreSheet.svelte';
 	import { net } from '#lib/net.svelte.ts';
 	import { applyUpdate } from '#lib/sw.ts';
+	import { isIOS } from '#lib/download.ts';
+	import { isFirefox } from '#lib/platform.ts';
 
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
@@ -115,8 +119,54 @@
 		return () => clearInterval(t);
 	});
 
+	// ---- backup (database and uploads, to an rclone destination)
+
+	let backup = $state<BackupStatus | null>(null);
+	let pickingDestination = $state(false);
+	let restoring = $state(false);
+	async function loadBackup() {
+		if (!net.online) return;
+		try {
+			backup = await api.backup();
+		} catch {
+			/* server restarting */
+		}
+	}
+	async function backupAction(fn: () => Promise<BackupStatus>) {
+		try {
+			backup = await fn();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	const backupRunning = $derived(!!backup?.activity);
+	$effect(() => {
+		if (!backupRunning) return;
+		const t = setInterval(loadBackup, 1500);
+		return () => clearInterval(t);
+	});
+	const intervals: [number, string][] = [
+		[6, 'Every 6 hours'],
+		[12, 'Every 12 hours'],
+		[24, 'Every day'],
+		[48, 'Every 2 days'],
+		[168, 'Every week']
+	];
+	const ago = (iso: string) => {
+		const s = (Date.now() - new Date(iso).getTime()) / 1000;
+		if (s < 90) return 'just now';
+		if (s < 5400) return `${Math.round(s / 60)} minutes ago`;
+		if (s < 86400 * 1.5) return `${Math.round(s / 3600)} hours ago`;
+		return `${Math.round(s / 86400)} days ago`;
+	};
+	const took = (a: string, b: string) => {
+		const s = Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000);
+		return s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+	};
+
 	onMount(() => {
 		loadVideos();
+		loadBackup();
 		loadSettings().catch((e) => net.online && (message = { text: String(e.message ?? e), error: true }));
 		poll();
 		const t = setInterval(poll, 1000);
@@ -245,8 +295,8 @@
 	const installed =
 		typeof window !== 'undefined' &&
 		(matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true);
-	const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent);
 	const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
+	const isAndroid = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent);
 
 	const fmtBytes = (n: number) =>
 		n < 1e6 ? `${(n / 1e3).toFixed(0)} KB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`;
@@ -343,7 +393,12 @@
 					<div class="muted small">
 						{#if isIOS}In Safari, tap Share → <strong>Add to Home Screen</strong>. The app opens full screen and keeps its own storage.
 						{:else if isSafari}In Safari, choose File → <strong>Add to Dock</strong> for an app window. (A plain Safari tab may lose cached data after 7 days unused.)
-						{:else}Use your browser's <strong>Install app</strong> button in the address bar.{/if}
+						{:else if isAndroid}In the browser menu, choose <strong>Add to Home screen</strong> or <strong>Install app</strong>.
+						{:else if isFirefox}Firefox can't install web apps on a computer: it works in a tab, and photos saved on this device stay
+							until you clear them. For an app window, open this page in Chrome or Edge.
+						{:else}Click the <strong>Install</strong> button at the right end of the address bar, or find
+							<strong>Install</strong> in the browser menu (Chrome: Cast, save and share; Edge: Apps). The app gets its own window,
+							and a Start menu, Dock or launcher entry.{/if}
 					</div>
 				{/if}
 			</div>
@@ -446,6 +501,26 @@
 					{/if}
 				{/if}
 			</div>
+			{#if vid.ffmpeg}
+				<div class="row">
+					<div class="label">
+						<div>Delete conversions not played for</div>
+						<div class="muted small">Keeps the server's cache small; a deleted conversion is made again when the video is played.</div>
+					</div>
+					<select
+						value={vid.keepDays ?? 0}
+						onchange={(e) => {
+							const v = Number((e.target as HTMLSelectElement).value);
+							videoAction(() => api.setVideoCache(v || null));
+						}}
+					>
+						<option value={0}>Never</option>
+						<option value={1}>1 day</option>
+						<option value={7}>7 days</option>
+						<option value={30}>30 days</option>
+					</select>
+				</div>
+			{/if}
 		{/if}
 	</section>
 
@@ -465,6 +540,117 @@
 				>{moving ? 'Moving…' : 'Move…'}</button
 			>
 		</div>
+	</section>
+
+	<section>
+		<h3>Backup</h3>
+		<div class="row">
+			<div class="label">
+				<div>rclone</div>
+				{#if settings?.rclone}
+					<div class="muted small">{settings.rclone.version} · {settings.rclone.path}</div>
+				{:else if settings}
+					<div class="muted small warn">
+						Not found. On the Mac run <code>brew install rclone</code>, then set up your cloud storage with <code>rclone config</code>.
+					</div>
+				{/if}
+			</div>
+		</div>
+		<div class="row">
+			<div class="label">
+				<div>Back up the database and uploads</div>
+				<div class="muted small">
+					What can't be rebuilt: the database (albums, edits, adjusted dates, people, places…) and the photos uploaded from
+					devices. Thumbnails, previews and the library itself aren't copied. The same files are replaced each time; a
+					destination that keeps versions (like pCloud's 30-day rewind) keeps the earlier backups.
+				</div>
+			</div>
+			<label class="switch">
+				<input
+					type="checkbox"
+					checked={backup?.enabled ?? false}
+					disabled={!backup?.rclone}
+					onchange={(e) => backupAction(() => api.setBackup({ enabled: (e.target as HTMLInputElement).checked }))}
+				/>
+				<span>{backup?.enabled ? 'On' : 'Off'}</span>
+			</label>
+		</div>
+		{#if backup}
+			<div class="row">
+				<div class="label">
+					<div>Destination</div>
+					<div class="muted path">{backup.destination}</div>
+				</div>
+				<button class="btn" disabled={!backup.rclone} onclick={() => (pickingDestination = true)}>Choose…</button>
+			</div>
+			<div class="row">
+				<div class="label">
+					<div>How often</div>
+					{#if backup.enabled && backup.nextAt && !backup.activity}
+						<div class="muted small">Next backup {new Date(backup.nextAt) <= new Date() ? 'within a few minutes' : new Date(backup.nextAt).toLocaleString()}</div>
+					{/if}
+				</div>
+				<select
+					value={backup.intervalHours}
+					onchange={(e) => backupAction(() => api.setBackup({ intervalHours: Number((e.target as HTMLSelectElement).value) }))}
+				>
+					{#each intervals as [h, label] (h)}<option value={h}>{label}</option>{/each}
+					{#if !intervals.some(([h]) => h === backup?.intervalHours)}
+						<option value={backup.intervalHours}>Every {backup.intervalHours} hours</option>
+					{/if}
+				</select>
+			</div>
+			<div class="row">
+				<div class="label">
+					<div>To back up now</div>
+					<div class="muted small">
+						Database {fmtBytes(backup.local.databaseBytes)} · {backup.local.assets.toLocaleString()} photos and videos · {backup.local.albums.toLocaleString()}
+						{backup.local.albums === 1 ? 'album' : 'albums'}
+					</div>
+					<div class="muted small">
+						Uploads {fmtBytes(backup.local.uploadsBytes)} · {backup.local.uploadsFiles.toLocaleString()}
+						{backup.local.uploadsFiles === 1 ? 'file' : 'files'}{#if !settings?.uploadsPath} (no uploads folder){/if}
+					</div>
+				</div>
+			</div>
+			<div class="row">
+				<div class="label">
+					<div>Last backup</div>
+					{#if backup.activity?.kind === 'backup'}
+						<div class="small">
+							Backing up… {backup.activity.phase}{#if backup.activity.files}: {backup.activity.files.toLocaleString()} files{/if}
+						</div>
+					{:else if backup.activity?.kind === 'restore'}
+						<div class="small">Restoring… {backup.activity.phase}</div>
+					{/if}
+					{#if backup.last}
+						{@const l = backup.last}
+						<div class="small" class:warn={!l.ok}>
+							{l.ok ? 'Done' : 'Failed'}
+							{ago(l.finishedAt)} ({new Date(l.finishedAt).toLocaleString()}, took {took(l.startedAt, l.finishedAt)})
+						</div>
+						{#if l.ok}
+							<div class="muted small">
+								Database {fmtBytes(l.databaseBytes)} ({l.assets.toLocaleString()} photos and videos, {l.albums.toLocaleString()}
+								{l.albums === 1 ? 'album' : 'albums'}) · uploads {fmtBytes(l.uploadsBytes)} ({l.uploadsFiles.toLocaleString()}
+								{l.uploadsFiles === 1 ? 'file' : 'files'}, {l.uploadsCopied.toLocaleString()} new this time)
+							</div>
+							<div class="muted small path">To {l.destination}</div>
+						{:else}
+							<div class="muted small">{l.error}</div>
+							<div class="muted small">Tried again in an hour.</div>
+						{/if}
+					{:else if !backup.activity}
+						<div class="muted small">Never</div>
+					{/if}
+				</div>
+			</div>
+			<div class="row actions">
+				<button class="btn" disabled={!backup.rclone || !!backup.activity} onclick={() => backupAction(api.runBackup)}>Back Up Now</button>
+				<button class="btn" disabled={!backup.rclone || !!backup.activity} onclick={() => (restoring = true)}>Restore…</button>
+				<span class="muted small">Restore checks the backup first: that this server can open it and that the library folders are still where they were.</span>
+			</div>
+		{/if}
 	</section>
 
 	<section>
@@ -567,6 +753,21 @@
 	{/if}
 </div>
 
+{#if pickingDestination && backup}
+	<RemotePicker
+		title="Back up to…"
+		start={backup.destination}
+		chooseLabel="Back Up Here"
+		onPick={(p) => {
+			pickingDestination = false;
+			backupAction(() => api.setBackup({ destination: p }));
+		}}
+		onCancel={() => (pickingDestination = false)}
+	/>
+{/if}
+{#if restoring && backup}
+	<RestoreSheet start={backup.last?.destination ?? backup.destination} onClose={() => (restoring = false)} />
+{/if}
 {#if picker === 'library'}
 	<FolderPicker
 		title="Choose library folder"

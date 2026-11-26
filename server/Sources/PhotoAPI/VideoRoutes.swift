@@ -16,6 +16,10 @@ extension APIRoutes {
     static let videoCache = "private, max-age=3600"
     static let originalCache = "private, max-age=3600"
 
+    /// `?h264=1`: the browser can't decode HEVC (Chrome and Firefox on Linux, Windows PCs without HEVC
+    /// support), so it gets H.264 originals as they are and H.264 copies of everything else.
+    static func wantsH264(_ req: Request) -> Bool { req.uri.queryParameters.get("h264") == "1" }
+
     func registerVideoRoutes(on api: RouterGroup<BasicRequestContext>) {
         let videos = services.videos
 
@@ -25,16 +29,18 @@ extension APIRoutes {
             else { throw HTTPError(.notFound) }
             // the original's type from the catalog: the file is only fetched when it's served
             let ext = (try services.catalog.originalName(id: id)).map { ($0 as NSString).pathExtension }
-            let playable = ext.map { VideoProbe.safariPlayable(codec: asset.videoCodec, ext: $0) } ?? false
+            let h264 = Self.wantsH264(req)
+            let playable = ext.map { VideoProbe.safariPlayable(codec: asset.videoCodec, ext: $0, h264Only: h264) } ?? false
             // ?original=1 (local mode): the original whenever browsers can play it, whatever its size
             let wantsOriginal = req.uri.queryParameters.get("original") == "1"
-            if asset.servePlan != "preview" || (wantsOriginal && playable) {
+            // servePlan "original" means H.264 or HEVC: an H.264-only browser checks the codec too
+            if (asset.servePlan != "preview" && (playable || !h264)) || (wantsOriginal && playable) {
                 guard let original = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
                 return try await serveOriginal(original, req, ctx)
             }
-            let preview = videos.previewURL(id: id)
+            let preview = videos.previewURL(id: id, h264: h264)
             if FileManager.default.fileExists(atPath: preview.path) { return try await servePreview(preview, req, ctx) }
-            let status = videos.request(id: id)
+            let status = videos.request(id: id, h264: h264)
             switch status {
             case .ready:
                 return try await servePreview(preview, req, ctx)
@@ -48,11 +54,11 @@ extension APIRoutes {
             }
         }
 
-        api.get("assets/:id/video/status") { _, ctx in
+        api.get("assets/:id/video/status") { req, ctx in
             guard let id = validId(ctx), try services.catalog.kind(id: id) == "video" else { throw HTTPError(.notFound) }
             let plan = try services.catalog.record(id: id)?.servePlan
             let converted = plan == "preview" && FileManager.default.fileExists(atPath: videos.previewURL(id: id).path)
-            return try json(StatusBody(status: videos.status(id: id), converted: converted))
+            return try json(StatusBody(status: videos.status(id: id, h264: Self.wantsH264(req)), converted: converted))
         }
 
         // The converted copy as a download (only for videos that needed one).
@@ -62,6 +68,7 @@ extension APIRoutes {
             else { throw HTTPError(.notFound) }
             let preview = videos.previewURL(id: id)
             guard FileManager.default.fileExists(atPath: preview.path) else { throw HTTPError(.notFound) }
+            videos.touch(preview)
             let base = (try services.catalog.originalName(id: id)).map { ($0 as NSString).deletingPathExtension } ?? id
             return try await fileResponse(path: preview.path, contentType: "video/mp4", request: req, context: ctx, extraHeaders: [
                 .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(base + "-converted.mp4"))",
@@ -73,14 +80,15 @@ extension APIRoutes {
             guard let id = validId(ctx),
                   let motion = try services.catalog.motion(id: id)
             else { throw HTTPError(.notFound) }
-            // Clips Safari plays (H.264/HEVC in MOV/MP4) are served as they are and never converted.
-            if VideoProbe.safariPlayable(codec: motion.codec, ext: (motion.relPath as NSString).pathExtension) {
+            // Clips the browser plays (H.264/HEVC in MOV/MP4; H.264 only with ?h264=1) are served as they are.
+            let h264 = Self.wantsH264(req)
+            if VideoProbe.safariPlayable(codec: motion.codec, ext: (motion.relPath as NSString).pathExtension, h264Only: h264) {
                 guard let url = try await services.catalog.originals.motionFile(id) else { throw HTTPError(.notFound) }
                 return try await serveOriginal(url, req, ctx)
             }
-            let preview = videos.motionPreviewURL(id: id)
+            let preview = videos.motionPreviewURL(id: id, h264: h264)
             if FileManager.default.fileExists(atPath: preview.path) { return try await servePreview(preview, req, ctx) }
-            let status = videos.request(id: id, motion: true)
+            let status = videos.request(id: id, motion: true, h264: h264)
             switch status {
             case .ready: return try await servePreview(preview, req, ctx)
             case .queued, .converting: return try json(StatusBody(status: status), status: .accepted)
@@ -186,6 +194,18 @@ extension APIRoutes {
         api.post("videos/pause") { _, _ in
             try json(try await blocking { videos.pause(); return videos.allState() })
         }
+        // How long unplayed conversions are kept (1, 7 or 30 days; null = forever). Applied at once.
+        struct CacheBody: Decodable { let keepDays: Int? }
+        api.put("videos/cache") { req, ctx in
+            guard let body = try? await req.decode(as: CacheBody.self, context: ctx),
+                  body.keepDays.map({ [1, 7, 30].contains($0) }) ?? true
+            else { throw HTTPError(.badRequest) }
+            return try json(try await blocking {
+                try services.settings.set(.videoCacheDays, body.keepDays)
+                if let days = body.keepDays { videos.cleanUp(olderThanDays: days) }
+                return videos.allState()
+            })
+        }
     }
 
     func serveOriginal(_ url: URL, _ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
@@ -195,7 +215,8 @@ extension APIRoutes {
     }
 
     func servePreview(_ url: URL, _ req: Request, _ ctx: BasicRequestContext) async throws -> Response {
-        try await fileResponse(path: url.path, contentType: "video/mp4", request: req, context: ctx,
+        services.videos.touch(url)
+        return try await fileResponse(path: url.path, contentType: "video/mp4", request: req, context: ctx,
                                extraHeaders: [.cacheControl: Self.videoCache], etag: true)
     }
 }

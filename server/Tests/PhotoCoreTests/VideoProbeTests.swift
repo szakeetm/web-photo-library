@@ -33,6 +33,8 @@ import ImageIO
         #expect(!VideoProbe.safariPlayable(codec: "vp9", ext: "mp4"))
         #expect(!VideoProbe.safariPlayable(codec: "h264", ext: "mkv"))
         #expect(!VideoProbe.safariPlayable(codec: nil, ext: "mov"))
+        #expect(VideoProbe.safariPlayable(codec: "h264", ext: "mov", h264Only: true))
+        #expect(!VideoProbe.safariPlayable(codec: "hevc", ext: "mov", h264Only: true))
     }
 
     @Test func probeReadsFixture() async throws {

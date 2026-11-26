@@ -104,6 +104,16 @@ import GRDB
         #expect(pair(a, "-colorspace", "bt2020nc"))
     }
 
+    @Test func argumentsH264() {
+        let a = VideoConversions.arguments(source: src, output: out, width: 2160, height: 3840, hdr: true, h264: true)
+        #expect(pair(a, "-c:v", "h264_videotoolbox"))
+        #expect(pair(a, "-profile:v", "high"))
+        #expect(pair(a, "-pix_fmt", "yuv420p"))
+        #expect(!a.contains("hvc1") && !a.contains("main10"))
+        #expect(filter(a)?.contains("scale=1080:-2") == true)
+        #expect(a.last == out.path)
+    }
+
     @Test func statusJSON() throws {
         let enc = JSONEncoder(); enc.outputFormatting = .sortedKeys
         #expect(String(decoding: try enc.encode(VideoStatus.converting(0.4)), as: UTF8.self) == #"{"progress":0.4,"state":"converting"}"#)
@@ -118,6 +128,8 @@ import GRDB
         let e = try env(Fixtures.tempDir(), ffmpeg: nil)
         #expect(e.conv.previewURL(id: "abcdef") == e.cache.appendingPathComponent("video/ab/abcdef.mp4"))
         #expect(e.conv.motionPreviewURL(id: "abcdef") == e.cache.appendingPathComponent("video/ab/abcdef.motion.mp4"))
+        #expect(e.conv.previewURL(id: "abcdef", h264: true) == e.cache.appendingPathComponent("video/ab/abcdef.h264.mp4"))
+        #expect(e.conv.motionPreviewURL(id: "abcdef", h264: true) == e.cache.appendingPathComponent("video/ab/abcdef.motion.h264.mp4"))
     }
 
     @Test func leftoverTempDeletedOnInit() throws {
@@ -239,6 +251,33 @@ import GRDB
         let after = try #require(try read(e.db) { try Asset.fetchOne($0, key: a.id) })
         #expect(after.videoError == nil)
         #expect(e.conv.allState().converted == 1 && e.conv.allState().needed == 0)
+    }
+
+    /// An HEVC video small enough to be served as it is still gets an H.264 copy for browsers without HEVC.
+    @Test(.enabled(if: FFmpeg.locate() != nil))
+    func makesH264CopyOnRequest() async throws {
+        let root = Fixtures.tempDir()
+        try await Fixtures.writeVideo(to: root.appendingPathComponent("small.mov"), width: 640, height: 480, codec: .hevc, seconds: 1)
+        let e = try env(root)
+        try await scan(e)
+        let a = try #require(try assets(e.db).first)
+        #expect(a.servePlan == "original")
+        #expect(e.conv.status(id: a.id) == .ready)
+        #expect(e.conv.request(id: a.id, h264: true) != .ready)
+        try await waitFor { e.conv.status(id: a.id, h264: true) == .ready }
+        let out = e.conv.previewURL(id: a.id, h264: true)
+        let p = Process()
+        p.executableURL = FFmpeg.ffprobe(next: try #require(FFmpeg.locate()))
+        p.arguments = ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=nw=1", out.path]
+        let pipe = Pipe(); p.standardOutput = pipe
+        try p.run()
+        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        #expect(text.contains("codec_name=h264"))
+        // not an HEVC preview: "Convert all" has nothing to count
+        #expect(e.conv.allState().converted == 0)
+        e.conv.remove(id: a.id)
+        #expect(!FileManager.default.fileExists(atPath: out.path))
     }
 
     @Test(.enabled(if: FFmpeg.locate() != nil))
@@ -425,5 +464,33 @@ import GRDB
         try e.conv.clear()
         #expect(!FileManager.default.fileExists(atPath: e.cache.appendingPathComponent("video").path))
         #expect(e.conv.allState().converted == 0)
+    }
+
+    /// Files not played (nor made) within the window are deleted; playing one keeps it; the setting shows in the state.
+    @Test func cleanUpUnplayed() throws {
+        let e = try env(Fixtures.tempDir(), ffmpeg: nil)
+        let fm = FileManager.default
+        let old = e.conv.previewURL(id: "aa11"), played = e.conv.motionPreviewURL(id: "aa22", h264: true)
+        let fresh = e.conv.previewURL(id: "bb33", h264: true)
+        for url in [old, played, fresh] {
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(count: 100).write(to: url)
+        }
+        let tenDaysAgo = Date().addingTimeInterval(-10 * 86400)
+        for url in [old, played] {
+            try fm.setAttributes([.modificationDate: tenDaysAgo], ofItemAtPath: url.path)
+            var t = [timespec(tv_sec: Int(tenDaysAgo.timeIntervalSince1970), tv_nsec: 0), timespec(tv_sec: Int(tenDaysAgo.timeIntervalSince1970), tv_nsec: 0)]
+            _ = utimensat(AT_FDCWD, url.path, &t, 0)
+        }
+        e.conv.touch(played)
+        let mtime = try #require(fm.attributesOfItem(atPath: played.path)[.modificationDate] as? Date)
+        #expect(abs(mtime.timeIntervalSince(tenDaysAgo)) < 1)   // the ETag is untouched
+        let r = e.conv.cleanUp(olderThanDays: 7)
+        #expect(r.files == 1 && r.bytes == 100)
+        #expect(!fm.fileExists(atPath: old.path))
+        #expect(fm.fileExists(atPath: played.path) && fm.fileExists(atPath: fresh.path))
+        #expect(e.conv.allState().keepDays == nil)
+        try SettingsStore(db: e.db).set(.videoCacheDays, 7)
+        #expect(e.conv.allState().keepDays == 7)
     }
 }

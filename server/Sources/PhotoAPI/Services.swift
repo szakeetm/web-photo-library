@@ -17,6 +17,7 @@ public final class Services: @unchecked Sendable {
     public let edits: EditService
     public let jobs: JobRunner
     public let videos: VideoConversions
+    public let backup: BackupService
     /// The ffmpeg used for video previews and posters; nil when it isn't installed.
     public let ffmpeg: URL?
     private let lock = NSLock()
@@ -34,6 +35,8 @@ public final class Services: @unchecked Sendable {
             db = try AppDatabase.inMemory()
         } else {
             try FileManager.default.createDirectory(at: paths.dataDir, withIntermediateDirectories: true)
+            // a restore downloaded before the restart replaces the database before it's opened
+            if !inMemory { try BackupService.applyStagedRestore(paths) }
             db = inMemory ? try AppDatabase.inMemory() : try AppDatabase(path: paths.databaseURL.path)
         }
         settings = SettingsStore(db: db)
@@ -44,6 +47,7 @@ public final class Services: @unchecked Sendable {
         var getStore: (() -> DerivativeStore)!
         jobs = JobRunner(db: db, settings: settings, derivatives: { getStore() }, excluding: [paths.dataDir], dataDir: paths.dataDir, ffmpeg: ffmpeg)
         videos = VideoConversions(db: db, catalog: catalog, cacheDir: paths.cacheDir, ffmpeg: ffmpeg)
+        backup = BackupService(db: db, settings: settings, paths: paths, serverVersion: serverVersion)
         getStore = { [unowned self] in self.derivatives() }
         box.get = getStore
         jobs.onPurge = { [videos] ids in ids.forEach(videos.remove(id:)) }
@@ -51,6 +55,14 @@ public final class Services: @unchecked Sendable {
         if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }
         _ = try? catalog.compactChangeLog()
         jobs.resumeInterrupted()
+        if !inMemory && !dataLocationMissing {
+            // after a restore: catch up with what changed in the library since the backup
+            if (try? BackupService.finishRestore(paths, settings: settings)) ?? nil != nil, (try? settings.get(.libraryPath)) ?? nil != nil {
+                _ = jobs.enqueue(.detectChanges)
+            }
+            backup.startScheduler()
+            videos.startCleanupScheduler(settings: settings)
+        }
     }
 
     public func derivatives() -> DerivativeStore {

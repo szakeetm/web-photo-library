@@ -1,4 +1,5 @@
 // Typed wrappers for the PhotoServer HTTP API.
+import { playsHevc } from './platform';
 
 export type ImageFmt = 'heic' | 'jpeg';
 
@@ -332,6 +333,81 @@ export interface Settings {
 	/** Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them. */
 	analysisPending: number;
 	analysisTotal: number;
+	/** rclone on the server (backups, remote sources); null when it isn't installed */
+	rclone: RcloneInfo | null;
+}
+
+export interface RcloneInfo {
+	path: string;
+	version: string;
+}
+
+/** How a backup went. */
+export interface BackupReport {
+	startedAt: string;
+	finishedAt: string;
+	ok: boolean;
+	error?: string | null;
+	destination: string;
+	databaseBytes: number;
+	assets: number;
+	albums: number;
+	uploadsFiles: number;
+	uploadsBytes: number;
+	/** uploads copied this time (new or changed) */
+	uploadsCopied: number;
+}
+
+export interface BackupActivity {
+	kind: 'backup' | 'restore';
+	phase: string;
+	startedAt: string;
+	files: number;
+}
+
+export interface BackupStatus {
+	rclone: RcloneInfo | null;
+	enabled: boolean;
+	/** an rclone path: "remote:folder" */
+	destination: string;
+	defaultDestination: string;
+	intervalHours: number;
+	last: BackupReport | null;
+	activity: BackupActivity | null;
+	nextAt: string | null;
+	/** what there is to back up now */
+	local: { databaseBytes: number; assets: number; albums: number; uploadsFiles: number; uploadsBytes: number };
+	restoreError: string | null;
+}
+
+export interface BackupSource {
+	root: string;
+	kind: 'local' | 'rclone';
+	path: string;
+	files: number;
+}
+
+export interface BackupManifest {
+	createdAt: string;
+	serverVersion: string;
+	databaseBytes: number;
+	assets: number;
+	albums: number;
+	sources: BackupSource[];
+	uploadsFiles: number;
+	uploadsBytes: number;
+}
+
+/** A backup looked at before restoring it. */
+export interface BackupInspection {
+	location: string;
+	manifest: BackupManifest | null;
+	databaseBytes: number;
+	uploadsFiles: number;
+	uploadsBytes: number;
+	uploadsTarget: string | null;
+	checks: { title: string; ok: boolean; detail: string }[];
+	canRestore: boolean;
 }
 
 export interface Job {
@@ -426,11 +502,14 @@ export const originalUrl = (id: string) => `/api/assets/${id}/original`;
 export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
 /** Full-resolution render of the current edit (made on demand on the Mac). */
 export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
-export const videoUrl = (id: string, original = false) => `/api/assets/${id}/video${original ? '?original=1' : ''}`;
-export const videoStatusUrl = (id: string) => `/api/assets/${id}/video/status`;
+/** `h264=1`: this browser can't decode HEVC, so the server sends H.264 (originals or copies it makes). */
+const h264 = (sep: '?' | '&') => (playsHevc ? '' : `${sep}h264=1`);
+export const videoUrl = (id: string, original = false) =>
+	`/api/assets/${id}/video${original ? `?original=1${h264('&')}` : h264('?')}`;
+export const videoStatusUrl = (id: string) => `/api/assets/${id}/video/status${h264('?')}`;
 /** The converted copy of a video that needed one, as a download. */
 export const videoDownloadUrl = (id: string) => `/api/assets/${id}/video/download`;
-export const motionUrl = (id: string) => `/api/assets/${id}/motion`;
+export const motionUrl = (id: string) => `/api/assets/${id}/motion${h264('?')}`;
 export const exportUrl = (id: string, fmt: ImageFmt) => `/api/assets/${id}/export?fmt=${fmt}`;
 /** A Live Photo's motion clip as a file (the original MOV, named like the still). */
 export const motionDownloadUrl = (id: string) => `/api/assets/${id}/motion/download`;
@@ -453,6 +532,8 @@ export interface ConvertAllState {
 	converted: number;
 	bytes: number;
 	ffmpeg: boolean;
+	/** converted files not played for this many days are deleted (null = kept) */
+	keepDays?: number | null;
 }
 
 export const api = {
@@ -499,8 +580,22 @@ export const api = {
 	videos: () => call<ConvertAllState>('/api/videos'),
 	convertAll: () => call<ConvertAllState>('/api/videos/convert-all', { method: 'POST' }),
 	pauseConversion: () => call<ConvertAllState>('/api/videos/pause', { method: 'POST' }),
+	/** How long converted videos nobody plays are kept (1, 7 or 30 days; null = forever). */
+	setVideoCache: (keepDays: number | null) =>
+		call<ConvertAllState>('/api/videos/cache', { method: 'PUT', body: JSON.stringify({ keepDays }) }),
 	asset: (id: string) => call<AssetDetail>(`/api/assets/${id}`),
 	settings: () => call<Settings>('/api/settings'),
+	backup: () => call<BackupStatus>('/api/backup'),
+	setBackup: (patch: { enabled?: boolean; destination?: string; intervalHours?: number }) =>
+		call<BackupStatus>('/api/backup', { method: 'PUT', body: JSON.stringify(patch) }),
+	runBackup: () => call<BackupStatus>('/api/backup/run', { method: 'POST' }),
+	inspectBackup: (location: string) => call<BackupInspection>(`/api/backup/inspect?location=${encodeURIComponent(location)}`),
+	restoreBackup: (location: string) =>
+		call<BackupStatus>('/api/backup/restore', { method: 'POST', body: JSON.stringify({ location }) }),
+	rcloneRemotes: () => call<string[]>('/api/rclone/remotes'),
+	rcloneFolders: (path: string) => call<{ path: string; folders: string[] }>(`/api/rclone/folders?path=${encodeURIComponent(path)}`),
+	rcloneMakeFolder: (path: string) =>
+		call<{ path: string; folders: string[] }>('/api/rclone/folders', { method: 'POST', body: JSON.stringify({ path }) }),
 	saveSettings: (s: { libraryPath?: string; uploadsPath?: string; ownerLogin?: string; facesEnabled?: boolean; mapStyleURL?: string }) =>
 		call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 	moveData: (path: string) =>
