@@ -5,7 +5,7 @@ import GRDB
 public struct ExportOptions: Codable, Sendable, Equatable {
     public enum Content: String, Codable, Sendable { case original, edited, both }
     public enum Sidecar: String, Codable, Sendable { case none, google, xmp }
-    public enum Organize: String, Codable, Sendable { case flat, albums, months }
+    public enum Organize: String, Codable, Sendable { case flat, albums, years, months }
 
     /// Photos and videos (in this order), or albums, or the whole library.
     public var ids: [String]?
@@ -201,10 +201,10 @@ public final class ExportService: Sendable {
         for (id, albumFolder) in scoped {
             guard let it = items[id] else { continue }
             var folder = albumFolder
-            if o.organize == .months {
+            if o.organize == .months || o.organize == .years {
                 let y = ExportStamp.format(it.info.takenAt, tz: it.info.tzOffset, "yyyy")
                 let m = ExportStamp.format(it.info.takenAt, tz: it.info.tzOffset, "yyyy-MM")
-                folder = "\(y)/\(m)"
+                folder = o.organize == .years ? y : "\(y)/\(m)"
             }
             let ext = (it.name as NSString).pathExtension
             var base = Self.unique((it.name as NSString).deletingPathExtension, in: &bases[folder, default: []])

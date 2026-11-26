@@ -20,7 +20,7 @@
 		type ExportStatus,
 		type ImageFmt
 	} from '#lib/api.ts';
-	import { downloadUrl, iosStandalone } from '#lib/download.ts';
+	import { downloadUrl, iosStandalone, isIOS } from '#lib/download.ts';
 	import { isEdited } from '#lib/gridView.svelte.ts';
 	import { sortByLocalTime } from '#lib/dates.ts';
 	import { app } from '#lib/state.svelte.ts';
@@ -44,8 +44,9 @@
 		onClose: () => void;
 	} = $props();
 
-	const touch = matchMedia('(pointer: coarse)').matches;
-	const viaShare = touch || iosStandalone;
+	// The share sheet only where a ZIP can't be downloaded (an iOS Home Screen app) or wouldn't be
+	// wanted (an iPhone, where Save to Photos is the point). Everything else gets the full export.
+	const viaShare = iosStandalone || (isIOS && !matchMedia('(min-width: 700px)').matches);
 
 	// svelte-ignore state_referenced_locally
 	const albumList = albums.map((id) => app.albums.find((a) => a.id === id)).filter((a) => a != null);
@@ -102,14 +103,17 @@
 
 	// ---- phones: fetch the files and share them
 
-	/** What to fetch: [url, fallback name]. */
-	function plan(): [string, string][] {
-		const out: [string, string][] = [];
+	/** What to fetch: [url, fallback name, use this name even if the server names it]. */
+	function plan(): [string, string, boolean?][] {
+		const out: [string, string, boolean?][] = [];
 		for (const a of assets) {
 			const base = a.name.replace(/\.[^.]*$/, '');
+			const ext0 = a.name.split('.').pop();
 			if (edited && content !== 'original' && isEdited(a)) {
-				const ext = a.ev > 0 && a.dur == null ? (fmt === 'heic' ? 'heic' : 'jpg') : a.name.split('.').pop();
+				const ext = a.ev > 0 && a.dur == null ? (fmt === 'heic' ? 'heic' : 'jpg') : ext0;
 				out.push([exportUrl(a.id, fmt), `${base}.${ext}`]);
+				// both: the original next to it, named apart (no folders in a share sheet)
+				if (content === 'both') out.push([originalUrl(a.id), `${base} (Original).${ext0}`, true]);
 			} else out.push([originalUrl(a.id), a.name]);
 			if (withMotion && a.live && a.dur == null) out.push([motionDownloadUrl(a.id), `${base}.MOV`]);
 		}
@@ -131,12 +135,12 @@
 		controller = new AbortController();
 		try {
 			const out: File[] = [];
-			for (const [url, fallback] of list) {
+			for (const [url, fallback, keepName] of list) {
 				const res = await fetch(url, { signal: controller.signal });
 				if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
 				const blob = await res.blob();
 				bytes += blob.size;
-				out.push(new File([blob], nameOf(res, fallback), { type: blob.type }));
+				out.push(new File([blob], keepName ? fallback : nameOf(res, fallback), { type: blob.type }));
 				done++;
 			}
 			if (!navigator.canShare?.({ files: out })) throw new Error("These files can't be shared from here.");
@@ -223,9 +227,10 @@
 				<legend>{edited} edited {edited === 1 ? 'item' : 'items'}</legend>
 				<label><input type="radio" bind:group={content} value="edited" /> With edits</label>
 				<label><input type="radio" bind:group={content} value="original" /> Originals</label>
-				{#if !viaShare}
-					<label><input type="radio" bind:group={content} value="both" /> Both <span class="muted">(originals of edited items in an Originals folder)</span></label>
-				{/if}
+				<label
+					><input type="radio" bind:group={content} value="both" /> Both
+					<span class="muted">{viaShare ? '(originals named “… (Original)”)' : '(originals of edited items in an Originals folder)'}</span></label
+				>
 				{#if content !== 'original' && pixelEdited}
 					<div class="fmt">
 						<span class="muted">Edited photos as</span>
@@ -266,6 +271,7 @@
 					<select bind:value={organize}>
 						<option value="flat">None (all in one)</option>
 						{#if albumList.length}<option value="albums">One per album</option>{/if}
+						<option value="years">By year (2024)</option>
 						<option value="months">By month (2024/2024-03)</option>
 					</select>
 				</label>

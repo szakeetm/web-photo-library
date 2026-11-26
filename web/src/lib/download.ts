@@ -3,9 +3,16 @@
 // be force-quit. Opening the URL in a new window doesn't help either (same-origin pages open inside
 // the app). There, files go through the share sheet instead (Save Image/Video, Save to Files).
 
-/** Running as an iOS Home Screen app (navigator.standalone exists only on iOS). */
-export const iosStandalone =
-	typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true;
+/** An iPhone or iPad. iPadOS reports itself as a Mac, and a touch screen doesn't tell them apart
+ * (touchscreen Macs exist), but -webkit-touch-callout is only in iOS's WebKit. */
+export const isIOS =
+	typeof navigator !== 'undefined' &&
+	(/iP(hone|ad|od)/.test(navigator.userAgent) ||
+		(/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1 && CSS.supports('-webkit-touch-callout', 'none')));
+
+/** Running as an iOS Home Screen app. Not a Mac "Add to Dock" web app: those set navigator.standalone
+ * too, but download files normally. */
+export const iosStandalone = isIOS && (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
 /** Downloads a file held in memory. Never call it in an iOS Home Screen app (see above). */
 export function saveBlob(f: File) {

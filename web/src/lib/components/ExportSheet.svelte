@@ -4,7 +4,7 @@
 	// download. Videos download as links (they can be hundreds of MB), except in an iOS Home Screen app,
 	// where any download traps the app: there they are read into memory for the share sheet too.
 	import { api, CLIENT_API_VERSION, exportUrl, originalUrl, videoDownloadUrl, type CatalogAsset } from '#lib/api.ts';
-	import { iosStandalone, saveBlob } from '#lib/download.ts';
+	import { iosStandalone, isIOS, saveBlob } from '#lib/download.ts';
 
 	let { asset, onClose }: { asset: CatalogAsset; onClose: () => void } = $props();
 
@@ -16,7 +16,8 @@
 	let file = $state<File | null>(null);
 	let error = $state('');
 	let controller: AbortController | null = null;
-	const touch = matchMedia('(pointer: coarse)').matches;
+	/** iPhone/iPad: the share sheet (Save Image, Save to Files); everything else downloads. */
+	const touch = isIOS;
 	const isVideo = $derived(asset.dur != null);
 	/** Bytes received / expected while preparing (null when the size isn't known). */
 	let received = $state(0);
