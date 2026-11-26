@@ -783,6 +783,18 @@
 
 	<header class="bar top">
 		<button class="icon-btn" onclick={close} aria-label="Close"><Icon name="back" /></button>
+		{#if asset && !isVideo}
+			<!-- Desktop: zoom slider (logarithmic, 1×–6×) like Photos on the Mac -->
+			<div class="zoom-ctl">
+				<button onclick={() => animateTo(() => zoomAt(scale / 1.5, vw / 2, vh / 2))} disabled={scale <= 1}
+					aria-label="Zoom out" title="Zoom out">−</button>
+				<input type="range" min="0" max="1000" aria-label="Zoom"
+					value={Math.round((Math.log(scale) / Math.log(6)) * 1000)}
+					oninput={(e) => zoomAt(6 ** (Number((e.currentTarget as HTMLInputElement).value) / 1000), vw / 2, vh / 2)} />
+				<button onclick={() => animateTo(() => zoomAt(scale * 1.5, vw / 2, vh / 2))} disabled={scale >= 6}
+					aria-label="Zoom in" title="Zoom in">+</button>
+			</div>
+		{/if}
 		<div class="title">
 			{#if asset}
 				<div class="date">{captureLabel(asset.t, asset.tz)}</div>
@@ -1077,6 +1089,40 @@
 	}
 	.nav {
 		display: none;
+	}
+	.zoom-ctl {
+		display: none;
+	}
+	@media (hover: hover) and (min-width: 768px) {
+		.zoom-ctl {
+			display: flex;
+			align-items: center;
+			gap: 2px;
+			height: 30px;
+			padding: 0 6px;
+			margin-left: 4px;
+			border-radius: 999px;
+			background: rgba(127, 127, 127, 0.14);
+		}
+		.zoom-ctl button {
+			border: none;
+			background: none;
+			color: var(--fg-secondary);
+			font-size: 17px;
+			width: 22px;
+			height: 26px;
+			padding: 0;
+			cursor: pointer;
+			border-radius: 50%;
+		}
+		.zoom-ctl button:disabled {
+			opacity: 0.35;
+			cursor: default;
+		}
+		.zoom-ctl input {
+			width: 110px;
+			accent-color: var(--fg-secondary);
+		}
 	}
 	.full-status {
 		position: absolute;

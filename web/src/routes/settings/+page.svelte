@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import { api, type ConvertAllState, type Job, type JobKind, type Settings } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
@@ -262,8 +263,13 @@
 		<p class="msg" class:error={message.error}>{message.text}</p>
 	{/if}
 
+	<div class="part">
+		<h2><Icon name="server" size={20} /> Server</h2>
+		<p class="muted">Settings of the Mac that hosts the library. They apply to every device using it.</p>
+	</div>
+
 	{#if !net.online}
-		<p class="msg">The server can't be reached, so its settings are hidden. Photos saved on this device are below.</p>
+		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are below.</p>
 	{:else}
 	<section>
 		<h3>Library</h3>
@@ -446,8 +452,13 @@
 	</section>
 	{/if}
 
+	<div class="part">
+		<h2><Icon name="device" size={20} /> This device</h2>
+		<p class="muted">Only this {installed ? 'app' : 'browser'} on this device. Nothing here changes the server or the library.</p>
+	</div>
+
 	<section>
-		<h3>This device</h3>
+		<h3>Storage</h3>
 		<DeviceStorage />
 		<div class="row">
 			<div class="label">
@@ -465,8 +476,12 @@
 		</div>
 	</section>
 
+	<div class="part">
+		<h2><Icon name="info" size={20} /> About</h2>
+	</div>
+
 	<section>
-		<h3>About</h3>
+		<h3>Versions</h3>
 		<div class="row">
 			<div class="label">
 				<div>App {appBuild}</div>
@@ -518,6 +533,30 @@
 	h1 {
 		font-size: 30px;
 		margin: 12px 0 18px;
+	}
+	.part {
+		margin: 30px 2px 10px;
+		padding-top: 14px;
+		border-top: 1px solid var(--separator);
+	}
+	.part:first-of-type {
+		margin-top: 8px;
+		border-top: none;
+		padding-top: 0;
+	}
+	.part h2 {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 21px;
+		margin: 0 0 2px;
+	}
+	.part h2 :global(svg) {
+		color: var(--accent);
+	}
+	.part p {
+		margin: 0;
+		font-size: 13px;
 	}
 	section {
 		background: var(--bg-elevated);
