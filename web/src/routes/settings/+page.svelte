@@ -264,12 +264,58 @@
 	{/if}
 
 	<div class="part">
+		<h2><Icon name="info" size={20} /> About</h2>
+	</div>
+
+	<section>
+		<h3>Versions</h3>
+		<div class="row">
+			<div class="label">
+				<div>App {appBuild}</div>
+				<div class="muted small">
+					Server {app.server ? buildLabel(app.server.commit, app.server.commitDate, app.server.dirty) : '?'} · API {app.server?.apiVersion ?? '?'}
+				</div>
+				{#if updateNote}<div class="muted small">{updateNote}</div>{/if}
+			</div>
+		</div>
+		<div class="row actions">
+			<button class="btn" disabled={checking} onclick={checkForUpdate}>{checking ? 'Checking…' : 'Check for Update'}</button>
+			<button class="btn" onclick={() => applyUpdate()}>Reload</button>
+			<span class="muted small">The app also checks on its own every 5 minutes and when you switch back to it.</span>
+		</div>
+	</section>
+
+	<div class="part">
+		<h2><Icon name="device" size={20} /> This device</h2>
+		<p class="muted">Only this {installed ? 'app' : 'browser'} on this device. Nothing here changes the server or the library.</p>
+	</div>
+
+	<section>
+		<h3>Storage</h3>
+		<DeviceStorage />
+		<div class="row">
+			<div class="label">
+				{#if installed}
+					<div>Installed as an app</div>
+				{:else}
+					<div>Install Photos as an app</div>
+					<div class="muted small">
+						{#if isIOS}In Safari, tap Share → <strong>Add to Home Screen</strong>. The app opens full screen and keeps its own storage.
+						{:else if isSafari}In Safari, choose File → <strong>Add to Dock</strong> for an app window. (A plain Safari tab may lose cached data after 7 days unused.)
+						{:else}Use your browser's <strong>Install app</strong> button in the address bar.{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+	</section>
+
+	<div class="part">
 		<h2><Icon name="server" size={20} /> Server</h2>
 		<p class="muted">Settings of the Mac that hosts the library. They apply to every device using it.</p>
 	</div>
 
 	{#if !net.online}
-		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are below.</p>
+		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are above.</p>
 	{:else}
 	<section>
 		<h3>Library</h3>
@@ -451,52 +497,6 @@
 		</form>
 	</section>
 	{/if}
-
-	<div class="part">
-		<h2><Icon name="device" size={20} /> This device</h2>
-		<p class="muted">Only this {installed ? 'app' : 'browser'} on this device. Nothing here changes the server or the library.</p>
-	</div>
-
-	<section>
-		<h3>Storage</h3>
-		<DeviceStorage />
-		<div class="row">
-			<div class="label">
-				{#if installed}
-					<div>Installed as an app</div>
-				{:else}
-					<div>Install Photos as an app</div>
-					<div class="muted small">
-						{#if isIOS}In Safari, tap Share → <strong>Add to Home Screen</strong>. The app opens full screen and keeps its own storage.
-						{:else if isSafari}In Safari, choose File → <strong>Add to Dock</strong> for an app window. (A plain Safari tab may lose cached data after 7 days unused.)
-						{:else}Use your browser's <strong>Install app</strong> button in the address bar.{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
-	</section>
-
-	<div class="part">
-		<h2><Icon name="info" size={20} /> About</h2>
-	</div>
-
-	<section>
-		<h3>Versions</h3>
-		<div class="row">
-			<div class="label">
-				<div>App {appBuild}</div>
-				<div class="muted small">
-					Server {app.server ? buildLabel(app.server.commit, app.server.commitDate, app.server.dirty) : '?'} · API {app.server?.apiVersion ?? '?'}
-				</div>
-				{#if updateNote}<div class="muted small">{updateNote}</div>{/if}
-			</div>
-		</div>
-		<div class="row actions">
-			<button class="btn" disabled={checking} onclick={checkForUpdate}>{checking ? 'Checking…' : 'Check for Update'}</button>
-			<button class="btn" onclick={() => applyUpdate()}>Reload</button>
-			<span class="muted small">The app also checks on its own every 5 minutes and when you switch back to it.</span>
-		</div>
-	</section>
 </div>
 
 {#if picker === 'library'}
