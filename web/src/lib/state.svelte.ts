@@ -7,6 +7,8 @@ import { buildIndex } from './assetIndex';
 import { net } from './net.svelte';
 import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 import { db, type CatalogMeta } from './db';
+import { emptyRecipe, isIdentity, normalize } from './editor/recipe';
+import { rotateClockwise, rotateCounterClockwise } from './editor/geometry';
 
 /** Listeners run after every successful sync (e.g. downloaded albums re-check their photos). */
 const afterSync = new Set<() => void>();
@@ -233,6 +235,39 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 		throw e;
 	}
 	app.reload(); // persist to the device copy
+}
+
+/** Rotations of one photo run one after another (a second click waits for the first save). */
+const rotating = new Map<string, Promise<unknown>>();
+
+/** Turns photos a quarter turn without opening the editor: the current edit (crop included) turns
+ * with the image and is saved as a new edit version. Videos are skipped. A few photos are saved at
+ * once; the first error is thrown after the rest are done. */
+export async function rotatePhotos(ids: string[], clockwise: boolean) {
+	const photos = ids.filter((i) => app.byId.get(i)?.dur == null);
+	let failed: unknown = null;
+	const one = (id: string) => {
+		const prev = rotating.get(id) ?? Promise.resolve();
+		const next = prev
+			.catch(() => {})
+			.then(async () => {
+				const h = await api.edits(id);
+				const current = h.versions.find((v) => v.version === h.current)?.recipe ?? emptyRecipe();
+				const turned = normalize(clockwise ? rotateClockwise(current) : rotateCounterClockwise(current));
+				const { asset } = isIdentity(turned) ? await api.revertEdit(id) : await api.saveEdit(id, turned);
+				app.patchAsset(asset);
+			});
+		rotating.set(id, next);
+		next.finally(() => rotating.get(id) === next && rotating.delete(id)).catch(() => {});
+		return next.catch((e) => (failed ??= e));
+	};
+	const queue = [...photos];
+	await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+		while (queue.length) await one(queue.shift()!);
+	}));
+	app.reload(); // persist to the device copy
+	if (failed) throw failed;
+	return photos.length;
 }
 
 /** Changes the dates of photos (database only; exports write them into the copies). */

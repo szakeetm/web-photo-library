@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
-	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
@@ -21,6 +21,8 @@
 	const ids = $derived([...selection.ids]);
 	/** Uploads are moved to the Trash; other photos are only hidden there (their files stay where they are). */
 	const allUploads = $derived(ids.length > 0 && ids.every((i) => app.isUpload(i)));
+	/** Videos can't be rotated here (only photos). */
+	const hasPhotos = $derived(ids.some((i) => app.byId.get(i)?.dur == null));
 	const favNext = $derived(nextFavoriteValue(ids.map((i) => app.byId.get(i)?.fav ?? false)));
 
 	async function run(work: () => Promise<unknown>) {
@@ -78,7 +80,8 @@
 
 <div class="bar" role="toolbar" aria-label="Selection">
 	<button class="btn" onclick={() => selection.clear()}>Done</button>
-	<span class="count">{selection.count ? `${selection.count} selected` : 'Select photos'}</span>
+	<!-- on a phone only the number shows, so every action fits -->
+	<span class="count">{#if selection.count}{selection.count}<span class="long"> selected</span>{:else}Select<span class="long"> photos</span>{/if}</span>
 	<button class="link" onclick={() => selection.selectAll(order)}>All</button>
 	<div class="actions">
 		{#if trash}
@@ -94,6 +97,10 @@
 		</button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Add to album" aria-label="Add to album"
 			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
+		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate left" aria-label="Rotate left"
+			onclick={() => run(() => rotatePhotos(ids, false))}><Icon name="rotate" /></button>
+		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate right" aria-label="Rotate right"
+			onclick={() => run(() => rotatePhotos(ids, true))}><span class="mirror"><Icon name="rotate" /></span></button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Adjust date & time"
 			aria-label="Adjust date and time" onclick={() => (dating = true)}><Icon name="clock" /></button>
 		{#if albumId != null}
@@ -162,11 +169,27 @@
 		display: flex;
 		gap: 2px;
 	}
+	@media (max-width: 480px) {
+		.bar {
+			gap: 6px;
+		}
+		.long {
+			display: none;
+		}
+		.actions .icon-btn {
+			width: 30px;
+		}
+	}
 	.icon-btn:disabled {
 		opacity: 0.35;
 	}
 	.danger {
 		color: var(--danger);
+	}
+	/* the rotate icon points counter-clockwise; mirrored it points clockwise */
+	.mirror {
+		display: inline-flex;
+		transform: scaleX(-1);
 	}
 	.heart.filled :global(path) {
 		fill: currentColor;

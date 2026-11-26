@@ -10,7 +10,7 @@
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
-	import { app, setFavorite, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, rotatePhotos, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
@@ -325,6 +325,18 @@
 		editing = true;
 	}
 
+	/** Rotations of the shown photos still being saved (the picture turns when its save is done). */
+	let rotations = $state(0);
+	/** One click instead of edit → rotate → done: the current edit turns with the photo. */
+	function rotate(clockwise: boolean) {
+		if (!asset || !net.online || isVideo) return;
+		resetZoom();
+		rotations++;
+		rotatePhotos([asset.id], clockwise)
+			.catch((e) => alert(`Couldn't rotate the photo: ${(e as Error).message}`))
+			.finally(() => rotations--);
+	}
+
 	function toggleFavorite() {
 		if (asset && net.online) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
 	}
@@ -470,6 +482,7 @@
 			} else if (e.key === 'i') infoOpen = !infoOpen;
 			else if (e.key === 'f' && !trash) toggleFavorite();
 			else if (e.key === 'e' && !trash) openEditor();
+			else if ((e.key === '[' || e.key === ']') && !trash && !e.metaKey && !e.ctrlKey) rotate(e.key === ']');
 		};
 		// Leaving the app or window mid-hold (or mid-hover) may never deliver pointerup/leave: stop there.
 		const onLeave = () => {
@@ -886,6 +899,10 @@
 					aria-label="Trim"><Icon name="trim" /></button>
 			{/if}
 			{#if !isVideo}
+				<button class="icon-btn rot" class:busy={rotations > 0} onclick={() => rotate(false)} title="Rotate left ([)"
+					aria-label="Rotate left"><Icon name="rotate" /></button>
+				<button class="icon-btn rot right" class:busy={rotations > 0} onclick={() => rotate(true)} title="Rotate right (])"
+					aria-label="Rotate right"><span class="mirror"><Icon name="rotate" /></span></button>
 				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
 					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
 					aria-label="Edit"><Icon name="edit" /></button>
@@ -1210,6 +1227,20 @@
 	}
 	.heart.filled :global(path) {
 		fill: currentColor;
+	}
+	/* the rotate icon points counter-clockwise; mirrored it points clockwise */
+	.mirror {
+		display: inline-flex;
+		transform: scaleX(-1);
+	}
+	.rot.busy {
+		opacity: 0.5;
+	}
+	/* a phone keeps room for the date: only rotate left there, like Photos on the iPhone */
+	@media (max-width: 480px) {
+		.rot.right {
+			display: none;
+		}
 	}
 	.icon-btn.on {
 		background: rgba(10, 132, 255, 0.15);
