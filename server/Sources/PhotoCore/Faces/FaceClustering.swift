@@ -102,6 +102,32 @@ enum FaceClustering {
         }
     }
 
+    /// The centre of a group that outliers don't drag around: faces less similar than `keep` to
+    /// the centre are left out and the centre is worked out again, until it settles. `pinned`
+    /// members (faces the user confirmed) are never left out. Returns the centre and the members
+    /// (indexes into `vs`) that are close enough to it.
+    static func robustCentre(of vs: [[Float]], keep: Float, pinned: Set<Int> = [], rounds: Int = 6) -> (centre: [Float], kept: [Int]) {
+        guard let dim = vs.first?.count, dim > 0 else { return ([], []) }
+        var kept = Array(vs.indices)
+        var c = centre(of: vs, dim: dim)
+        for _ in 0..<rounds {
+            let next = vs.indices.filter { pinned.contains($0) || dot(vs[$0], c) >= keep }
+            if next.isEmpty || next == kept { break }
+            kept = next
+            c = centre(of: kept.map { vs[$0] }, dim: dim)
+        }
+        return (c, vs.indices.filter { pinned.contains($0) || dot(vs[$0], c) >= keep })
+    }
+
+    /// Drops the members of each group that are not close to the group's (robust) centre, so a
+    /// chain of look-alikes can't pull different people into one group.
+    static func tighten(_ groups: [[Int]], vectors: [[Float]], keep: Float) -> [[Int]] {
+        groups.map { g in
+            let (_, kept) = robustCentre(of: g.map { vectors[$0] }, keep: keep)
+            return kept.map { g[$0] }
+        }
+    }
+
     static func centre(of vs: [[Float]], dim: Int) -> [Float] {
         var c = [Float](repeating: 0, count: dim)
         for v in vs { vDSP_vadd(c, 1, v, 1, &c, 1, vDSP_Length(dim)) }

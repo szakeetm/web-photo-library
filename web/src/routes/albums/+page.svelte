@@ -64,6 +64,26 @@
 		picking = new Set();
 	}
 
+	let deletingAlbums = $state(false);
+	/** Deletes the selected albums (not their photos). */
+	async function deletePicked() {
+		const ids = [...picking];
+		if (!ids.length) return;
+		const titles = ids.map((i) => app.albums.find((al) => al.id === i)?.title).filter(Boolean);
+		const what = ids.length === 1 ? `the album “${titles[0]}”` : `${ids.length} albums`;
+		if (!confirm(`Delete ${what}?\nThe photos themselves are not deleted.`)) return;
+		deletingAlbums = true;
+		try {
+			for (const i of ids) await api.deleteAlbum(i);
+		} catch (e) {
+			alert((e as Error).message);
+		} finally {
+			deletingAlbums = false;
+			stopPicking();
+			await app.reload();
+		}
+	}
+
 	async function newAlbum() {
 		const title = prompt('New album name');
 		if (!title?.trim()) return;
@@ -106,7 +126,10 @@
 			<button class="btn" onclick={() => (selecting ? stopPicking() : (selecting = true))}>{selecting ? 'Cancel' : 'Select'}</button>
 		{/if}
 		{#if selecting}
-			<button class="btn primary" disabled={!picking.size} onclick={() => (exportingAlbums = true)}>Export…</button>
+			<button class="btn danger" disabled={!picking.size || deletingAlbums} onclick={deletePicked}
+				>{deletingAlbums ? 'Deleting…' : 'Delete'}</button
+			>
+			<button class="btn primary" disabled={!picking.size || deletingAlbums} onclick={() => (exportingAlbums = true)}>Export…</button>
 		{:else}
 			<button class="btn" onclick={newAlbum}>New Album</button>
 		{/if}

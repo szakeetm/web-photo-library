@@ -82,9 +82,12 @@ struct APIRoutes {
         let bytes: Int64
         let lastScan: SourceScan?
     }
+    struct CachePart: Encodable { let name: String; let bytes: Int64 }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
         let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
+        /// cache size by kind (folder name: thumb, preview, video, faces, exports…), largest first
+        let cacheParts: [CachePart]
         let facesEnabled: Bool; let objectsEnabled: Bool; let faceModelInstalled: Bool; let faceModelPath: String
         let mapStyleURL: String?; let defaultMapStyleURL: String
         /// Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them.
@@ -775,9 +778,10 @@ struct APIRoutes {
         }
         let analysis = try JobRunner.analysisCounts(services.db)
         let counts = try RemoteSources.fileCounts(services.db)
+        let cacheParts = services.derivatives().sizeByFolder().filter { $0.bytes > 0 }.map { CachePart(name: $0.name, bytes: $0.bytes) }
         return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), uploadsPath: try s.get(.uploadsPath), ownerLogin: try s.get(.ownerLogin),
-                                         dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
-                                         databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing,
+                                         dataDir: services.paths.dataDir.path, cacheBytes: cacheParts.reduce(0) { $0 + $1.bytes },
+                                         databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing, cacheParts: cacheParts,
                                          facesEnabled: try s.get(.facesEnabled), objectsEnabled: try s.get(.objectsEnabled),
                                          faceModelInstalled: FaceAnalyzer.modelInstalled(dataDir: services.paths.dataDir),
                                          faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,

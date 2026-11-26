@@ -305,6 +305,20 @@
 		}
 	}
 
+	/** Takes a wrongly recognised person off a face: that face is never matched to them again. */
+	async function removeFaceFromPerson(faceId: number, name: string | null) {
+		if (!confirm(name ? `This isn't ${name}?` : "This isn't the same person?")) return;
+		try {
+			await api.assignFace(faceId, null);
+			const current = id;
+			const d = await api.asset(current);
+			if (current === id) detail = d;
+			app.reload();
+		} catch (e) {
+			alert((e as Error).message);
+		}
+	}
+
 	function openEditor() {
 		if (!asset || !net.online || !canEdit || isVideo) return;
 		resetZoom();
@@ -1034,10 +1048,19 @@
 						{#each faces as f (f.id)}
 							{@const p = f.personId != null ? app.personById.get(f.personId) : undefined}
 							{#if p}
-								<a class="face" href="/people/{p.id}" title="All photos of {p.name ?? 'this person'}">
-									<FaceAvatar faceId={f.id} size={56} />
-									<span class:unnamed={!p.name}>{p.name ?? 'Unnamed'}</span>
-								</a>
+								<div class="face-wrap">
+									<a class="face" href="/people/{p.id}" title="All photos of {p.name ?? 'this person'}">
+										<FaceAvatar faceId={f.id} size={56} />
+										<span class:unnamed={!p.name}>{p.name ?? 'Unnamed'}</span>
+									</a>
+									<button
+										class="face-remove"
+										disabled={!net.online}
+										onclick={() => removeFaceFromPerson(f.id, p.name)}
+										title={p.name ? `Not ${p.name}` : 'Not this person'}
+										aria-label={p.name ? `Not ${p.name}` : 'Not this person'}><Icon name="close" size={12} /></button
+									>
+								</div>
 							{:else}
 								<button class="face" disabled={!net.online} onclick={() => nameFace(f.id)} title="Name this person">
 									<FaceAvatar faceId={f.id} size={56} />
@@ -1387,6 +1410,33 @@
 		color: var(--fg);
 		cursor: pointer;
 		text-align: center;
+	}
+	.face-wrap {
+		position: relative;
+	}
+	.face-remove {
+		position: absolute;
+		top: -4px;
+		right: -2px;
+		width: 22px;
+		height: 22px;
+		display: grid;
+		place-items: center;
+		padding: 0;
+		border-radius: 50%;
+		border: 1px solid var(--separator);
+		background: var(--bg);
+		color: var(--fg);
+		cursor: pointer;
+		opacity: 0.85;
+	}
+	.face-remove:hover:not(:disabled) {
+		opacity: 1;
+		color: var(--danger);
+	}
+	.face-remove:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.face span {
 		max-width: 100%;

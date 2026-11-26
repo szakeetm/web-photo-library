@@ -468,6 +468,18 @@
 		n < 1e6 ? `${(n / 1e3).toFixed(0)} KB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`;
 	const pct = (j: Job) => (j.total ? Math.round((j.progress / j.total) * 100) : 0);
 	const when = (s: string | null) => (s ? new Date(s).toLocaleString() : '');
+
+	/** Names of the cache's folders on the server. */
+	const cacheLabels: Record<string, string> = {
+		thumb: 'Thumbnails',
+		preview: 'Previews',
+		video: 'Videos',
+		frames: 'Video frames',
+		gainmap: 'HDR gain maps',
+		faces: 'Faces',
+		exports: 'Exports'
+	};
+	const cacheLabel = (name: string) => cacheLabels[name] ?? (name === 'other' ? 'Other' : name);
 </script>
 
 <div class="page">
@@ -843,6 +855,11 @@
 					<div class="muted small">
 						Database {fmtBytes(settings.databaseBytes)} · Caches {fmtBytes(settings.cacheBytes)}
 					</div>
+					{#if settings.cacheParts?.length}
+						<div class="muted small">
+							{settings.cacheParts.map((c) => `${cacheLabel(c.name)} ${fmtBytes(c.bytes)}`).join(' · ')}
+						</div>
+					{/if}
 				{/if}
 			</div>
 			<button class="btn" disabled={moving || !!current} onclick={() => (picker = 'data')}

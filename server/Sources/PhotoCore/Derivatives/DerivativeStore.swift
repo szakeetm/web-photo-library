@@ -133,13 +133,28 @@ public final class DerivativeStore: @unchecked Sendable {
         }
     }
 
-    public func sizeOnDisk() -> Int64 {
-        guard let e = FileManager.default.enumerator(at: cacheDir, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) else { return 0 }
-        var total: Int64 = 0
-        for case let u as URL in e {
-            total += Int64((try? u.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+    public func sizeOnDisk() -> Int64 { sizeByFolder().reduce(0) { $0 + $1.bytes } }
+
+    /// Bytes on disk of each top-level folder of the cache (thumb, preview, video, faces…), largest
+    /// first; loose files at the top are counted as "other".
+    public func sizeByFolder() -> [(name: String, bytes: Int64)] {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isDirectoryKey]
+        guard let top = try? fm.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: keys) else { return [] }
+        func size(_ u: URL) -> Int64 { Int64((try? u.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0) }
+        var sizes: [String: Int64] = [:]
+        for u in top {
+            if (try? u.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                var total: Int64 = 0
+                if let e = fm.enumerator(at: u, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) {
+                    for case let f as URL in e { total += size(f) }
+                }
+                sizes[u.lastPathComponent, default: 0] += total
+            } else {
+                sizes["other", default: 0] += size(u)
+            }
         }
-        return total
+        return sizes.map { (name: $0.key, bytes: $0.value) }.sorted { $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.name < $1.name }
     }
 
     /// Orientation-corrected SDR image no larger than `maxPixel` on its long edge (never upscaled).

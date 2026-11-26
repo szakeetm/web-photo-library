@@ -105,6 +105,22 @@ import GRDB
         #expect(try e.faces.faces(personId: a).count == 4)
     }
 
+    @Test func wrongMatchOfNamedPersonIsTakenAwayWhenRegrouping() throws {
+        let e = try env()
+        for i in 0..<5 { try e.faces.store(assetId: e.ids[i], faces: [face(0, seed: i)]) }
+        try e.faces.cluster()
+        let a = try #require(e.faces.people().first?.id)
+        try e.faces.update(personId: a, name: "Anna", hidden: nil, coverFaceId: nil)
+        // an old wrong automatic match (as left by a looser grouping): someone else entirely
+        try e.faces.store(assetId: e.ids[5], faces: [face(1)])
+        let stranger = try #require(e.faces.faces(assetId: e.ids[5]).first)
+        #expect(stranger.personId == nil) // not matched now
+        try e.db.writer.write { try $0.execute(sql: "UPDATE face SET personId = ?, assignment = 'auto' WHERE id = ?", arguments: [a, stranger.id]) }
+        try e.faces.cluster()
+        #expect(try e.faces.face(id: stranger.id)?.personId == nil)
+        #expect(try e.faces.faces(personId: a).count == 5)
+    }
+
     @Test func mergeAndHide() throws {
         let e = try env()
         for i in 0..<3 { try e.faces.store(assetId: e.ids[i], faces: [face(0, seed: i)]) }
@@ -116,7 +132,7 @@ import GRDB
         try e.faces.merge(sources: [people[1].id], into: people[0].id)
         let merged = try e.faces.people()
         #expect(merged.count == 1 && merged[0].count == 6 && merged[0].name == "Same")
-        // naming confirmed the faces: re-clustering keeps them
+        // merging into a named person confirmed the faces: re-clustering keeps them
         try e.faces.cluster()
         #expect(try e.faces.people().first?.count == 6)
         try e.faces.update(personId: merged[0].id, name: nil, hidden: true, coverFaceId: nil)

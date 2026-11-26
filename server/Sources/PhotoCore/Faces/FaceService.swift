@@ -25,18 +25,29 @@ public enum PeopleError: Error, CustomStringConvertible {
 }
 
 /// People: face detection results, automatic grouping, and the user's corrections.
-/// - New faces join the closest person whose centroid is similar enough (never one that the face
-///   was removed from).
+/// - New faces join the closest person whose centre is similar enough, and clearly closer than
+///   any other person (never one that the face was removed from).
+/// - A person's centre ignores their outlying automatic faces, and regrouping takes those faces
+///   away from them again, so wrong matches don't pile up.
 /// - Faces that match nobody are clustered; groups of `minClusterSize` become unnamed people.
 /// - User decisions ("user" assignments, rejections, names, hidden) are never undone by jobs.
+///   Naming a group does not confirm its faces one by one: they stay automatic.
 public final class FaceService: Sendable {
     let db: AppDatabase
     public init(db: AppDatabase) { self.db = db }
 
-    /// Cosine similarity to a person's centroid needed to join them automatically.
+    /// Cosine similarity to a person's centre needed to join (or stay with) them automatically.
+    /// Measured on a real library: faces of one person are ≥ 0.65 to their centre, while faces of
+    /// different people are ≤ 0.45 to each other in 99 % of pairs.
     public static let assignThreshold: Float = 0.62
-    /// Similarity for two unassigned faces to be neighbours when clustering.
-    public static let clusterThreshold: Float = 0.62
+    /// How much closer the best person must be than the next best one.
+    public static let assignMargin: Float = 0.08
+    /// Blurry or small faces (capture quality below this) need `lowQualityPenalty` more similarity.
+    public static let lowQuality = 0.3
+    public static let lowQualityPenalty: Float = 0.06
+    /// Similarity for two unassigned faces to be neighbours when clustering (higher than
+    /// `assignThreshold`: neighbours chain, so a loose link merges different people).
+    public static let clusterThreshold: Float = 0.68
     public static let minClusterSize = 3
 
     static func blob(_ v: [Float]) -> Data { v.withUnsafeBufferPointer { Data(buffer: $0) } }
@@ -75,7 +86,7 @@ public final class FaceService: Sendable {
                     try d.execute(sql: "INSERT INTO face (assetId, x, y, w, h, quality, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
                                   arguments: [assetId, f.x, f.y, f.w, f.h, f.quality, Self.blob(f.embedding)])
                     let faceId = d.lastInsertedRowID
-                    if let p = Self.bestPerson(for: f.embedding, centroids: centroids, rejected: []) {
+                    if let p = Self.bestPerson(for: f.embedding, quality: f.quality, centroids: centroids, rejected: []) {
                         try d.execute(sql: "UPDATE face SET personId = ?, assignment = 'auto' WHERE id = ?", arguments: [p, faceId])
                     }
                 }
@@ -88,30 +99,40 @@ public final class FaceService: Sendable {
         }
     }
 
-    static func centroids(_ d: Database) throws -> [Int64: [Float]] {
-        var sums: [Int64: [Float]] = [:]
+    /// Each visible person's centre (outlying automatic faces left out) and those outliers.
+    static func models(_ d: Database) throws -> [Int64: (centre: [Float], outliers: [Int64])] {
+        var members: [Int64: [(id: Int64, v: [Float], user: Bool)]] = [:]
         for r in try Row.fetchAll(d, sql: """
-            SELECT f.personId, f.embedding FROM face f JOIN person p ON p.id = f.personId WHERE p.hidden = 0
+            SELECT f.id, f.personId, f.embedding, f.assignment FROM face f JOIN person p ON p.id = f.personId WHERE p.hidden = 0
             """) {
-            let v = vector(r["embedding"])
-            let id: Int64 = r["personId"]
-            if var s = sums[id] {
-                for i in 0..<min(s.count, v.count) { s[i] += v[i] }
-                sums[id] = s
-            } else {
-                sums[id] = v
-            }
+            members[r["personId"], default: []].append((r["id"], vector(r["embedding"]), (r["assignment"] as String?) == "user"))
         }
-        return sums.mapValues(normalized)
+        return members.mapValues { m in
+            let pinned = Set(m.indices.filter { m[$0].user })
+            let (c, kept) = FaceClustering.robustCentre(of: m.map(\.v), keep: assignThreshold, pinned: pinned)
+            let keptSet = Set(kept)
+            return (c, m.indices.filter { !keptSet.contains($0) }.map { m[$0].id })
+        }
     }
 
-    static func bestPerson(for v: [Float], centroids: [Int64: [Float]], rejected: Set<Int64>) -> Int64? {
-        var best: (Int64, Float)?
+    static func centroids(_ d: Database) throws -> [Int64: [Float]] { try models(d).mapValues(\.centre) }
+
+    /// The person a face clearly belongs to: similar enough to their centre (more so for a poor
+    /// face) and clearly closer to them than to anyone else.
+    static func bestPerson(for v: [Float], quality: Double, centroids: [Int64: [Float]], rejected: Set<Int64>) -> Int64? {
+        var best: (id: Int64, s: Float)?, second: Float = -1
         for (id, c) in centroids where !rejected.contains(id) {
             let s = dot(v, c)
-            if s >= assignThreshold, s > (best?.1 ?? -1) { best = (id, s) }
+            if s > (best?.s ?? -1) {
+                second = max(second, best?.s ?? -1)
+                best = (id, s)
+            } else {
+                second = max(second, s)
+            }
         }
-        return best?.0
+        guard let best else { return nil }
+        let needed = assignThreshold + (quality < lowQuality ? lowQualityPenalty : 0)
+        return best.s >= needed && best.s - second >= assignMargin ? best.id : nil
     }
 
     /// Groups faces that belong to nobody: re-tries existing people first, then clusters the rest
@@ -133,21 +154,29 @@ public final class FaceService: Sendable {
                   AND NOT EXISTS (SELECT 1 FROM face_reject WHERE personId = person.id)
                 """)
             try d.execute(sql: "UPDATE face SET assignment = NULL WHERE personId IS NULL AND assignment = 'auto'")
-            let centroids = try Self.centroids(d)
+            // Automatic faces far from their person's centre were wrong matches: they go back to the pool.
+            let models = try Self.models(d)
+            for (_, m) in models {
+                for f in m.outliers {
+                    try d.execute(sql: "UPDATE face SET personId = NULL, assignment = NULL WHERE id = ? AND assignment = 'auto'", arguments: [f])
+                }
+            }
+            let centroids = models.mapValues(\.centre)
             let rows = try Row.fetchAll(d, sql: """
-                SELECT f.id, f.embedding, (SELECT group_concat(personId) FROM face_reject r WHERE r.faceId = f.id) AS rejected
+                SELECT f.id, f.embedding, f.quality, (SELECT group_concat(personId) FROM face_reject r WHERE r.faceId = f.id) AS rejected
                 FROM face f JOIN asset a ON a.id = f.assetId
                 WHERE f.personId IS NULL AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)
                 ORDER BY f.quality DESC
                 """)
-            var pool: [(id: Int64, v: [Float], rejected: Set<Int64>)] = rows.map {
-                ($0["id"], Self.vector($0["embedding"]),
+            typealias PoolFace = (id: Int64, v: [Float], quality: Double, rejected: Set<Int64>)
+            var pool: [PoolFace] = rows.map {
+                ($0["id"], Self.vector($0["embedding"]), $0["quality"],
                  Set((($0["rejected"] as String?) ?? "").split(separator: ",").compactMap { Int64($0) }))
             }
             // 1. faces that now match an existing person
-            var remaining: [(id: Int64, v: [Float], rejected: Set<Int64>)] = []
+            var remaining: [PoolFace] = []
             for f in pool {
-                if let p = Self.bestPerson(for: f.v, centroids: centroids, rejected: f.rejected) {
+                if let p = Self.bestPerson(for: f.v, quality: f.quality, centroids: centroids, rejected: f.rejected) {
                     try d.execute(sql: "UPDATE face SET personId = ?, assignment = 'auto' WHERE id = ?", arguments: [p, f.id])
                 } else {
                     remaining.append(f)
@@ -155,7 +184,12 @@ public final class FaceService: Sendable {
             }
             pool = remaining
             // 2. Group the rest (chunked DBSCAN, see FaceClustering)
-            let clusters = FaceClustering.cluster(pool.map(\.v), threshold: Self.clusterThreshold, minPoints: Self.minClusterSize)
+            // (blurry faces don't seed groups: their embeddings resemble everyone a little)
+            pool = pool.filter { $0.quality >= Self.lowQuality }
+            let vectors = pool.map(\.v)
+            let clusters = FaceClustering.tighten(
+                FaceClustering.cluster(vectors, threshold: Self.clusterThreshold, minPoints: Self.minClusterSize),
+                vectors: vectors, keep: Self.assignThreshold)
             var created = 0
             var reused = Set<Int64>()
             for members in clusters.sorted(by: { $0.count > $1.count }) where members.count >= Self.minClusterSize {
@@ -262,11 +296,8 @@ public final class FaceService: Sendable {
             guard try Int.fetchOne(d, sql: "SELECT 1 FROM person WHERE id = ?", arguments: [personId]) != nil else { throw PeopleError.notFound }
             if let name {
                 let n = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+                // A named person is kept when regrouping; their automatic faces still have to match them.
                 try d.execute(sql: "UPDATE person SET name = ? WHERE id = ?", arguments: [n?.isEmpty == false ? n : nil, personId])
-                // Naming confirms the group: its faces stay with this person.
-                if n?.isEmpty == false {
-                    try d.execute(sql: "UPDATE face SET assignment = 'user' WHERE personId = ? AND assignment = 'auto'", arguments: [personId])
-                }
             }
             if let hidden { try d.execute(sql: "UPDATE person SET hidden = ? WHERE id = ?", arguments: [hidden, personId]) }
             if let coverFaceId { try d.execute(sql: "UPDATE person SET coverFaceId = ? WHERE id = ?", arguments: [coverFaceId, personId]) }
@@ -279,6 +310,10 @@ public final class FaceService: Sendable {
         try db.writer.write { d in
             guard let targetName = try Row.fetchOne(d, sql: "SELECT name FROM person WHERE id = ?", arguments: [target]) else { throw PeopleError.notFound }
             let named = (targetName["name"] as String?) != nil
+            if named, sources.contains(where: { $0 != target }) {
+                // Merging into a named person is a decision about all of their faces.
+                try d.execute(sql: "UPDATE face SET assignment = 'user' WHERE personId = ? AND assignment = 'auto'", arguments: [target])
+            }
             for s in sources where s != target {
                 try Self.touchAssets(d, personId: s)
                 try d.execute(sql: "UPDATE face SET personId = ?, assignment = ? WHERE personId = ?",

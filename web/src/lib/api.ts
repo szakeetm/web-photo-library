@@ -331,6 +331,8 @@ export interface Settings {
 	ownerLogin: string | null;
 	dataDir: string;
 	cacheBytes: number;
+	/** Cache size by kind (thumb, preview, video, faces, exports…), largest first. */
+	cacheParts?: { name: string; bytes: number }[];
 	databaseBytes: number;
 	dataLocationMissing: boolean;
 	facesEnabled: boolean;
