@@ -161,7 +161,7 @@
 	<div class="rows" class:typing>
 		{#each rows as r (r.key)}
 			<div class="row">
-				<div class="label muted">{r.label}{#if typing} · {r.total}{/if}</div>
+				<div class="label muted">{r.label}{#if typing}{` · ${r.total}`}{/if}</div>
 				<div class="chips">
 					{#each r.items as name (name)}
 						{@const to = pages[r.key]?.get(name)}
