@@ -150,7 +150,7 @@
 	</a>
 {/snippet}
 
-<TitleBar title="Collections" subtitle={selecting ? `${picking.size} ${picking.size === 1 ? 'album' : 'albums'} selected` : undefined}>
+<TitleBar title="Collections" subtitle={selecting && desktop ? `${picking.size} ${picking.size === 1 ? 'album' : 'albums'} selected` : undefined}>
 	{#snippet actions()}
 		{#if albums.length && (net.online || Object.keys(pins.records).length) && (desktop || !selecting)}
 			<button class="btn" onclick={() => (selecting ? stopPicking() : (selecting = true))}>{selecting ? 'Cancel' : 'Select'}</button>
@@ -288,9 +288,14 @@
 	.danger {
 		color: var(--danger);
 	}
+	/* all selected albums are downloaded: the button removes them, drawn filled */
 	.pinned {
 		display: flex;
-		color: var(--accent);
+		padding: 3px;
+		margin: -3px;
+		border-radius: 7px;
+		background: var(--accent);
+		color: #fff;
 	}
 	.section {
 		font-size: 19px;

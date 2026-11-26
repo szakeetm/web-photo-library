@@ -10,6 +10,7 @@
 	import PhotoBrowser from './PhotoBrowser.svelte';
 	import DownloadBar from './DownloadBar.svelte';
 	import { net } from '#lib/net.svelte.ts';
+	import FoldersToAlbumsDialog from './FoldersToAlbumsDialog.svelte';
 	import { confirmDownload, folderAssetIds, folderPinId, pins, pinStatus, pinProgress } from '#lib/pins.svelte.ts';
 
 	let { root, relPath, base, rootTitle }: { root: RootName; relPath: string; base: string; rootTitle: string } =
@@ -52,6 +53,28 @@
 		relPath ? relPath.split('/').map((name, i, all) => ({ name, path: all.slice(0, i + 1).join('/') })) : []
 	);
 	const href = (p: string) => `${base}/${p.split('/').map(encodeURIComponent).join('/')}`;
+
+	// ---- selecting subfolders to make albums of them ----
+	let pickingFolders = $state(false);
+	let pickedFolders = $state(new Set<number>());
+	let makingAlbums = $state(false);
+	let madeNote = $state('');
+	$effect(() => {
+		void relPath;
+		stopPickingFolders();
+	});
+	function stopPickingFolders() {
+		pickingFolders = false;
+		pickedFolders = new Set();
+		makingAlbums = false;
+	}
+	function togglePickFolder(id: number) {
+		const next = new Set(pickedFolders);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		pickedFolders = next;
+	}
+	const pickable = $derived(children.filter((c) => total(c) > 0));
 
 	// ---- download to this device (this folder and its subfolders) ----
 	let menu = $state(false);
@@ -131,12 +154,39 @@
 	<p class="empty muted">{root === 'uploads' ? 'No uploads yet.' : app.libraryConfigured ? 'Folder not found.' : 'No folders yet.'}</p>
 {:else if folder}
 	{#if children.length}
+		<div class="folders-head">
+			{#if pickingFolders}
+				<span class="muted">{pickedFolders.size} folder{pickedFolders.size === 1 ? '' : 's'} selected</span>
+				<button class="btn small" onclick={() => (pickedFolders = new Set(pickable.map((c) => c.id)))}>Select All</button>
+				<button class="btn small" onclick={stopPickingFolders}>Cancel</button>
+				<button class="btn small primary" disabled={!pickedFolders.size || !net.online} onclick={() => (makingAlbums = true)}
+					>Make Albums…</button
+				>
+			{:else}
+				{#if madeNote}<span class="muted">{madeNote}</span>{/if}
+				<button class="btn small" disabled={!pickable.length || !net.online} onclick={() => { madeNote = ''; pickingFolders = true; }}
+					title="Select folders to make albums of them">Select</button
+				>
+			{/if}
+		</div>
 		<div class="folders">
 			{#each children as c (c.id)}
 				{@const cid = cover(c)}
 				{@const ca = cid ? app.byId.get(cid) : undefined}
 				{@const cp = pins.folderPin(c)}
-				<a class="card" href={href(c.relPath)}>
+				{@const picked = pickedFolders.has(c.id)}
+				<a
+					class="card"
+					class:picked
+					class:dimmed={pickingFolders && total(c) === 0}
+					href={href(c.relPath)}
+					aria-current={picked ? 'true' : undefined}
+					onclick={(e) => {
+						if (!pickingFolders) return;
+						e.preventDefault();
+						if (total(c) > 0) togglePickFolder(c.id);
+					}}
+				>
 					<div class="cover">
 						{#if ca}<img src={thumbUrl(ca.id, ca.ev, app.fmt)} alt="" loading="lazy" />{:else}<Icon name="folder" size={40} />{/if}
 					</div>
@@ -151,6 +201,16 @@
 			{/each}
 		</div>
 	{/if}
+	{#if makingAlbums}
+		<FoldersToAlbumsDialog
+			folders={children.filter((c) => pickedFolders.has(c.id))}
+			onCancel={() => (makingAlbums = false)}
+			onDone={(n) => {
+				stopPickingFolders();
+				madeNote = `${n} album${n === 1 ? '' : 's'} created`;
+			}}
+		/>
+	{/if}
 	{#if photos.length}
 		{#if children.length}<h2 class="section">Photos <span class="muted">{photos.length}</span></h2>{/if}
 		<PhotoBrowser {sections} {selection} />
@@ -162,7 +222,7 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 		gap: 18px 14px;
-		padding: 12px 14px 20px;
+		padding: 8px 14px 20px;
 	}
 	@media (max-width: 500px) {
 		.folders {
@@ -172,6 +232,29 @@
 	.card {
 		color: var(--fg);
 		min-width: 0;
+	}
+	.card.picked .cover {
+		outline: 3px solid var(--accent);
+		outline-offset: 2px;
+	}
+	.card.dimmed {
+		opacity: 0.35;
+		pointer-events: none;
+	}
+	.folders-head {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		padding: 10px 14px 0;
+		font-size: 13px;
+	}
+	.folders-head > span {
+		margin-right: auto;
+	}
+	.btn.small {
+		font-size: 13px;
+		padding: 4px 10px;
 	}
 	.cover {
 		aspect-ratio: 1;
