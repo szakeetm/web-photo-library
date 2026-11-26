@@ -1,9 +1,8 @@
 <script lang="ts">
-	// Virtualised photo grid using window scrolling. Pinch (touch/trackpad), ctrl+wheel and +/- change density.
+	// Virtualised photo grid using window scrolling. Pinch (touch/trackpad) and ctrl+wheel change density.
 	import { onMount, tick } from 'svelte';
 	import { layoutGrid, visibleRange, columnsFor, idAt, type Section } from '#lib/gridLayout.ts';
 	import Thumb from './Thumb.svelte';
-	import TimelineScrubber from './TimelineScrubber.svelte';
 	import MonthJump from './MonthJump.svelte';
 	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
 
@@ -60,9 +59,7 @@
 		return monthMarks(sections, ys);
 	});
 	const currentMark = $derived(markAt(marks, scrollTop - containerTop + 60));
-	// Touch screens keep the native scrollbar alone (the month pill opens the month picker).
-	const touch = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-	const showScrubber = $derived(!touch && marks.length >= 2 && layout.height > viewport * 2.5);
+	// The native scrollbar scrolls; the month pill opens the month picker to jump.
 	let jumping = $state(false);
 
 	function jumpTo(m: MonthMark) {
@@ -79,7 +76,7 @@
 
 	// While the grid flies past (a fling), thumbnails show their blurred placeholder and load once it
 	// slows down: decoding hundreds of images that are on screen for a frame is wasted work (and on a
-	// phone can run the page out of memory). Only real speed holds them back (scrubber drags, hard
+	// phone can run the page out of memory). Only real speed holds them back (scrollbar drags, hard
 	// flings), and they load again as soon as the grid slows down, not when a long momentum scroll
 	// finally stops. Decoding is off the main thread.
 	/** px per ms: hold back above FAST (about a screen per 100 ms), load again below SLOW */
@@ -351,9 +348,6 @@
 	{:else}
 		<div class="pill">{currentLabel}</div>
 	{/if}
-{/if}
-{#if showScrubber}
-	<TimelineScrubber {marks} gridHeight={layout.height} gridTop={containerTop} />
 {/if}
 {#if jumping}
 	<MonthJump {marks} current={currentMark} onPick={jumpTo} onClose={() => (jumping = false)} />

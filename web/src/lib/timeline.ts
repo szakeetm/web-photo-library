@@ -1,4 +1,4 @@
-// Months and years of a month-grouped grid, for the timeline scrubber and the jump-to-month panel.
+// Months and years of a month-grouped grid, for the jump-to-month panel.
 import type { Section } from './gridLayout';
 
 export interface MonthMark {
@@ -59,21 +59,4 @@ export function markAt(marks: MonthMark[], y: number): MonthMark | null {
 		} else hi = mid - 1;
 	}
 	return best;
-}
-
-/**
- * Year labels along a rail of `railPx` pixels for a scroll range of `range` px: the first month of
- * each year, dropping labels closer than `minGapPx` to the previous one kept.
- */
-export function yearTicks(marks: MonthMark[], range: number, railPx: number, minGapPx = 18): { year: number; px: number }[] {
-	const out: { year: number; px: number }[] = [];
-	let lastYear = NaN;
-	for (const m of marks) {
-		if (m.year === lastYear) continue;
-		lastYear = m.year;
-		const px = Math.min(1, Math.max(0, m.y / Math.max(1, range))) * railPx;
-		if (out.length && px - out[out.length - 1].px < minGapPx) continue;
-		out.push({ year: m.year, px });
-	}
-	return out;
 }

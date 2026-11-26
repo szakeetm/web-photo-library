@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markAt, monthMarks, yearGroups, yearTicks } from './timeline';
+import { markAt, monthMarks, yearGroups } from './timeline';
 
 const sections = [
 	{ key: '2023-11', label: 'November 2023', items: ['a', 'b'] },
@@ -31,11 +31,5 @@ describe('timeline', () => {
 		expect(markAt(m, 300)?.key).toBe('2024-01');
 		expect(markAt(m, 5000)?.key).toBe('2025-02');
 		expect(markAt([], 0)).toBeNull();
-	});
-
-	it('places year ticks and thins crowded ones', () => {
-		const m = monthMarks(sections, ys);
-		expect(yearTicks(m, 1200, 600)).toEqual([{ year: 2023, px: 0 }, { year: 2024, px: 150 }, { year: 2025, px: 600 }]);
-		expect(yearTicks(m, 1200, 60).map((t) => t.year)).toEqual([2023, 2025]);
 	});
 });
