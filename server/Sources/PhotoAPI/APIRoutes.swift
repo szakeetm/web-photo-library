@@ -270,7 +270,7 @@ struct APIRoutes {
         api.post("server/restart") { _, _ in
             let restart = services.restart
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { restart() }
-            return Response(status: .accepted)
+            return Response(status: .noContent)
         }
 
         api.post("data/reset") { _, _ in

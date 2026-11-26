@@ -49,6 +49,10 @@ public struct Rclone: Sendable {
 
     /// Network flags: give up on a stalled connection instead of hanging.
     static let netFlags = ["--contimeout", "20s", "--timeout", "2m", "--retries", "3", "--low-level-retries", "10"]
+    /// For one photo someone is waiting for: a stalled connection is dropped after 15 s and tried
+    /// again (pCloud now and then accepts a download and sends nothing), instead of after 2 minutes,
+    /// many times over. About a minute at worst instead of many.
+    static let quickNetFlags = ["--contimeout", "10s", "--timeout", "15s", "--retries", "2", "--low-level-retries", "2"]
 
     /// Runs rclone; throws with its error message when it fails. `line` hears each line it logs.
     ///
@@ -238,7 +242,10 @@ public struct Rclone: Sendable {
     // MARK: Copying
 
     /// One file, to exactly `to` (a remote path or a local one).
-    public func copyFile(_ from: String, to: String) throws { try run(["copyto"] + Self.netFlags + [from, to]) }
+    /// `quick`: someone waits for it (an original to view), so stalls are cut short (`quickNetFlags`).
+    public func copyFile(_ from: String, to: String, quick: Bool = false) throws {
+        try run(["copyto"] + (quick ? Self.quickNetFlags : Self.netFlags) + [from, to])
+    }
 
     /// Files in `from` missing or different in `to` (never deletes anything); `copied` hears each file
     /// copied. Hidden files and folders are skipped. Returns how many were copied.

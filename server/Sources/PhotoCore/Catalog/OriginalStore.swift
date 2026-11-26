@@ -94,7 +94,7 @@ public struct LocalOriginalStore: OriginalStore {
         guard let rclone = Rclone.locate() else { return nil }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try rclone.copyFile(Rclone.join(source.path, relPath), to: url.path)
+            try rclone.copyFile(Rclone.join(source.path, relPath), to: url.path, quick: true)
         } catch {
             FileHandle.standardError.write(Data("Could not fetch \(relPath) from \(source.path): \(error)\n".utf8))
             return nil
