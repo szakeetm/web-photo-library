@@ -34,6 +34,23 @@
 	const hasPhotos = $derived(ids.some((i) => app.byId.get(i)?.dur == null));
 	const favNext = $derived(nextFavoriteValue(ids.map((i) => app.byId.get(i)?.fav ?? false)));
 
+	/** Above this many photos, a batch action that changes them asks first (a select all, then rotate or
+	 *  delete by mistake). Adding to an album asks from ALBUM_MANY on. Downloads and the date sheet (which
+	 *  shows what it will change) never ask. */
+	const MANY = 100;
+	const ALBUM_MANY = 500;
+	/** True to go ahead: `what` is the action ("Rotate left"), asked only for more than `limit` photos. */
+	function okForMany(what: string, limit = MANY) {
+		const n = ids.length;
+		if (n <= limit) return true;
+		return confirm(`${what} ${n.toLocaleString()} photos?\n\nThat's more than ${limit}: check you meant to select them all.`);
+	}
+
+	function rotate(clockwise: boolean) {
+		if (!okForMany(clockwise ? 'Rotate right' : 'Rotate left')) return;
+		run(() => rotatePhotos(ids, clockwise));
+	}
+
 	async function run(work: () => Promise<unknown>) {
 		busy = true;
 		try {
@@ -62,7 +79,7 @@
 			if ((e.target as HTMLElement).closest?.('input, select, textarea') || document.querySelector('[role=dialog]')) return;
 			if (page.state.viewer || picking || dating || downloading || busy || !hasPhotos || !net.online) return;
 			e.preventDefault();
-			run(() => rotatePhotos(ids, k === 'r'));
+			rotate(k === 'r');
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
@@ -75,6 +92,7 @@
 	}
 
 	function remove(immediate = false) {
+		if (!okForMany('Delete')) return;
 		const chosen = [...ids];
 		const q = deleteQuestion(chosen, (i) => app.isUpload(i));
 		run(async () => {
@@ -84,6 +102,7 @@
 	}
 
 	function restore() {
+		if (!okForMany('Restore')) return;
 		run(async () => {
 			await restoreFromTrash(ids);
 			selection.clear();
@@ -117,20 +136,20 @@
 		{:else}
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title={favNext ? 'Favourite' : 'Unfavourite'}
 			aria-label={favNext ? 'Favourite' : 'Unfavourite'}
-			onclick={() => run(() => setFavorite(ids, favNext))}>
+			onclick={() => okForMany(favNext ? 'Favourite' : 'Unfavourite') && run(() => setFavorite(ids, favNext))}>
 			<span class="heart" class:filled={!favNext}><Icon name="heart" /></span>
 		</button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Add to album" aria-label="Add to album"
 			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
 		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate left (L)" aria-label="Rotate left"
-			onclick={() => run(() => rotatePhotos(ids, false))}><Icon name="rotate" /></button>
+			onclick={() => rotate(false)}><Icon name="rotate" /></button>
 		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate right (R)" aria-label="Rotate right"
-			onclick={() => run(() => rotatePhotos(ids, true))}><span class="mirror"><Icon name="rotate" /></span></button>
+			onclick={() => rotate(true)}><span class="mirror"><Icon name="rotate" /></span></button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Adjust date & time"
 			aria-label="Adjust date and time" onclick={() => (dating = true)}><Icon name="clock" /></button>
 		{#if albumId != null}
 			<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Remove from album" aria-label="Remove from album"
-				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
+				onclick={() => okForMany('Remove from the album') && run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
 		{/if}
 		<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Delete" aria-label="Delete"
 			onclick={() => remove()}><Icon name="trash" /></button>
@@ -154,8 +173,8 @@
 	<AlbumPicker
 		count={selection.count}
 		onCancel={() => (picking = false)}
-		onPick={(id) => run(async () => { picking = false; await addToAlbum(id, ids); selection.clear(); })}
-		onCreate={(title) => run(async () => { picking = false; await createAlbum(title, ids); selection.clear(); })}
+		onPick={(id) => okForMany('Add to the album', ALBUM_MANY) && run(async () => { picking = false; await addToAlbum(id, ids); selection.clear(); })}
+		onCreate={(title) => okForMany(`Make the album “${title}” with`, ALBUM_MANY) && run(async () => { picking = false; await createAlbum(title, ids); selection.clear(); })}
 	/>
 {/if}
 
