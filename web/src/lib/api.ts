@@ -103,10 +103,37 @@ export interface ExportStatus {
 	total: number;
 	error: string | null;
 	folder: string | null;
+	/** estimated size (edited files counted at their original's size) */
+	bytes: number;
+	/** files that weren't available (the first 100), and how many */
+	skipped: string[];
+	skippedCount: number;
+}
+
+/** How big an export would be, and whether this device may have it as a ZIP. */
+export interface ExportEstimate {
+	files: number;
+	/** photos and videos */
+	items: number;
+	bytes: number;
+	zip: boolean;
+	zipLimitItems: number;
+	zipLimitBytes: number;
+}
+
+/** One file of an export the browser writes into a folder itself. */
+export interface ExportEntryInfo {
+	path: string;
+	bytes: number;
+	modified: number;
+	/** `bytes` is exact (copied as it is), not an estimate */
+	exact: boolean;
 }
 
 /** The streamed ZIP of an export (downloadable once). */
 export const exportDownloadUrl = (id: string) => `/api/exports/${id}/download`;
+/** One file of a "files" export (410: not available, skip it). */
+export const exportEntryUrl = (id: string, n: number) => `/api/exports/${id}/entries/${n}`;
 
 /** The trim editor's filmstrip (frames side by side in one image). */
 export const framesUrl = (id: string, n = 12) => `/api/assets/${id}/frames?n=${n}`;
@@ -508,7 +535,10 @@ export const api = {
 	/** Save as New: a trimmed copy in the uploads folder, as a new video. */
 	trimCopy: (id: string, start: number, end: number) =>
 		call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim/copy`, { method: 'POST', body: JSON.stringify({ start, end }) }),
-	startExport: (options: ExportOptions, target: 'zip' | 'folder', folder?: string, name?: string) =>
+	estimateExport: (options: ExportOptions) =>
+		call<ExportEstimate>('/api/exports/estimate', { method: 'POST', body: JSON.stringify(options) }),
+	exportEntries: (id: string) => call<ExportEntryInfo[]>(`/api/exports/${id}/entries`),
+	startExport: (options: ExportOptions, target: 'zip' | 'folder' | 'files', folder?: string, name?: string) =>
 		call<ExportStatus>('/api/exports', { method: 'POST', body: JSON.stringify({ options, target, folder, name }) }),
 	exportStatus: (id: string) => call<ExportStatus>(`/api/exports/${id}`),
 	cancelExport: (id: string) => call<void>(`/api/exports/${id}`, { method: 'DELETE' }),

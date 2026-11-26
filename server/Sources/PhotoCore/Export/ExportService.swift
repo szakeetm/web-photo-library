@@ -54,6 +54,36 @@ public struct ExportEntry: Sendable {
     public var path: String
     public var source: Source
     public var modified: Date
+    /// The file's size: exact for originals and sidecars, the original's for edited files (an estimate).
+    public var bytes: Int64 = 0
+
+    public init(path: String, source: Source, modified: Date, bytes: Int64 = 0) {
+        self.path = path
+        self.source = source
+        self.modified = modified
+        if bytes == 0, case .data(let d) = source { self.bytes = Int64(d.count) } else { self.bytes = bytes }
+    }
+
+    /// The photo or video it comes from (nil for sidecars and other generated files).
+    public var assetId: String? {
+        switch source {
+        case .original(let id), .edited(let id), .motion(let id, _): id
+        case .data: nil
+        }
+    }
+}
+
+/// How big an export is: files, photos and videos, and bytes (edited files estimated at their original's size).
+public struct ExportSummary: Codable, Sendable, Equatable {
+    public var files: Int
+    public var items: Int
+    public var bytes: Int64
+
+    public init(_ entries: [ExportEntry]) {
+        files = entries.count
+        items = Set(entries.compactMap(\.assetId)).count
+        bytes = entries.reduce(0) { $0 + $1.bytes }
+    }
 }
 
 public enum ExportError: Error, CustomStringConvertible {
@@ -95,6 +125,8 @@ public final class ExportService: Sendable {
         let trim: (Double, Double)?
         let name: String
         let motionExt: String?
+        let size: Int64
+        let motionSize: Int64
         let info: ExportInfo
         var edited: Bool { ev > 0 || dated || trim != nil }
     }
@@ -120,7 +152,9 @@ public final class ExportService: Sendable {
             var out: [String: Item] = [:]
             for r in try Row.fetchAll(d, sql: """
                 SELECT a.*, (SELECT f.relPath FROM file f WHERE f.assetId = a.id ORDER BY f.root, f.relPath LIMIT 1) AS rel,
+                       (SELECT f.size FROM file f WHERE f.assetId = a.id ORDER BY f.root, f.relPath LIMIT 1) AS size,
                        (SELECT m.relPath FROM motion m WHERE m.assetId = a.id) AS motionRel,
+                       (SELECT m.size FROM motion m WHERE m.assetId = a.id) AS motionSize,
                        EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id) AS dated,
                        (SELECT vt.start FROM video_trim vt WHERE vt.assetId = a.id) AS trimStart,
                        (SELECT vt."end" FROM video_trim vt WHERE vt.assetId = a.id) AS trimEnd
@@ -140,7 +174,7 @@ public final class ExportService: Sendable {
                 out[id] = Item(id: id, kind: r["kind"], ev: r["editVersion"], dated: r["dated"],
                                trim: ts.flatMap { s in te.map { (s, $0) } },
                                name: name, motionExt: (r["motionRel"] as String?).map { ($0 as NSString).pathExtension },
-                               info: info)
+                               size: r["size"] ?? 0, motionSize: r["motionSize"] ?? 0, info: info)
             }
             return out
         }
@@ -219,23 +253,23 @@ public final class ExportService: Sendable {
             if useEdited {
                 if it.kind == "photo" && it.ev > 0 {
                     mediaName = base + (o.format == .heic ? ".heic" : ".jpg")
-                    entries.append(ExportEntry(path: prefix + mediaName, source: .edited(assetId: id), modified: date))
+                    entries.append(ExportEntry(path: prefix + mediaName, source: .edited(assetId: id), modified: date, bytes: it.size))
                 } else if it.kind == "photo", let src = try catalog.sourceURL(id: id), !MetadataRewriter.supports(src) {
                     // a format whose date can't be rewritten (RAW…): the original, the date in an XMP sidecar
-                    entries.append(ExportEntry(path: prefix + mediaName, source: .original(assetId: id), modified: date))
+                    entries.append(ExportEntry(path: prefix + mediaName, source: .original(assetId: id), modified: date, bytes: it.size))
                     forceXMP = it.dated
                 } else {
-                    entries.append(ExportEntry(path: prefix + mediaName, source: .edited(assetId: id), modified: date))
+                    entries.append(ExportEntry(path: prefix + mediaName, source: .edited(assetId: id), modified: date, bytes: it.size))
                 }
             } else {
-                entries.append(ExportEntry(path: prefix + mediaName, source: .original(assetId: id), modified: date))
+                entries.append(ExportEntry(path: prefix + mediaName, source: .original(assetId: id), modified: date, bytes: it.size))
             }
             // the Live Photo's video
             var motionName: String?
             if o.livePhotoVideo, it.kind == "photo", let mext = it.motionExt {
                 motionName = base + "." + mext.uppercased()
                 entries.append(ExportEntry(path: prefix + motionName!, source: .motion(assetId: id, dated: useEdited && it.dated),
-                                           modified: date))
+                                           modified: date, bytes: it.motionSize))
             }
             // sidecars
             var info = it.info
@@ -256,10 +290,10 @@ public final class ExportService: Sendable {
             if o.content == .both && it.edited {
                 let oprefix = "Originals/" + prefix
                 entries.append(ExportEntry(path: oprefix + base + (ext.isEmpty ? "" : "." + ext), source: .original(assetId: id),
-                                           modified: date))
+                                           modified: date, bytes: it.size))
                 if o.livePhotoVideo, it.kind == "photo", let mext = it.motionExt, it.dated {
                     entries.append(ExportEntry(path: oprefix + base + "." + mext.uppercased(), source: .motion(assetId: id, dated: false),
-                                               modified: date))
+                                               modified: date, bytes: it.motionSize))
                 }
             }
         }
@@ -342,37 +376,91 @@ public final class ExportService: Sendable {
         return workDir.appendingPathComponent(UUID().uuidString + (ext.isEmpty ? "" : "." + ext))
     }
 
-    /// Runs an export: each entry's file goes to `write` (a ZIP stream or a folder), in order.
+    /// Runs an export: each entry's file goes to `write` (a ZIP stream or a folder), in order. A file
+    /// that isn't available (moved or deleted since the last scan) is skipped, not fatal: `skipped` hears
+    /// of it, and the export ends with an "Export problems.txt" listing them. `alreadyThere` lets a
+    /// folder export pick up where an earlier run stopped.
     public func run(_ entries: [ExportEntry], format: ImageFormat,
                     write: (ExportEntry, URL?, Data?) async throws -> Void,
-                    progress: (Int) -> Void, isCancelled: () -> Bool) async throws {
+                    progress: (Int) -> Void, isCancelled: () -> Bool,
+                    skipped: (String) -> Void = { _ in },
+                    alreadyThere: (ExportEntry) -> Bool = { _ in false }) async throws {
+        var problems: [String] = []
         for (i, e) in entries.enumerated() {
             if isCancelled() { throw ExportError.cancelled }
+            if alreadyThere(e) {
+                progress(i + 1)
+                continue
+            }
             if case .data(let data) = e.source {
                 try await write(e, nil, data)
-            } else if let f = try await resolve(e, format: format) {
-                defer { if f.temporary { try? FileManager.default.removeItem(at: f.url) } }
-                try await write(e, f.url, nil)
+            } else {
+                let f: (url: URL, temporary: Bool)?
+                do { f = try await resolve(e, format: format) } catch let error where Self.isMissing(error) {
+                    problems.append(e.path)
+                    skipped(e.path)
+                    progress(i + 1)
+                    continue
+                }
+                if let f {
+                    defer { if f.temporary { try? FileManager.default.removeItem(at: f.url) } }
+                    try await write(e, f.url, nil)
+                }
             }
             progress(i + 1)
         }
+        if !problems.isEmpty {
+            let text = "These files weren't available (moved or deleted since the last scan) and aren't in this export:\n\n"
+                + problems.joined(separator: "\n") + "\n"
+            let report = ExportEntry(path: Self.problemsFile, source: .data(Data(text.utf8)), modified: Date())
+            try await write(report, nil, Data(text.utf8))
+        }
     }
 
-    /// Writes into a folder (on this Mac): sub-folders as planned, files dated like the photos.
+    public static let problemsFile = "Export problems.txt"
+
+    /// A file that's gone, as opposed to a failure that should stop the export.
+    public static func isMissing(_ error: Error) -> Bool {
+        if case ExportError.missing = error { return true }
+        if case EditError.sourceUnavailable = error { return true }
+        return false
+    }
+
+    /// Files of an earlier run into the same folder: there with this entry's date (set when it was
+    /// written), and, for files copied as they are, its size. Unfinished files are only ever `.partial`.
+    public static func alreadyInFolder(_ root: URL) -> @Sendable (ExportEntry) -> Bool {
+        { entry in
+            let path = root.appendingPathComponent(entry.path).path
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                  let mtime = attrs[.modificationDate] as? Date, abs(mtime.timeIntervalSince(entry.modified)) < 2 else { return false }
+            let size = (attrs[.size] as? NSNumber)?.int64Value ?? -1
+            switch entry.source {
+            case .original, .motion(_, false), .data: return size == entry.bytes
+            case .edited, .motion(_, true): return size > 0
+            }
+        }
+    }
+
+    /// Writes each file into `root` (folders as in its path): first as "name.partial", renamed when
+    /// complete, so an interrupted export never leaves a cut-off file under the real name.
     public static func writeToFolder(_ root: URL) -> (ExportEntry, URL?, Data?) async throws -> Void {
         { entry, url, data in
+            let fm = FileManager.default
             let target = root.appendingPathComponent(entry.path)
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             var final = target
             var n = 2
-            while FileManager.default.fileExists(atPath: final.path) {
+            while fm.fileExists(atPath: final.path) {
                 let base = (target.lastPathComponent as NSString).deletingPathExtension
                 let ext = target.pathExtension
                 final = target.deletingLastPathComponent().appendingPathComponent("\(base) (\(n))" + (ext.isEmpty ? "" : ".\(ext)"))
                 n += 1
             }
-            if let url { try FileManager.default.copyItem(at: url, to: final) } else if let data { try data.write(to: final) }
-            try? FileManager.default.setAttributes([.modificationDate: entry.modified, .creationDate: entry.modified], ofItemAtPath: final.path)
+            let partial = final.deletingLastPathComponent().appendingPathComponent(final.lastPathComponent + ".partial")
+            try? fm.removeItem(at: partial)
+            if let url { try fm.copyItem(at: url, to: partial) } else if let data { try data.write(to: partial) }
+            try? fm.setAttributes([.modificationDate: entry.modified, .creationDate: entry.modified], ofItemAtPath: partial.path)
+            try fm.moveItem(at: partial, to: final)
         }
     }
 }

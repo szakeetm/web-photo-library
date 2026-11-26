@@ -151,3 +151,57 @@ import GRDB
                           "Summer- Lake-Trip/b.png", "Summer- Lake-Trip/b.png.supplemental-metadata.json"], "\(paths)")
     }
 }
+
+@Suite struct ExportRunTests {
+    func library() throws -> (ExportService, [ExportEntry], URL) {
+        let (db, ex, _) = try ExportPlanTests().setup()
+        var o = ExportOptions()
+        o.library = true
+        let entries = try ex.plan(o)
+        let root = try #require(try SettingsStore(db: db).get(.libraryPath)).map { URL(fileURLWithPath: $0) }!
+        return (ex, entries, root)
+    }
+
+    @Test func summaryCountsItemsAndBytes() throws {
+        let (_, entries, root) = try library()
+        let s = ExportSummary(entries)
+        #expect(s.files == 3 && s.items == 3)
+        let disk = try ["A/a.jpg", "B/a.jpg", "B/b.png"].reduce(Int64(0)) {
+            $0 + ((try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent($1).path)[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+        #expect(s.bytes == disk)
+    }
+
+    @Test func aMissingFileIsSkippedAndListed() async throws {
+        let (ex, entries, root) = try library()
+        try FileManager.default.removeItem(at: root.appendingPathComponent("B/b.png"))
+        let out = Fixtures.tempDir()
+        var skipped: [String] = []
+        try await ex.run(entries, format: .jpeg, write: ExportService.writeToFolder(out), progress: { _ in }, isCancelled: { false },
+                         skipped: { skipped.append($0) })
+        #expect(skipped == ["b.png"])
+        let files = try FileManager.default.contentsOfDirectory(atPath: out.path).sorted()
+        #expect(files == ["Export problems.txt", "a (2).jpg", "a.jpg"], "\(files)")
+        let report = try String(contentsOf: out.appendingPathComponent("Export problems.txt"), encoding: .utf8)
+        #expect(report.contains("b.png"))
+    }
+
+    @Test func aFolderExportResumes() async throws {
+        let (ex, entries, _) = try library()
+        let out = Fixtures.tempDir()
+        // the first run stops after one file, leaving a cut-off file behind
+        var n = 0
+        await #expect(throws: ExportError.self) {
+            try await ex.run(entries, format: .jpeg, write: ExportService.writeToFolder(out), progress: { n = $0 },
+                             isCancelled: { n >= 1 })
+        }
+        try Data("cut".utf8).write(to: out.appendingPathComponent(entries[1].path + ".partial"))
+        var written: [String] = []
+        let write = ExportService.writeToFolder(out)
+        try await ex.run(entries, format: .jpeg, write: { e, u, d in written.append(e.path); try await write(e, u, d) },
+                         progress: { _ in }, isCancelled: { false }, alreadyThere: ExportService.alreadyInFolder(out))
+        #expect(written == [entries[1].path, entries[2].path])
+        let files = try FileManager.default.contentsOfDirectory(atPath: out.path).sorted()
+        #expect(files == entries.map(\.path).sorted(), "\(files)")
+    }
+}

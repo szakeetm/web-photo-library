@@ -4,6 +4,8 @@
 	// Desktop: the Mac builds the export — originals, with edits, or both (the originals of edited
 	// items in an Originals/ folder); Live Photo videos; Google Photos JSON or XMP sidecars; flat, by
 	// album or by month — and streams it as one ZIP, or (in local mode) writes it into a folder on the Mac.
+	// From another computer a ZIP is limited (1,000 items or 5 GB: it's made in one go and can't
+	// resume); above that, Chrome and Edge write the files into a folder themselves (resumable).
 	//
 	// Phones: only what the share sheet can take — the files themselves, fetched into memory and
 	// shared (a download would trap an iOS Home Screen app). Live Photos: a still and its MOV share a
@@ -16,6 +18,7 @@
 		exportUrl,
 		motionDownloadUrl,
 		originalUrl,
+		type ExportEstimate,
 		type ExportOptions,
 		type ExportStatus,
 		type ImageFmt
@@ -24,6 +27,7 @@
 	import { isEdited } from '#lib/gridView.svelte.ts';
 	import { sortByLocalTime } from '#lib/dates.ts';
 	import { app } from '#lib/state.svelte.ts';
+	import { canWriteFolders, pickFolder, writeExport, type FolderProgress } from '#lib/folderExport.ts';
 	import FolderPicker from './FolderPicker.svelte';
 
 	let {
@@ -75,8 +79,9 @@
 	let sidecar = $state<ExportOptions['sidecar']>('none');
 	// svelte-ignore state_referenced_locally
 	let organize = $state<ExportOptions['organize']>(library ? 'months' : albumList.length > 1 ? 'albums' : 'flat');
-	let target = $state<'zip' | 'folder'>('zip');
-	let folder = $state<string | null>(null);
+	// on the Mac itself, straight into a folder (faster, resumable); the last one is remembered
+	let target = $state<'zip' | 'folder' | 'files'>(app.local ? 'folder' : 'zip');
+	let folder = $state<string | null>(app.local ? localStorage.getItem('exportFolder') : null);
 	let picking = $state(false);
 
 	let phase = $state<'choose' | 'fetching' | 'ready' | 'running' | 'done' | 'error'>('choose');
@@ -87,6 +92,8 @@
 	let error = $state('');
 	let status = $state<ExportStatus | null>(null);
 	let controller: AbortController | null = null;
+	let progress = $state<FolderProgress | null>(null);
+	let folderLabel = $state('');
 	let poll: ReturnType<typeof setTimeout> | undefined;
 	onDestroy(() => clearTimeout(poll));
 
@@ -100,6 +107,34 @@
 					: `${assets.length} ${assets.length === 1 ? 'item' : 'items'}`
 	);
 	const name = $derived(title ?? (library ? 'Photos Library' : albumList.length === 1 ? albumList[0].title : undefined));
+
+	// ---- how big it is (and whether this device may have it as a ZIP)
+
+	let estimate = $state<ExportEstimate | null>(null);
+	let estimateSeq = 0;
+	$effect(() => {
+		const o = viaShare ? { ...options(), sidecar: 'none' as const, organize: 'flat' as const } : options();
+		const seq = ++estimateSeq;
+		const t = setTimeout(async () => {
+			try {
+				const e = await api.estimateExport(o);
+				if (seq === estimateSeq) estimate = e;
+			} catch {
+				/* the export itself reports problems */
+			}
+		}, 250);
+		return () => clearTimeout(t);
+	});
+	const zipAllowed = $derived(app.local || estimate?.zip !== false);
+	// too big for a ZIP: a folder instead, where the browser can write one
+	$effect(() => {
+		if (!zipAllowed && target === 'zip' && canWriteFolders) target = 'files';
+	});
+	const GB = 1e9;
+	const device = /iPhone/.test(navigator.userAgent) ? 'iPhone' : 'iPad';
+	const size = (n: number) => (n >= GB ? `${(n / GB).toFixed(n >= 10 * GB ? 0 : 1)} GB` : mb(n));
+	const count = (n: number) => n.toLocaleString();
+	const skippedCount = $derived(target === 'files' ? (progress?.skipped.length ?? 0) : (status?.skippedCount ?? 0));
 
 	// ---- phones: fetch the files and share them
 
@@ -127,7 +162,6 @@
 
 	async function share() {
 		const list = plan();
-		if (list.length > 500 && !confirm(`Fetch ${list.length} files to this device before sharing? That can take a while and a lot of memory.`)) return;
 		phase = 'fetching';
 		total = list.length;
 		done = 0;
@@ -180,6 +214,7 @@
 
 	async function start() {
 		if (target === 'folder' && !folder) return void (picking = true);
+		if (target === 'files') return startFiles();
 		error = '';
 		try {
 			status = await api.startExport(options(), target, folder ?? undefined, name);
@@ -191,6 +226,31 @@
 		phase = 'running';
 		if (target === 'zip') downloadUrl(exportDownloadUrl(status.id));
 		watch(status.id);
+	}
+
+	/** The browser writes the files into a folder on this computer. */
+	async function startFiles() {
+		error = '';
+		let dir: FileSystemDirectoryHandle | null;
+		try {
+			dir = await pickFolder(); // first, while the click still counts
+		} catch (e) {
+			error = (e as Error).message;
+			return;
+		}
+		if (!dir) return;
+		controller = new AbortController();
+		try {
+			status = await api.startExport(options(), 'files', undefined, name);
+			folderLabel = `${dir.name}/${status.name}`;
+			phase = 'running';
+			progress = await writeExport(status.id, dir, status.name, controller.signal, (p) => (progress = { ...p }));
+			phase = 'done';
+		} catch (e) {
+			if (controller.signal.aborted) return;
+			error = (e as Error).message;
+			phase = 'error';
+		}
 	}
 
 	function watch(id: string) {
@@ -211,7 +271,7 @@
 
 	function cancel() {
 		controller?.abort();
-		if (phase === 'running' && status) api.cancelExport(status.id).catch(() => {});
+		if (phase === 'running' && status && target !== 'files') api.cancelExport(status.id).catch(() => {});
 		onClose();
 	}
 
@@ -285,7 +345,14 @@
 			</fieldset>
 			<fieldset>
 				<legend>Save as</legend>
-				<label><input type="radio" bind:group={target} value="zip" /> ZIP download</label>
+				<p class="note muted">
+					{#if estimate}
+						{count(estimate.items)} {estimate.items === 1 ? 'photo or video' : 'photos and videos'}, {count(estimate.files)}
+						{estimate.files === 1 ? 'file' : 'files'}, about {size(estimate.bytes)}
+					{:else}
+						Counting…
+					{/if}
+				</p>
 				{#if app.local}
 					<label><input type="radio" bind:group={target} value="folder" /> A folder on this Mac</label>
 					{#if target === 'folder'}
@@ -293,14 +360,52 @@
 							<span class="muted path">{folder ?? 'No folder chosen'}</span>
 							<button class="btn" onclick={() => (picking = true)}>Choose…</button>
 						</div>
+						<p class="note muted">Exporting again into the same folder continues where it stopped.</p>
+					{/if}
+					<label><input type="radio" bind:group={target} value="zip" /> ZIP download</label>
+				{:else}
+					<label class:off={!zipAllowed}><input type="radio" bind:group={target} value="zip" disabled={!zipAllowed} /> ZIP download</label>
+					{#if canWriteFolders}
+						<label><input type="radio" bind:group={target} value="files" /> A folder on this computer</label>
+					{/if}
+					{#if !zipAllowed && estimate}
+						<p class="note muted">
+							A ZIP is limited to {count(estimate.zipLimitItems)} photos and videos or {size(estimate.zipLimitBytes)} from another device:
+							it's made in one go, and a dropped connection means starting over.
+							{canWriteFolders
+								? 'A folder gets the files one by one, and an interrupted export picks up where it stopped.'
+								: 'Open this page in Chrome or Edge to save into a folder, export on the Mac itself, or choose fewer.'}
+						</p>
+					{:else if target === 'files'}
+						<p class="note muted">
+							You choose a folder; the files go into “{name ?? 'Photos …'}” inside it. Exporting again into the same folder continues
+							where it stopped.
+						</p>
+					{/if}
+					{#if isIOS && target === 'zip' && estimate && estimate.bytes > GB}
+						<p class="warn">
+							About {size(estimate.bytes)}: this {device} needs that much free space,
+							and the download can't resume if it stops.
+						</p>
 					{/if}
 				{/if}
 			</fieldset>
 			{#if error}<p class="error">{error}</p>{/if}
-			<button class="btn primary" onclick={start} disabled={target === 'folder' && !folder}>Export</button>
+			<button
+				class="btn primary"
+				onclick={start}
+				disabled={(target === 'folder' && !folder) || (target === 'zip' && (!zipAllowed || (!app.local && !estimate)))}>Export</button
+			>
 		{:else}
-			{@const count = plan().length}
-			<button class="btn primary" onclick={share}>Download {count} {count === 1 ? 'file' : 'files'}</button>
+			{@const n = plan().length}
+			{#if estimate}<p class="note muted">{count(n)} {n === 1 ? 'file' : 'files'}, about {size(estimate.bytes)}</p>{/if}
+			{#if estimate && estimate.bytes > GB}
+				<p class="warn">
+					About {size(estimate.bytes)}: the files are held in memory until you share them, and above 1 GB the app can run out of
+					memory and reload. Export fewer at a time, or from a computer.
+				</p>
+			{/if}
+			<button class="btn primary" onclick={share}>Download {count(n)} {n === 1 ? 'file' : 'files'}</button>
 		{/if}
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'fetching'}
@@ -317,19 +422,34 @@
 		<button class="btn primary" onclick={shareNow}>Share…</button>
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'running'}
-		<h3>Exporting… {status?.done ?? 0} of {status?.total ?? 0} files</h3>
+		{@const d = target === 'files' ? (progress?.done ?? 0) : (status?.done ?? 0)}
+		{@const t = target === 'files' ? (progress?.total ?? 0) : (status?.total ?? 0)}
+		<h3>Exporting… {count(d)} of {count(t)} files</h3>
 		<p class="muted">
 			{target === 'zip'
 				? 'The ZIP downloads while the Mac makes the files (edited photos are rendered at full size).'
-				: `Writing into ${status?.folder ?? 'the folder'}.`}
+				: target === 'files'
+					? `Saving into ${folderLabel} (${size(progress?.bytes ?? 0)} of about ${size(status?.bytes ?? 0)}). Keep this tab open.`
+					: `Writing into ${status?.folder ?? 'the folder'}.`}
 		</p>
-		<div class="bar"><div style:width={`${((status?.done ?? 0) / Math.max(1, status?.total ?? 1)) * 100}%`}></div></div>
+		<div class="bar"><div style:width={`${(d / Math.max(1, t)) * 100}%`}></div></div>
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'done'}
 		<h3>Exported</h3>
 		<p class="muted">
-			{status?.total} files {target === 'zip' ? `in “${status?.name}.zip” (in your downloads)` : `in ${status?.folder}`}.
+			{count(status?.total ?? 0)} files {target === 'zip'
+				? `in “${status?.name}.zip” (in your downloads)`
+				: target === 'files'
+					? `in ${folderLabel}`
+					: `in ${status?.folder}`}.
 		</p>
+		{#if skippedCount}
+			<p class="warn">
+				{count(skippedCount)}
+				{skippedCount === 1 ? "file wasn't" : "files weren't"} available (moved or deleted since the last scan); they're listed in “Export
+				problems.txt”.
+			</p>
+		{/if}
 		{#if target === 'folder' && status}
 			<button class="btn primary" onclick={() => status && api.revealExport(status.id)}>Show in Finder</button>
 		{/if}
@@ -347,6 +467,7 @@
 		allowCreate
 		onPick={(p) => {
 			folder = p;
+			localStorage.setItem('exportFolder', p);
 			picking = false;
 		}}
 		onCancel={() => (picking = false)}
@@ -453,6 +574,14 @@
 	}
 	.error {
 		color: var(--danger);
+	}
+	.warn {
+		margin: 0;
+		font-size: 13px;
+		color: var(--warning, #b26a00);
+	}
+	label.off {
+		opacity: 0.45;
 	}
 	.bar {
 		height: 4px;
