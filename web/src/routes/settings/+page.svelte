@@ -244,14 +244,17 @@
 	// ---- backup (database and uploads, to an rclone destination)
 
 	let backup = $state<BackupStatus | null>(null);
+	let backupError = $state('');
 	let pickingDestination = $state(false);
 	let restoring = $state(false);
 	async function loadBackup() {
 		if (!net.online) return;
 		try {
 			backup = await api.backup();
-		} catch {
-			/* server restarting */
+			backupError = '';
+		} catch (e) {
+			// a restarting server is retried; anything else is shown
+			if (net.online) backupError = (e as Error).message;
 		}
 	}
 	async function backupAction(fn: () => Promise<BackupStatus>) {
@@ -802,6 +805,9 @@
 				<span>{backup?.enabled ? 'On' : 'Off'}</span>
 			</label>
 		</div>
+		{#if backupError && !backup}
+			<div class="row"><div class="label"><div class="small warn">Backup status can't be shown: {backupError}</div></div></div>
+		{/if}
 		{#if backup}
 			<div class="row">
 				<div class="label">

@@ -70,6 +70,34 @@ public struct BackupReport: Codable, Sendable, Equatable {
     public var uploadsCopied: Int
     /// uploads removed from the backup this time (deleted here since the previous backup)
     public var uploadsDeleted: Int = 0
+
+    public init(startedAt: Date, finishedAt: Date, ok: Bool, error: String? = nil, destination: String, databaseBytes: Int64,
+                assets: Int, albums: Int, uploadsFiles: Int, uploadsBytes: Int64, uploadsCopied: Int, uploadsDeleted: Int = 0) {
+        self.startedAt = startedAt; self.finishedAt = finishedAt; self.ok = ok; self.error = error; self.destination = destination
+        self.databaseBytes = databaseBytes; self.assets = assets; self.albums = albums; self.uploadsFiles = uploadsFiles
+        self.uploadsBytes = uploadsBytes; self.uploadsCopied = uploadsCopied; self.uploadsDeleted = uploadsDeleted
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case startedAt, finishedAt, ok, error, destination, databaseBytes, assets, albums, uploadsFiles, uploadsBytes, uploadsCopied, uploadsDeleted
+    }
+
+    /// Reports saved by earlier versions lack the newer fields.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        finishedAt = try c.decode(Date.self, forKey: .finishedAt)
+        ok = try c.decode(Bool.self, forKey: .ok)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        destination = try c.decode(String.self, forKey: .destination)
+        databaseBytes = try c.decodeIfPresent(Int64.self, forKey: .databaseBytes) ?? 0
+        assets = try c.decodeIfPresent(Int.self, forKey: .assets) ?? 0
+        albums = try c.decodeIfPresent(Int.self, forKey: .albums) ?? 0
+        uploadsFiles = try c.decodeIfPresent(Int.self, forKey: .uploadsFiles) ?? 0
+        uploadsBytes = try c.decodeIfPresent(Int64.self, forKey: .uploadsBytes) ?? 0
+        uploadsCopied = try c.decodeIfPresent(Int.self, forKey: .uploadsCopied) ?? 0
+        uploadsDeleted = try c.decodeIfPresent(Int.self, forKey: .uploadsDeleted) ?? 0
+    }
 }
 
 /// What's happening right now (a backup or a restore).

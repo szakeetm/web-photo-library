@@ -128,6 +128,16 @@ struct BackupTests {
         #expect(throws: BackupError.self) { try e.service.restore(e.remote) }
     }
 
+    @Test func aReportSavedByAnEarlierVersionStillReads() throws {
+        let db = try AppDatabase.inMemory()
+        let settings = SettingsStore(db: db)
+        // as saved before uploadsDeleted existed
+        let old = #"{"uploadsFiles":2,"finishedAt":817390528.17,"uploadsCopied":2,"ok":true,"startedAt":817390522.71,"assets":619,"databaseBytes":5062656,"albums":5,"uploadsBytes":3585514,"destination":"pcloud:Photos/webLibrary_backup"}"#
+        try db.writer.write { try $0.execute(sql: "INSERT INTO setting (key, value) VALUES ('lastBackup', ?)", arguments: [old]) }
+        let r = try #require(try settings.get(.lastBackup))
+        #expect(r.ok && r.assets == 619 && r.uploadsDeleted == 0)
+    }
+
     @Test func browsesAndMakesFolders() throws {
         let rclone = try #require(Rclone.locate())
         let root = Fixtures.tempDir().path
