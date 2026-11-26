@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Settings → This device: what the image cache holds, its size limit, downloaded albums and folders.
 	import { onMount } from 'svelte';
-	import { clearImages, evictToLimit, getLimit, setLimit, usage, type CacheUsage } from '#lib/imageCache.ts';
+	import { clearImages, deleteImages, evictToLimit, getLimit, pinnedKeys, setLimit, usage, type CacheUsage } from '#lib/imageCache.ts';
 	import { pins, pinStatus } from '#lib/pins.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import type { PinRecord } from '#lib/db.ts';
@@ -42,16 +42,26 @@
 		refresh();
 	}
 
-	/** Clears cached photos; downloaded albums stay unless `everything`. */
-	async function clear(everything: boolean) {
-		const msg = everything
-			? 'Remove all photos saved on this device, including downloaded albums and folders?'
-			: 'Clear photos cached on this device? Downloaded albums and folders are kept.';
-		if (!confirm(msg)) return;
+	/** Clears photos kept from browsing; downloaded albums and folders stay. */
+	async function clearCache() {
+		if (!confirm('Clear photos cached on this device? Downloaded albums and folders are kept.')) return;
 		busy = true;
 		try {
-			if (everything) for (const id of Object.keys(pins.records)) await pins.remove(Number(id));
-			await clearImages(!everything);
+			await clearImages(true);
+		} finally {
+			busy = false;
+			refresh();
+		}
+	}
+
+	/** Removes the offline downloads (and their images); photos kept from browsing stay. */
+	async function removeDownloads() {
+		if (!confirm('Remove all offline downloads (albums and folders) from this device? Other cached photos are kept.')) return;
+		busy = true;
+		try {
+			const keys = await pinnedKeys();
+			for (const id of Object.keys(pins.records)) await pins.remove(Number(id));
+			await deleteImages(keys);
 		} finally {
 			busy = false;
 			refresh();
@@ -88,9 +98,9 @@
 	<select id="cache-limit" class="select" value={limit} onchange={changeLimit}>
 		{#each LIMITS as l (l)}<option value={l}>{fmtLimit(l)}</option>{/each}
 	</select>
-	<button class="btn" disabled={busy || !u} onclick={() => clear(false)}>Clear cache</button>
+	<button class="btn" disabled={busy || !u} onclick={clearCache}>Clear cache</button>
 	{#if downloaded.length}
-		<button class="btn danger" disabled={busy || !u} onclick={() => clear(true)}>Remove everything</button>
+		<button class="btn danger" disabled={busy || !u} onclick={removeDownloads}>Remove offline downloads</button>
 	{/if}
 </div>
 <p class="hint muted">

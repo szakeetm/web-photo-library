@@ -290,6 +290,16 @@ export async function usage(): Promise<CacheUsage> {
 	return summarize(await (await db()).getAll('images'));
 }
 
+/** Keys of the images some download (album or folder) holds. */
+export async function pinnedKeys(): Promise<string[]> {
+	return (await (await db()).getAll('images')).filter((e) => e.pins.length > 0).map((e) => e.url);
+}
+
+/** Deletes these images unless a download still holds them. */
+export async function deleteImages(keys: string[]) {
+	for (let i = 0; i < keys.length; i += 500) await deleteEntries(keys.slice(i, i + 500));
+}
+
 /** Empties the cache; with `keepPinned`, downloaded albums stay. */
 export async function clearImages(keepPinned: boolean) {
 	const d = await db();
