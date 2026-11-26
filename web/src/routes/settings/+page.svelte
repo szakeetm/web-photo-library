@@ -34,7 +34,13 @@
 		objects: 'Analyse photos'
 	};
 	/** Why removing or relocating a source has to wait. */
-	const busyTitle = $derived(current ? `Wait for ${jobNames[current.kind] ?? current.kind} to finish (see Library below).` : undefined);
+	const busyTitle = $derived(
+		!current
+			? undefined
+			: current.kind === 'faces' || current.kind === 'objects'
+				? `Wait for ${jobNames[current.kind] ?? current.kind} to finish, or turn it off in Photo analysis.`
+				: `Wait for ${jobNames[current.kind] ?? current.kind} to finish (see Library below).`
+	);
 	const phaseNames: Record<string, string> = {
 		scan: 'Scanning library',
 		metadata: 'Reading metadata',
@@ -398,10 +404,10 @@
 		if (settings) mapStyle = settings.mapStyleURL ?? '';
 	});
 
-	async function setFaces(on: boolean) {
+	async function setAnalysis(change: { facesEnabled?: boolean; objectsEnabled?: boolean }) {
 		try {
-			settings = await api.saveSettings({ facesEnabled: on });
-			if (on) poll();
+			settings = await api.saveSettings(change);
+			poll();
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
 		}
@@ -961,13 +967,19 @@
 	</section>
 
 	<section>
-		<h3>People</h3>
+		<h3>Photo analysis</h3>
 		<div class="row">
 			<div class="label">
-				<div>Face recognition</div>
 				<div class="muted small">
-					Finds faces on this Mac (Apple Vision and the Neural Engine) and groups them into people. Nothing leaves the Mac.
+					Done on this Mac (Apple Vision and the Neural Engine) after each scan; nothing leaves the Mac. Turning one off
+					stops it right away (what it found stays), so sources can be removed or located without waiting for it.
 				</div>
+			</div>
+		</div>
+		<div class="row">
+			<div class="label">
+				<div>Faces</div>
+				<div class="muted small">Finds faces and groups them into people.</div>
 				{#if settings && !settings.faceModelInstalled}
 					<div class="muted small warn">
 						The recognition model isn't installed. On the Mac run <code>tools/face-model/make.sh</code> (once), then Find faces.
@@ -975,41 +987,35 @@
 				{/if}
 			</div>
 			<label class="switch">
-				<input type="checkbox" checked={settings?.facesEnabled ?? true} onchange={(e) => setFaces((e.target as HTMLInputElement).checked)} />
+				<input type="checkbox" checked={settings?.facesEnabled ?? true} onchange={(e) => setAnalysis({ facesEnabled: (e.target as HTMLInputElement).checked })} />
 				<span>{settings?.facesEnabled ?? true ? 'On' : 'Off'}</span>
 			</label>
 		</div>
 		<div class="row actions">
 			<button class="btn" disabled={!settings?.faceModelInstalled || !settings?.facesEnabled} onclick={() => start('faces')}>Find faces</button>
 			<button class="btn" disabled={!settings?.faceModelInstalled} onclick={() => start('recluster')}>Regroup faces</button>
-			<span class="muted small">New photos are scanned after each scan. Regroup rebuilds unnamed groups; names and your corrections stay.</span>
+			<span class="muted small">Regroup rebuilds unnamed groups; names and your corrections stay.</span>
 		</div>
-	</section>
-
-	<section>
-		<h3>Objects</h3>
 		<div class="row">
 			<div class="label">
 				<div>Objects, text and duplicates</div>
 				<div class="muted small">
-					Recognises things in photos and videos (dogs, beaches, food…), reads text in photos for search, and
-					fingerprints photos to find duplicates — all with what's built into macOS, on the Neural Engine. Nothing
-					to download; nothing leaves the Mac. New photos are done after each scan.
+					Recognises things in photos and videos (dogs, beaches, food…), reads text in photos for search, and fingerprints
+					photos to find duplicates. Browse them in Collections (Objects, Duplicates), or search for text.
 				</div>
 			</div>
+			<label class="switch">
+				<input type="checkbox" checked={settings?.objectsEnabled ?? true} onchange={(e) => setAnalysis({ objectsEnabled: (e.target as HTMLInputElement).checked })} />
+				<span>{settings?.objectsEnabled ?? true ? 'On' : 'Off'}</span>
+			</label>
 		</div>
 		<div class="row actions">
 			<button
 				class="btn"
-				disabled={!settings?.libraryPath || !!analysisJob || settings?.analysisPending === 0}
+				disabled={!hasSources || !settings?.objectsEnabled || !!analysisJob || settings?.analysisPending === 0}
 				onclick={() => start('objects')}>Analyse photos</button
 			>
-			<span class="small" class:muted={!analysisJob}
-				>{analysisStatus}</span
-			>
-		</div>
-		<div class="row">
-			<span class="muted small">Browse them in Collections (Objects, Duplicates), or search for text.</span>
+			<span class="small" class:muted={!analysisJob}>{analysisStatus}</span>
 		</div>
 	</section>
 

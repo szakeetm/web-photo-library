@@ -334,6 +334,8 @@ export interface Settings {
 	databaseBytes: number;
 	dataLocationMissing: boolean;
 	facesEnabled: boolean;
+	/** objects, text and duplicate fingerprints */
+	objectsEnabled: boolean;
 	faceModelInstalled: boolean;
 	faceModelPath: string;
 	mapStyleURL: string | null;
@@ -675,6 +677,7 @@ export const api = {
 		uploadsPath?: string;
 		ownerLogin?: string;
 		facesEnabled?: boolean;
+		objectsEnabled?: boolean;
 		mapStyleURL?: string;
 		originalsCacheGB?: number;
 	}) =>

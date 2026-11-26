@@ -57,7 +57,7 @@ struct APIRoutes {
     }
     struct SettingsBody: Codable {
         var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String?
-        var facesEnabled: Bool?; var mapStyleURL: String?
+        var facesEnabled: Bool?; var objectsEnabled: Bool?; var mapStyleURL: String?
         var originalsCacheGB: Int?
     }
     struct LocalFolderInfo: Encodable {
@@ -85,7 +85,7 @@ struct APIRoutes {
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
         let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
-        let facesEnabled: Bool; let faceModelInstalled: Bool; let faceModelPath: String
+        let facesEnabled: Bool; let objectsEnabled: Bool; let faceModelInstalled: Bool; let faceModelPath: String
         let mapStyleURL: String?; let defaultMapStyleURL: String
         /// Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them.
         let analysisPending: Int; let analysisTotal: Int
@@ -210,7 +210,11 @@ struct APIRoutes {
             if let o = body.ownerLogin { try services.settings.set(.ownerLogin, o.isEmpty ? nil : o) }
             if let f = body.facesEnabled {
                 try services.settings.set(.facesEnabled, f)
-                if f { services.jobs.enqueueFacesIfNeeded() }
+                if f { services.jobs.enqueueFacesIfNeeded() } else { services.jobs.cancelAll(.faces) }
+            }
+            if let o = body.objectsEnabled {
+                try services.settings.set(.objectsEnabled, o)
+                if o { services.jobs.enqueueObjectsIfNeeded() } else { services.jobs.cancelAll(.objects) }
             }
             if let g = body.originalsCacheGB {
                 guard (1...10_000).contains(g) else { return errorResponse(.badRequest, "Keep between 1 GB and 10 TB of originals.") }
@@ -774,7 +778,7 @@ struct APIRoutes {
         return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), uploadsPath: try s.get(.uploadsPath), ownerLogin: try s.get(.ownerLogin),
                                          dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
                                          databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing,
-                                         facesEnabled: try s.get(.facesEnabled),
+                                         facesEnabled: try s.get(.facesEnabled), objectsEnabled: try s.get(.objectsEnabled),
                                          faceModelInstalled: FaceAnalyzer.modelInstalled(dataDir: services.paths.dataDir),
                                          faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,
                                          mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle,

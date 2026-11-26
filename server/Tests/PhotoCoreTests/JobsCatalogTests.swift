@@ -153,6 +153,21 @@ import GRDB
         #expect(try SourceRelocation.sample(root: folder.root, db: e.db).count == 3)
     }
 
+    @Test func analysisTurnedOffIsCancelledAndSkipped() throws {
+        let e = try env()
+        try SettingsStore(db: e.db).set(.objectsEnabled, false)
+        let id = e.runner.enqueue(.objects)
+        e.runner.waitUntilIdle()
+        #expect(e.runner.job(id: id)?.message == "Object recognition is turned off.")
+
+        // waiting jobs of a kind turned off are cancelled at once
+        e.runner.enqueue(.detectChanges)
+        let waiting = e.runner.enqueue(.faces)
+        e.runner.cancelAll(.faces)
+        e.runner.waitUntilIdle()
+        #expect(e.runner.job(id: waiting)?.state == "cancelled")
+    }
+
     @Test func unreadableLibraryFailsJobNotServer() throws {
         let e = try env()
         try SettingsStore(db: e.db).set(.libraryPath, "/nonexistent-\(UUID())")

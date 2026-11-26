@@ -89,6 +89,19 @@ public final class JobRunner: @unchecked Sendable {
         lock.lock(); cancelled.insert(id); lock.unlock()
     }
 
+    /// Stops the jobs of `kind` that are running or waiting (when its analysis is turned off). The
+    /// waiting ones show as cancelled right away; the running one stops at its next photo.
+    public func cancelAll(_ kind: JobKind) {
+        let rows = (try? db.writer.read {
+            try JobRow.filter(Column("kind") == kind.rawValue && ["queued", "running"].contains(Column("state"))).fetchAll($0)
+        }) ?? []
+        for r in rows {
+            guard let id = r.id else { continue }
+            cancel(id: id)
+            if r.state == "queued" { update(id) { $0.state = "cancelled"; $0.endedAt = Date() } }
+        }
+    }
+
     public func job(id: Int64) -> JobRow? { try? db.writer.read { try JobRow.fetchOne($0, key: id) } }
 
     public func current() -> JobRow? {
@@ -298,7 +311,7 @@ public final class JobRunner: @unchecked Sendable {
     public func enqueueObjectsIfNeeded() {
         // Not inside the test runner: its many parallel job runners block enough threads that Vision's
         // own work never gets one (Vision then waits forever). Tests that need objects run the job.
-        guard !Self.underTests else { return }
+        guard !Self.underTests, (try? settings.get(.objectsEnabled)) ?? true else { return }
         guard let pending = try? Self.pendingAnalysis(db, limit: 1), !pending.isEmpty else { return }
         let queued = recent(limit: 10).contains { $0.kind == JobKind.objects.rawValue && ($0.state == "queued" || $0.state == "running") }
         if !queued { enqueue(.objects) }
@@ -330,6 +343,7 @@ public final class JobRunner: @unchecked Sendable {
     /// One pass per photo: the preview is decoded once for objects (classifier), text (OCR) and
     /// fingerprints (duplicates). Videos get objects only (from their poster).
     private func scanObjects(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {
+        guard (try? settings.get(.objectsEnabled)) ?? true else { return "Object recognition is turned off." }
         let objects = ObjectService(db: db)
         let texts = TextService(db: db)
         let duplicates = DuplicateService(db: db)
