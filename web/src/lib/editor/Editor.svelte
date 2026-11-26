@@ -245,13 +245,17 @@
 
 	// straighten keeps the crop that existed when the gesture started, shrunk to fit
 	let straightenBase: Recipe['crop'] | null = null;
+	/** True while the straighten slider/dial is being moved: shows an alignment grid. */
+	let straightening = $state(false);
 	function setStraighten(v: number) {
 		straightenBase ??= recipe.crop ?? FULL;
+		straightening = true;
 		const angle = Math.round(v * 10) / 10;
 		session.preview({ ...recipe, straighten: angle, crop: fitCrop(straightenBase, angle, frame.w, frame.h) });
 	}
 	function commitStraighten() {
 		straightenBase = null;
+		straightening = false;
 		session.commit();
 	}
 
@@ -445,9 +449,12 @@
 						frameH={frame.h}
 						angle={recipe.straighten ?? 0}
 						{aspect}
+						{straightening}
 						onchange={(c) => session.preview({ ...recipe, crop: c })}
 						oncommit={() => session.commit()}
 					/>
+				{:else if straightening && !showOriginal && status === 'ready'}
+					<div class="straightgrid" aria-hidden="true"></div>
 				{/if}
 			</div>
 			{#if showOriginal}<div class="badge">Original</div>{/if}
@@ -666,6 +673,18 @@
 	}
 	canvas {
 		display: block;
+	}
+	/* alignment grid over the whole picture while straightening outside crop mode */
+	.straightgrid {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		outline: 1px solid rgba(255, 255, 255, 0.6);
+		background-image:
+			linear-gradient(90deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px),
+			linear-gradient(180deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px);
+		background-size: calc(100% / 8) calc(100% / 8);
+		background-position: -0.5px -0.5px;
 	}
 	.msg {
 		position: absolute;

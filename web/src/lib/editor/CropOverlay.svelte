@@ -12,6 +12,7 @@
 		frameH,
 		angle,
 		aspect,
+		straightening = false,
 		onchange,
 		oncommit
 	}: {
@@ -25,6 +26,8 @@
 		angle: number;
 		/** Locked pixel aspect (w/h) or null for freeform. */
 		aspect: number | null;
+		/** Straighten slider/dial in use: show the dense alignment grid instead of thirds. */
+		straightening?: boolean;
 		onchange: (c: Crop) => void;
 		oncommit: () => void;
 	} = $props();
@@ -107,7 +110,8 @@
 		onpointerup={up}
 		onpointercancel={up}
 	>
-		<div class="grid"></div>
+		<div class="grid" class:hidden={straightening}></div>
+		<div class="fine" class:show={straightening}></div>
 		{#each handles as h (h)}
 			<div
 				class="handle {h}"
@@ -150,7 +154,23 @@
 			linear-gradient(180deg, transparent calc(33.33% - 0.5px), rgba(255, 255, 255, 0.5) calc(33.33% - 0.5px), rgba(255, 255, 255, 0.5) calc(33.33% + 0.5px), transparent calc(33.33% + 0.5px), transparent calc(66.66% - 0.5px), rgba(255, 255, 255, 0.5) calc(66.66% - 0.5px), rgba(255, 255, 255, 0.5) calc(66.66% + 0.5px), transparent calc(66.66% + 0.5px));
 		pointer-events: none;
 	}
-	.box.dragging .grid {
+	.box.dragging .grid:not(.hidden) {
+		opacity: 1;
+	}
+	/* dense grid for lining up horizons/verticals while straightening */
+	.fine {
+		position: absolute;
+		inset: 0;
+		opacity: 0;
+		transition: opacity 0.15s;
+		background-image:
+			linear-gradient(90deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px),
+			linear-gradient(180deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px);
+		background-size: calc(100% / 8) calc(100% / 8);
+		background-position: -0.5px -0.5px;
+		pointer-events: none;
+	}
+	.fine.show {
 		opacity: 1;
 	}
 	.handle {
