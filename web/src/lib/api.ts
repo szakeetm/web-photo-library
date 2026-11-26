@@ -60,6 +60,27 @@ export interface CatalogAsset {
 
 /** A date change for several photos: the instant moves by `shift` seconds; with `tzOffset` they get
  * that time zone, keeping their wall-clock time (`keepWallClock`) or their instant. */
+/** Photos that look like the same picture ('same') or nearly so ('similar': bursts, crops). */
+export interface DuplicateGroup {
+	key: string;
+	kind: 'same' | 'similar';
+	items: DuplicateItem[];
+}
+
+export interface DuplicateItem {
+	id: string;
+	w: number;
+	h: number;
+	t: string;
+	tz: number | null;
+	bytes: number;
+	mime: string;
+	path: string;
+	root: 'library' | 'uploads';
+	fav: boolean;
+	albums: number;
+}
+
 export interface DateChange {
 	shift: number;
 	/** ISO instant: all photos get this time (instead of a shift) */
@@ -217,6 +238,8 @@ export interface AssetDetail {
 	place: CatalogPlace | null;
 	/** Things recognised in the photo, most confident first. */
 	objects?: ObjectTag[];
+	/** Text recognised in the photo. */
+	text?: string | null;
 }
 
 export interface ObjectTag {
@@ -446,6 +469,11 @@ export const api = {
 	trash: () => call<TrashItem[]>('/api/trash'),
 	/** Recognised objects, most common first. */
 	objects: () => call<ObjectLabel[]>('/api/objects'),
+	duplicates: () => call<DuplicateGroup[]>('/api/duplicates'),
+	dismissDuplicates: (key: string) => call<void>('/api/duplicates/dismiss', { method: 'POST', body: JSON.stringify({ key }) }),
+	/** The kept photo gets the others' albums and favourite (call before removing them). */
+	mergeDuplicates: (keep: string, others: string[]) =>
+		call<void>('/api/duplicates/merge', { method: 'POST', body: JSON.stringify({ keep, others }) }),
 	objectAssets: (id: number) => call<{ label: ObjectTag; ids: string[] }>(`/api/objects/${id}`),
 	/** Shows a photo/video (selected) or a folder in the Finder: only from a browser on the server's Mac. */
 	reveal: (what: { asset: string } | { folder: number } | { place: 'uploads' | 'trash' }) =>

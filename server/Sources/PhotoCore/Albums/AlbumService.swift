@@ -202,7 +202,8 @@ public final class AlbumService: Sendable {
 
     // MARK: Search
 
-    /// Photos matching every word (prefix match) in file names, folder paths, descriptions and album titles.
+    /// Photos matching every word (prefix match) in file names, folder paths, descriptions, album titles,
+    /// places, people, recognised objects and text in the photos.
     public func search(_ query: String) throws -> [String] {
         // Split on anything that isn't a letter or digit, exactly like the FTS tokenizer does,
         // so "IMG_1234" or "louvre.jpg" become separate prefix terms (and can't inject syntax).
@@ -237,7 +238,8 @@ public final class AlbumService: Sendable {
                        COALESCE((SELECT group_concat(DISTINCT pe.name) FROM face fc JOIN person pe ON pe.id = fc.personId
                                   WHERE fc.assetId = a.id AND pe.hidden = 0 AND pe.name IS NOT NULL), '') || ' ' ||
                        COALESCE((SELECT group_concat(replace(l.name, '_', ' '), ' ') FROM asset_object ao
-                                  JOIN object_label l ON l.id = ao.labelId WHERE ao.assetId = a.id), '')
+                                  JOIN object_label l ON l.id = ao.labelId WHERE ao.assetId = a.id), '') || ' ' ||
+                       COALESCE((SELECT t.text FROM asset_text t WHERE t.assetId = a.id), '')
                 FROM asset a WHERE a.missingSince IS NULL
                 """)
         }

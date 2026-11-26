@@ -42,7 +42,7 @@
 <TitleBar title="Search" subtitle={searched ? `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'}` : undefined} />
 <div class="box">
 	<!-- svelte-ignore a11y_autofocus -->
-	<input type="search" placeholder="File names, folders, albums, descriptions" bind:value={q} autofocus
+	<input type="search" placeholder="Places, people, things, text in photos, file names" bind:value={q} autofocus
 		autocapitalize="off" spellcheck="false" enterkeyhint="search" />
 </div>
 {#if searched && ids.length === 0}

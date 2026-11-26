@@ -477,16 +477,17 @@
 		<h3>Objects</h3>
 		<div class="row">
 			<div class="label">
-				<div>Object recognition</div>
+				<div>Objects, text and duplicates</div>
 				<div class="muted small">
-					Recognises things in photos and videos (dogs, beaches, food…) with the classifier built into macOS, on the
-					Neural Engine. Nothing to download; nothing leaves the Mac. New photos are done after each scan.
+					Recognises things in photos and videos (dogs, beaches, food…), reads text in photos for search, and
+					fingerprints photos to find duplicates — all with what's built into macOS, on the Neural Engine. Nothing
+					to download; nothing leaves the Mac. New photos are done after each scan.
 				</div>
 			</div>
 		</div>
 		<div class="row actions">
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('objects')}>Find objects</button>
-			<span class="muted small">Browse them in Collections → Objects, or tap one in a photo's info.</span>
+			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('objects')}>Analyse photos</button>
+			<span class="muted small">Browse them in Collections (Objects, Duplicates), or search for text.</span>
 		</div>
 	</section>
 

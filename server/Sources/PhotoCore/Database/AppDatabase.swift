@@ -263,6 +263,20 @@ public final class AppDatabase: Sendable {
                 UPDATE asset SET addedAt = takenAt WHERE addedAt IS NULL;
                 """)
         }
+        m.registerMigration("v12-text-duplicates") { db in
+            // Text recognised in photos (searchable) and image fingerprints for finding duplicates.
+            try db.execute(sql: """
+                CREATE TABLE asset_text (assetId TEXT PRIMARY KEY, text TEXT NOT NULL);
+                CREATE TABLE asset_print (
+                    assetId TEXT PRIMARY KEY,
+                    dhash INTEGER NOT NULL,
+                    print BLOB NOT NULL);
+                CREATE INDEX asset_print_dhash ON asset_print(dhash);
+                CREATE TABLE duplicate_dismiss (groupKey TEXT PRIMARY KEY, createdAt DATETIME NOT NULL);
+                ALTER TABLE asset ADD COLUMN textVersion INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE asset ADD COLUMN printVersion INTEGER NOT NULL DEFAULT 0;
+                """)
+        }
         return m
     }
 }

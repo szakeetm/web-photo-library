@@ -2,7 +2,7 @@
 	import { inFolders } from '#lib/assetIndex.ts';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type ObjectLabel } from '#lib/api.ts';
+	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type DuplicateGroup, type ObjectLabel } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
@@ -13,8 +13,11 @@
 	/** Recognised objects, most common first (the top ones are shown here). */
 	let objects = $state<ObjectLabel[]>([]);
 	const TOP_OBJECTS = 11;
+	/** Duplicate groups (server only). */
+	let duplicates = $state<DuplicateGroup[]>([]);
 	onMount(() => {
 		if (net.online) api.objects().then((l) => (objects = l)).catch(() => {});
+		if (net.online) api.duplicates().then((g) => (duplicates = g)).catch(() => {});
 	});
 
 	const present = (al: CatalogAlbum) => al.assetIds.filter((i) => app.byId.has(i));
@@ -81,7 +84,7 @@
 	{/each}
 </div>
 
-{#if videoCount || liveCount || mediaKinds.some((k) => k.list.length)}
+{#if videoCount || liveCount || duplicates.length || mediaKinds.some((k) => k.list.length)}
 	<h2 class="section">Media Types</h2>
 	<div class="cards">
 		{#if videoCount}{@render card('/videos', 'Videos', videoCount, videoCover, 'video')}{/if}
@@ -89,6 +92,7 @@
 		{#each mediaKinds as k (k.key)}
 			{#if k.list.length}{@render card(`/media/${k.key}`, k.title, k.list.length, k.list.at(-1)?.id ?? null, 'photos')}{/if}
 		{/each}
+		{#if duplicates.length}{@render card('/duplicates', 'Duplicates', duplicates.length, duplicates[0].items[0]?.id ?? null, 'photos')}{/if}
 	</div>
 {/if}
 

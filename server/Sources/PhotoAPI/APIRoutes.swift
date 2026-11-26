@@ -77,6 +77,8 @@ struct APIRoutes {
     struct AlbumMembers: Decodable { var add: [String]?; var remove: [String]?; var order: [String]? }
     struct FavoriteBody: Decodable { let ids: [String]; let favorite: Bool }
     struct DateChangeBody: Decodable { let ids: [String]; let change: DateChange }
+    struct DismissBody: Decodable { let key: String }
+    struct KeepDuplicateBody: Decodable { let keep: String; let others: [String] }
     struct DeleteBody: Decodable { let ids: [String] }
     /// What to show in the Finder: a photo or video, a folder, or the uploads folder / its Trash.
     struct RevealBody: Decodable { let asset: String?; let folder: Int64?; let place: String? }
@@ -464,6 +466,21 @@ struct APIRoutes {
         }
 
         // Objects recognised in photos: the labels (most common first) and a label's photos and videos.
+        // Duplicates (photos that look the same, or nearly)
+        let duplicates = DuplicateService(db: services.db)
+        api.get("duplicates") { _, _ in try json(try await blocking { try duplicates.groups() }) }
+        api.post("duplicates/dismiss") { req, ctx in
+            guard let body = try? await req.decode(as: DismissBody.self, context: ctx), body.key.count < 64 else { throw HTTPError(.badRequest) }
+            try await blocking { try duplicates.dismiss(key: body.key) }
+            return Response(status: .noContent)
+        }
+        api.post("duplicates/merge") { req, ctx in
+            guard let body = try? await req.decode(as: KeepDuplicateBody.self, context: ctx), validIds([body.keep] + body.others) else {
+                throw HTTPError(.badRequest)
+            }
+            try await blocking { try duplicates.merge(keep: body.keep, others: body.others) }
+            return Response(status: .noContent)
+        }
         api.get("objects") { _, _ in try json(try await blocking { try ObjectService(db: services.db).labels() }) }
         api.get("objects/:label") { _, ctx in
             guard let label = ctx.parameters.get("label", as: Int64.self),

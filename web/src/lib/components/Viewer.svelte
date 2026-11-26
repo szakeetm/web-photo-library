@@ -1013,6 +1013,13 @@
 					{/each}
 				{/if}
 			</dl>
+			{#if detail?.text}
+				<details class="text">
+					<summary>Text in photo</summary>
+					<pre>{detail.text}</pre>
+					<button class="link adjust" onclick={() => navigator.clipboard?.writeText(detail?.text ?? '')}>Copy</button>
+				</details>
+			{/if}
 			{#if detail?.objects?.length}
 				<!-- recognised objects: each opens all photos and videos showing it -->
 				<div class="objects" aria-label="Recognised objects">
@@ -1368,5 +1375,21 @@
 		color: var(--accent);
 		cursor: pointer;
 		font: inherit;
+	}
+	.text {
+		margin: 10px 0 0;
+		font-size: 14px;
+	}
+	.text summary {
+		cursor: pointer;
+		color: var(--text-secondary, gray);
+	}
+	.text pre {
+		white-space: pre-wrap;
+		font: inherit;
+		margin: 6px 0;
+		max-height: 200px;
+		overflow: auto;
+		user-select: text;
 	}
 </style>
