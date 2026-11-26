@@ -9,6 +9,7 @@ import { immutable, assets } from '$app/manifest';
 import { version } from '$app/env';
 import { IMAGE_CACHE, imageKey, isCacheableImage, recordImage, touchImages, evictToLimit, getLimit } from '#lib/imageCache.ts';
 import { isStreamedMedia } from '#lib/video.ts';
+import { db } from '#lib/db.ts';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 const SHELL = `shell-${version}`;
@@ -35,8 +36,17 @@ sw.addEventListener('activate', (event) => {
 	);
 });
 
+// Local mode (the app runs on the server's Mac): images come straight from the server's disk, so
+// none are cached here. The page sends changes; the last value is kept in IndexedDB for restarts.
+let localMode = false;
+db()
+	.then((d) => d.get('meta', 'localMode'))
+	.then((v) => (localMode = v === true))
+	.catch(() => {});
+
 sw.addEventListener('message', (event) => {
 	if (event.data === 'skipWaiting') sw.skipWaiting();
+	else if (event.data?.type === 'localMode') localMode = event.data.on === true;
 });
 
 // Last-access updates are batched: grids request hundreds of thumbnails at once.
@@ -136,7 +146,7 @@ sw.addEventListener('fetch', (event) => {
 		event.respondWith(navigate(request));
 	} else if (isCacheableImage(url.pathname)) {
 		// Downloads made by the page manage the cache themselves.
-		if (request.headers.has('X-Client-Cache')) return;
+		if (request.headers.has('X-Client-Cache') || localMode) return;
 		event.respondWith(image(request));
 	} else if (shellSet.has(url.pathname) && url.pathname !== '/') {
 		event.respondWith(caches.match(request).then((hit) => hit ?? fetch(request)));

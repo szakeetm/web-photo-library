@@ -66,8 +66,10 @@
 				<button class="icon-btn" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}><Icon name="more" /></button>
 				{#if menu}
 					<div class="menu" role="menu">
-						<button role="menuitem" disabled={!pin && !net.online} onclick={() => { menu = false; toggleDownload(); }}
-							>{pin ? 'Remove Download' : 'Download to This Device'}</button>
+						{#if !app.local || pin}
+							<button role="menuitem" disabled={!pin && !net.online} onclick={() => { menu = false; toggleDownload(); }}
+								>{pin ? 'Remove Download' : 'Download to This Device'}</button>
+						{/if}
 						<button role="menuitem" disabled={!net.online} onclick={() => { menu = false; rename(); }}>Rename</button>
 						<button role="menuitem" class="danger" disabled={!net.online} onclick={() => { menu = false; remove(); }}>Delete Album</button>
 					</div>

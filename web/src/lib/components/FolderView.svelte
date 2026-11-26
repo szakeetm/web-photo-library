@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { reveal } from '#lib/reveal.ts';
 	// Folder tree of one root (the read-only library or the uploads folder).
 	import { thumbUrl, type FolderNode } from '#lib/api.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
@@ -91,14 +92,18 @@
 				{selection.active ? 'Cancel' : 'Select'}
 			</button>
 		{/if}
-		{#if folder && totalPhotos}
+		{#if folder && (totalPhotos || app.local)}
 			<div class="menuwrap">
 				<button class="icon-btn" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}><Icon name="more" /></button>
 				{#if menu}
 					<div class="menu" role="menu">
+						{#if app.local}
+							<button role="menuitem" onclick={() => { menu = false; reveal({ folder: folder.id }); }}>Reveal in Finder</button>
+						{/if}
 						{#if pin && !ownPin}
 							<button role="menuitem" disabled>Downloaded with “{pin.title}”</button>
-						{:else}
+						{:else if !app.local || ownPin}
+							<!-- local mode: the photos are on this Mac already, offline downloads make no sense -->
 							<button role="menuitem" disabled={!ownPin && !net.online} onclick={() => { menu = false; toggleDownload(); }}
 								>{ownPin ? 'Remove Download' : 'Download to This Device'}</button>
 						{/if}

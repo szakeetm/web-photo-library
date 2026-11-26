@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { reveal } from '#lib/reveal.ts';
 	// Full-screen photo viewer: swipe/arrow navigation, swipe-down/Esc to close,
 	// pinch / double-tap / ctrl+wheel zoom, info panel, download original. Videos play over their
 	// poster (VideoPlayer) and are never zoomed or edited. Live Photos play their motion while the photo
@@ -157,7 +158,8 @@
 
 	$effect(() => {
 		// The original would hide an edit: deep zoom only swaps in the original for unedited photos.
-		if (scale >= 1.6 && originalShowable && asset?.ev === 0 && !isVideo) fullRes = true;
+		// Local mode: the original comes off this Mac's disk, so it is loaded at the first zoom step.
+		if (scale >= (app.local ? 1.05 : 1.6) && originalShowable && asset?.ev === 0 && !isVideo) fullRes = true;
 	});
 
 	// The original is downloaded and decoded off-screen while the zoomed preview stays up; it is only
@@ -808,6 +810,10 @@
 				><Icon name="info" /></button
 			>
 			{#if net.online}
+				{#if app.local && asset}
+					<button class="icon-btn" onclick={() => reveal({ asset: asset.id })} title="Reveal in Finder" aria-label="Reveal in Finder"
+						><Icon name="finder" /></button>
+				{/if}
 				<button class="btn" onclick={() => leave((id) => restoreFromTrash([id]))}>Restore</button>
 				<button class="icon-btn danger" onclick={deletePermanently} title="Delete permanently" aria-label="Delete permanently"
 					><Icon name="trash" /></button>
@@ -823,6 +829,10 @@
 				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
 					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
 					aria-label="Edit"><Icon name="edit" /></button>
+			{/if}
+			{#if app.local && asset}
+				<button class="icon-btn" onclick={() => reveal({ asset: asset.id })} title="Reveal in Finder" aria-label="Reveal in Finder"
+					><Icon name="finder" /></button>
 			{/if}
 			<button class="icon-btn" onclick={() => (exporting = true)} title="Download / share" aria-label="Download"><Icon name="download" /></button>
 			{#if asset && app.isUpload(asset.id)}

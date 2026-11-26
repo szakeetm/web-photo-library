@@ -88,6 +88,8 @@ export interface ServerInfo {
 	libraryConfigured: boolean;
 	uploadsConfigured: boolean;
 	mapStyleURL: string;
+	/** This browser runs on the server's own Mac. */
+	local?: boolean;
 	commit: string | null;
 	commitDate: string | null;
 	dirty: boolean;
@@ -302,7 +304,7 @@ export const originalUrl = (id: string) => `/api/assets/${id}/original`;
 export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
 /** Full-resolution render of the current edit (made on demand on the Mac). */
 export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
-export const videoUrl = (id: string) => `/api/assets/${id}/video`;
+export const videoUrl = (id: string, original = false) => `/api/assets/${id}/video${original ? '?original=1' : ''}`;
 export const videoStatusUrl = (id: string) => `/api/assets/${id}/video/status`;
 /** The converted copy of a video that needed one, as a download. */
 export const videoDownloadUrl = (id: string) => `/api/assets/${id}/video/download`;
@@ -397,6 +399,9 @@ export const api = {
 	deleteUploads: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/uploads/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	trash: () => call<TrashItem[]>('/api/trash'),
+	/** Shows a photo/video (selected) or a folder in the Finder: only from a browser on the server's Mac. */
+	reveal: (what: { asset: string } | { folder: number } | { place: 'uploads' | 'trash' }) =>
+		call<void>('/api/reveal', { method: 'POST', body: JSON.stringify(what) }),
 	restoreTrash: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/trash/restore', { method: 'POST', body: JSON.stringify({ ids }) }),
 	/** Deletes Trash items for good (their files are deleted from disk); all of them without ids. */

@@ -50,6 +50,8 @@ struct APIRoutes {
         let ok: Bool; let version: String; let apiVersion: Int; let uploadsConfigured: Bool
         let webVersion: String?; let libraryConfigured: Bool
         let mapStyleURL: String
+        /// The request comes from a browser on the server's own Mac.
+        let local: Bool
         let commit: String?; let commitDate: String?; let dirty: Bool
     }
     struct SettingsBody: Codable {
@@ -75,6 +77,8 @@ struct APIRoutes {
     struct AlbumMembers: Decodable { var add: [String]?; var remove: [String]?; var order: [String]? }
     struct FavoriteBody: Decodable { let ids: [String]; let favorite: Bool }
     struct DeleteBody: Decodable { let ids: [String] }
+    /// What to show in the Finder: a photo or video, a folder, or the uploads folder / its Trash.
+    struct RevealBody: Decodable { let asset: String?; let folder: Int64?; let place: String? }
     struct TrashBody: Decodable { let ids: [String]? }
     struct DeleteResponse: Encodable { let deleted: [String] }
     struct SearchResult: Encodable { let ids: [String] }
@@ -88,12 +92,13 @@ struct APIRoutes {
     func register(on router: Router<BasicRequestContext>) {
         let api = router.group("api")
 
-        api.get("health") { _, _ in
+        api.get("health") { req, _ in
             try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion,
                             uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil,
                             mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle,
+                            local: LocalClient.isLocal(req),
                             commit: BuildInfo.current.commit, commitDate: BuildInfo.current.commitDate, dirty: BuildInfo.current.dirty))
         }
 
@@ -436,6 +441,31 @@ struct APIRoutes {
             guard validIds(body.ids ?? []) else { throw HTTPError(.badRequest) }
             guard let root = try uploadsRoot() else { return errorResponse(.conflict, UploadError.notConfigured.description) }
             return try await trashCall({ try UploadTrash.deleteForever(ids: body.ids, db: db, uploadsRoot: root) }, purged: true)
+        }
+
+        // Reveal in Finder: only for a browser on this Mac (the Finder opens on this Mac's screen).
+        api.post("reveal") { req, ctx in
+            guard LocalClient.isLocal(req) else { return errorResponse(.forbidden, "Reveal in Finder works only on the Mac running the server.") }
+            let body = try await req.decode(as: RevealBody.self, context: ctx)
+            let roots = try services.catalog.rootURLs()
+            let target: (URL, Bool)?
+            if let id = body.asset {
+                guard id.count == 64, id.allSatisfy(\.isHexDigit) else { throw HTTPError(.badRequest) }
+                target = try services.catalog.fileURL(id: id).map { ($0, true) }
+            } else if let fid = body.folder {
+                target = try services.catalog.folderURL(id: fid).map { ($0, false) }
+            } else if body.place == "uploads" {
+                target = roots[Roots.uploads].map { ($0, false) }
+            } else if body.place == "trash" {
+                target = try roots[Roots.uploads].map { up in
+                    let dir = up.appendingPathComponent(UploadTrash.dirName, isDirectory: true)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    return (dir, false)
+                }
+            } else { throw HTTPError(.badRequest) }
+            guard let (url, select) = target, FileManager.default.fileExists(atPath: url.path) else { throw HTTPError(.notFound) }
+            try LocalClient.reveal(url, select: select)
+            return Response(status: .noContent)
         }
 
         api.get("assets/:id/original") { req, ctx in

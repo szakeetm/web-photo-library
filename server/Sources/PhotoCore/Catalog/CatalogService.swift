@@ -282,7 +282,21 @@ public final class CatalogService: Sendable {
         return Self.unchanged(try rootURLs()[row.root], row.relPath, size: row.size, mtime: row.mtime)
     }
 
-    private func rootURLs() throws -> [String: URL] {
+    /// Where a photo's (first) file is, also for photos in the uploads Trash.
+    public func fileURL(id: String) throws -> URL? {
+        let bases = try rootURLs()
+        let row = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("root"), Column("relPath")).fetchOne($0) }
+        return row.flatMap { r in bases[r.root].map { $0.appendingPathComponent(r.relPath) } }
+    }
+
+    /// Where a folder is on disk.
+    public func folderURL(id: Int64) throws -> URL? {
+        let bases = try rootURLs()
+        guard let f = try db.writer.read({ try Folder.fetchOne($0, key: id) }) else { return nil }
+        return bases[f.root].map { f.relPath.isEmpty ? $0 : $0.appendingPathComponent(f.relPath) }
+    }
+
+    public func rootURLs() throws -> [String: URL] {
         [
             Roots.library: try settings.get(.libraryPath).map { URL(fileURLWithPath: $0) },
             Roots.uploads: try settings.get(.uploadsPath).map { URL(fileURLWithPath: $0) },

@@ -5,7 +5,7 @@ import { sortByLocalTime } from './dates';
 import { buildIndex } from './assetIndex';
 import { net } from './net.svelte';
 import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
-import type { CatalogMeta } from './db';
+import { db, type CatalogMeta } from './db';
 
 /** Listeners run after every successful sync (e.g. downloaded albums re-check their photos). */
 const afterSync = new Set<() => void>();
@@ -54,6 +54,22 @@ class AppState {
 	}
 	fmt = $state<ImageFmt>('jpeg');
 	loaded = $state(false);
+	/** The server says this browser runs on its own Mac. */
+	serverLocal = $state(false);
+	/** Settings switch for testing: behave like a remote device even on the server's Mac. */
+	forceRemote = $state(typeof localStorage !== 'undefined' && localStorage.getItem('photos.forceRemote') === '1');
+	/**
+	 * Local mode (on the server's Mac): photos and videos come straight from its disk, so the app keeps no
+	 * cache or offline downloads of its own, plays videos from the original and offers Reveal in Finder.
+	 */
+	local = $derived(this.serverLocal && !this.forceRemote);
+
+	setForceRemote(on: boolean) {
+		this.forceRemote = on;
+		if (on) localStorage.setItem('photos.forceRemote', '1');
+		else localStorage.removeItem('photos.forceRemote');
+		syncLocalMode(this.local);
+	}
 	/** The full catalog download in progress (first install, or after a reset), else null. */
 	download = $state<DownloadProgress | null>(null);
 	error = $state<string | null>(null);
@@ -125,6 +141,10 @@ class AppState {
 			this.server = health;
 			this.libraryConfigured = health.libraryConfigured;
 			this.uploadsConfigured = health.uploadsConfigured;
+			if (this.serverLocal !== (health.local === true)) {
+				this.serverLocal = health.local === true;
+				syncLocalMode(this.local);
+			}
 			if (health.apiVersion !== CLIENT_API_VERSION) {
 				this.updateRequired = true;
 				return;
@@ -253,6 +273,14 @@ export async function createAlbum(title: string, ids: string[] = []) {
 	const album = await api.createAlbum(title, ids);
 	await app.reload();
 	return album;
+}
+
+/** Tells the service worker (which caches images) whether local mode is on; it remembers it in IndexedDB. */
+function syncLocalMode(on: boolean) {
+	db()
+		.then((d) => d.put('meta', on, 'localMode'))
+		.catch(() => {});
+	navigator.serviceWorker?.controller?.postMessage({ type: 'localMode', on });
 }
 
 export const app = new AppState();

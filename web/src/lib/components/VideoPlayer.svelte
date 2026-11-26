@@ -10,6 +10,7 @@
 	// video still pages or closes.
 	import { tick, untrack } from 'svelte';
 	import { api, videoUrl, type CatalogAsset } from '#lib/api.ts';
+	import { app } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { formatDuration } from '#lib/video.ts';
 
@@ -41,7 +42,7 @@
 		const stale = () => my !== gen;
 		let res: Response;
 		try {
-			res = await fetch(videoUrl(id), { headers: { Range: 'bytes=0-1' }, cache: 'no-store' });
+			res = await fetch(videoUrl(id, app.local), { headers: { Range: 'bytes=0-1' }, cache: 'no-store' });
 		} catch {
 			if (stale()) return;
 			phase = 'offline';
@@ -53,7 +54,7 @@
 			res.body?.cancel();
 			starting = true;
 			phase = 'ready';
-			src = videoUrl(id);
+			src = videoUrl(id, app.local); // local mode: the original when browsers can play it
 			await tick();
 			if (stale()) return;
 			play();

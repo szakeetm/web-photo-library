@@ -24,7 +24,10 @@ extension APIRoutes {
                   let asset = try services.catalog.record(id: id), asset.kind == "video"
             else { throw HTTPError(.notFound) }
             let original = try services.catalog.sourceURL(id: id)
-            if asset.servePlan != "preview" {
+            // ?original=1 (local mode): the original whenever browsers can play it, whatever its size
+            let wantsOriginal = req.uri.queryParameters.get("original") == "1"
+            if asset.servePlan != "preview"
+                || (wantsOriginal && original.map { VideoProbe.safariPlayable(codec: asset.videoCodec, ext: $0.pathExtension) } == true) {
                 guard let original else { throw HTTPError(.notFound) }
                 return try await serveOriginal(original, req, ctx)
             }

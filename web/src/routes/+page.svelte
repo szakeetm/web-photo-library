@@ -15,6 +15,9 @@
 
 <TitleBar title="Library" subtitle={app.loaded ? `${app.assets.length.toLocaleString()} photos` : undefined}>
 	{#snippet actions()}
+		{#if app.local}
+			<a class="local-pill" href="/settings" title="This browser runs on the Mac with the library: photos and videos come straight from its disk.">Local mode</a>
+		{/if}
 		<UploadButton />
 		{#if app.assets.length}
 			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>
@@ -38,6 +41,16 @@
 {/if}
 
 <style>
+	.local-pill {
+		align-self: center;
+		padding: 3px 9px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		white-space: nowrap;
+	}
 
 	.empty {
 		text-align: center;

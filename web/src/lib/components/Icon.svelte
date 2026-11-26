@@ -15,6 +15,7 @@
 		right: 'M9 5l7 7-7 7',
 		up: 'M12 19V5 M5 12l7-7 7 7',
 		albumAdd: 'M4 7h12v12H4z M8 3h12v12 M10 10v6 M7 13h6',
+		finder: 'M4 4h16v16H4z M12 4c-1.5 3-2 6-1.5 10H13 M8 9v1.5 M16 9v1.5 M8 16.5c2.5 1.5 5.5 1.5 8 0',
 		server: 'M4 4h16v6H4z M4 14h16v6H4z M8 7h.01 M8 17h.01',
 		device: 'M7 2h10a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z M11 18h2',
 		trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12 M9 7V4h6v3',

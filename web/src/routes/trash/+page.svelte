@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { reveal } from '#lib/reveal.ts';
 	// Deleted uploads, restorable until they are deleted for good (by hand or after TRASH_KEEP_DAYS).
 	import { onMount } from 'svelte';
 	import { TRASH_KEEP_DAYS } from '#lib/api.ts';
@@ -33,6 +34,9 @@
 
 <TitleBar title="Trash" subtitle={String(app.trash.length)}>
 	{#snippet actions()}
+		{#if app.local}
+			<button class="btn" onclick={() => reveal({ place: 'trash' })}>Reveal in Finder</button>
+		{/if}
 		{#if app.trash.length}
 			<button class="btn danger" onclick={empty} disabled={busy || !net.online}>Empty Trash</button>
 			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>

@@ -290,6 +290,27 @@
 		<p class="muted">Only this {installed ? 'app' : 'browser'} on this device. Nothing here changes the server or the library.</p>
 	</div>
 
+	{#if app.serverLocal}
+		<section>
+			<h3>Local mode</h3>
+			<div class="row">
+				<div class="label">
+					<div>Use local mode</div>
+					<div class="muted small">
+						This browser runs on the Mac that hosts the library, so photos and videos are read straight from its disk:
+						nothing is cached or downloaded for offline use here, videos play from the original file when the browser
+						can, zooming loads full resolution right away, and photos and folders can be revealed in the Finder.
+					</div>
+					<div class="muted small">Turn it off to test the app as a remote device (phone, other computer) would see it.</div>
+				</div>
+				<label class="switch">
+					<input type="checkbox" checked={!app.forceRemote} onchange={(e) => app.setForceRemote(!(e.currentTarget as HTMLInputElement).checked)} />
+					<span>{app.local ? 'On' : 'Off'}</span>
+				</label>
+			</div>
+		</section>
+	{/if}
+
 	<section>
 		<h3>Storage</h3>
 		<DeviceStorage />
