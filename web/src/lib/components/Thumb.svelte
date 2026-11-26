@@ -15,7 +15,6 @@
 		size,
 		selected = false,
 		selecting = false,
-		focused = false,
 		onActivate,
 		onLongPress,
 		defer = false
@@ -26,8 +25,6 @@
 		size: number;
 		selected?: boolean;
 		selecting?: boolean;
-		/** the photo last open in the viewer (desktop): Space opens it again */
-		focused?: boolean;
 		onActivate: (id: string, e: MouseEvent) => void;
 		onLongPress?: (id: string) => void;
 		/** Show only the placeholder for now (the grid is flying past); once loaded, an image stays. */
@@ -142,7 +139,6 @@
 	class="thumb"
 	class:selected
 	class:missing
-	class:focused={focused && !selected}
 	data-asset-id={id}
 	style="transform: translate({x}px, {y}px); width: {size}px; height: {size}px; {placeholder
 		? `background-image: url(${placeholder})`
@@ -226,18 +222,12 @@
 		transition: none;
 	}
 	/* selected: a blue frame, like Photos on the Mac */
-	.selected::after,
-	.focused::after {
+	.selected::after {
 		content: '';
 		position: absolute;
 		inset: 0;
 		border: 3px solid var(--accent);
 		pointer-events: none;
-	}
-	/* the photo last open (desktop) is only bookmarked, not selected: a thin outline */
-	.focused::after {
-		border-width: 1.5px;
-		border-color: color-mix(in srgb, var(--accent) 75%, white);
 	}
 	.missing img {
 		visibility: hidden; /* no broken-image glyph */

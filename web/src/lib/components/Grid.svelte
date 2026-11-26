@@ -15,7 +15,6 @@
 		selection,
 		onActivate,
 		onLongPress,
-		focused = null,
 		onFocusMove
 	}: {
 		sections: Section[];
@@ -23,9 +22,7 @@
 		selection?: Selection;
 		onActivate: (id: string, e: MouseEvent) => void;
 		onLongPress?: (id: string) => void;
-		/** the photo last open in the viewer (desktop), framed like a selection */
-		focused?: string | null;
-		/** desktop: the arrow keys move the outline to this photo (Photos on the Mac); unset: no arrow keys */
+		/** desktop: the arrow keys select the photo next to the selected one (Photos on the Mac); unset: no arrow keys */
 		onFocusMove?: (id: string) => void;
 	} = $props();
 
@@ -73,17 +70,19 @@
 		window.scrollTo(0, Math.max(0, containerTop + m.y - TOP_BAR));
 	}
 
-	// Arrow keys move the outlined photo (desktop, not while selecting), scrolling it into view. With
-	// nothing outlined, the first press outlines the top-left photo on screen.
+	// Arrow keys select the photo next to the selected one (desktop; not after Select was pressed),
+	// scrolling it into view. Several selected: from the one clicked last. Nothing selected: the first
+	// press selects the top-left photo on screen.
 	$effect(() => {
 		if (!onFocusMove) return;
 		const onKey = (e: KeyboardEvent) => {
 			const dir = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const)[e.key as 'ArrowLeft'];
-			if (!dir || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || selection?.active) return;
+			if (!dir || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || selection?.explicit) return;
 			if ((e.target as HTMLElement).closest?.('input, select, textarea, [contenteditable]')) return;
 			if (document.querySelector('.viewer, [role=dialog], [role=alertdialog]')) return;
-			const next = focused && layout.blocks.some((b) => b.kind === 'row' && b.items.includes(focused!))
-				? neighbour(layout.blocks, focused, dir)
+			const from = selection?.cursor;
+			const next = from && layout.blocks.some((b) => b.kind === 'row' && b.items.includes(from))
+				? neighbour(layout.blocks, from, dir)
 				: firstOnScreen();
 			e.preventDefault();
 			if (!next) return;
@@ -374,7 +373,6 @@
 					size={layout.tile}
 					selecting={selection?.active ?? false}
 					selected={selection?.ids.has(id) ?? false}
-					focused={id === focused}
 					onActivate={activate}
 					{onLongPress}
 					defer={flinging}

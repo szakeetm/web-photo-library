@@ -17,16 +17,17 @@
 		{
 			title: 'Photos',
 			items: [
-				[[`${mod}click`], 'Select or unselect a photo'],
+				[['Click'], 'Select a photo (double-click opens it)'],
+				[[`${mod}click`], 'Add or remove a photo (the action bar shows from two on)'],
 				[[`${shift}click`], 'Select every photo up to this one'],
 				[[shortcut('A')], 'Select all'],
 				[['L', 'R'], 'Rotate the selected photos left / right'],
-				[['←', '→', '↑', '↓'], 'Move the outline (the photo last open)'],
-				[['Space'], 'Open the outlined photo, or the one selected'],
+				[['←', '→', '↑', '↓'], 'Select the photo next to it'],
+				[['Space'], 'Open the selected photo'],
 				[del, 'Delete (asks first)'],
 				[delNow, 'Delete at once (with Undo)'],
 				[[shortcut('Z')], 'Undo the deletion'],
-				[['Esc'], 'Stop selecting']
+				[['Esc'], 'Clear the selection']
 			]
 		},
 		{

@@ -14,8 +14,16 @@
 		selection,
 		order,
 		albumId,
-		trash = false
-	}: { selection: Selection; order: string[]; albumId?: number; trash?: boolean } = $props();
+		trash = false,
+		hidden = false
+	}: {
+		selection: Selection;
+		order: string[];
+		albumId?: number;
+		trash?: boolean;
+		/** one photo selected on a desktop: no bar, only its keys (⌫, L/R) */
+		hidden?: boolean;
+	} = $props();
 	let picking = $state(false);
 	let dating = $state(false);
 	let busy = $state(false);
@@ -94,6 +102,7 @@
 	}
 </script>
 
+{#if !hidden}
 <div class="bar" role="toolbar" aria-label="Selection">
 	<button class="btn" onclick={() => selection.clear()}>Done</button>
 	<!-- on a phone only the number shows, so every action fits -->
@@ -130,6 +139,8 @@
 		{/if}
 	</div>
 </div>
+
+{/if}
 
 {#if downloading}
 	<MultiExportSheet {ids} onClose={() => (downloading = false)} />

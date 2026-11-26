@@ -4,9 +4,7 @@
 	import { page } from '$app/state';
 	import type { Section } from '#lib/gridLayout.ts';
 	import { applyView, FILTERS, gridView, naturalOrder, SORTS } from '#lib/gridView.svelte.ts';
-	import { app, deletePhotos } from '#lib/state.svelte.ts';
-	import { deleteFlow, deleteKey, deleteQuestion } from '#lib/deleteFlow.svelte.ts';
-	import { net } from '#lib/net.svelte.ts';
+	import { app } from '#lib/state.svelte.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import ActionBar from './ActionBar.svelte';
 	import Grid from './Grid.svelte';
@@ -50,17 +48,26 @@
 	);
 	const open = $derived(page.state.viewer && ids.includes(page.state.viewer) ? page.state.viewer : null);
 
+	// Desktop (Photos on the Mac): a click selects just that photo, a double-click (or Space) opens it,
+	// ⌘/Ctrl-click adds and removes, shift-click selects a range; the action bar shows from two photos on.
+	// Phones: a tap opens the photo; Select or a long press start selecting, and taps add and remove.
+	const desktop = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+
 	function activate(id: string, e: MouseEvent) {
 		if (e.shiftKey) {
-			// a range from the last clicked photo; the first shift-click starts selecting
-			selection.start();
+			// a range from the last clicked photo
+			if (!desktop) selection.start();
 			if (selection.anchor && selection.ids.size) selection.extendTo(ids, id);
 			else selection.toggle(id);
 		} else if (e.metaKey || e.ctrlKey) {
-			selection.start();
+			if (!desktop) selection.start();
 			selection.toggle(id);
 			// unselecting the last one ends selecting
 			if (selection.count === 0) selection.clear();
+		} else if (desktop && !selection.explicit) {
+			if (e.detail >= 2) pushState('', { viewer: id }); // double-click
+			else if (selection.count === 1 && selection.ids.has(id)) selection.clear(); // the only one: nothing selected
+			else selection.only(id);
 		} else if (selection.active) {
 			selection.toggle(id);
 		} else {
@@ -68,48 +75,38 @@
 		}
 	}
 
-	// Desktop: the photo last open in the viewer stays framed in the grid, and Space opens it again
-	// (Photos on the Mac). Phones don't frame it.
-	const desktop = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
-	let focused = $state<string | null>(null);
+	// Desktop: the photo last open in the viewer stays selected (unless Select was pressed), so Space
+	// opens it again and the arrow keys move on from it.
 	let lastOpen: string | null = null;
 	$effect(() => {
 		if (open) lastOpen = open;
 		else if (lastOpen) {
-			if (desktop && ids.includes(lastOpen)) focused = lastOpen;
+			if (desktop && !selection.explicit && ids.includes(lastOpen)) selection.only(lastOpen);
 			lastOpen = null;
 		}
 	});
+	// photos that left this list (deleted, filtered out) leave the selection
 	$effect(() => {
-		if (focused && !ids.includes(focused)) focused = null;
+		const shown = new Set(ids);
+		if ([...selection.ids].some((i) => !shown.has(i))) {
+			const keep = [...selection.ids].filter((i) => shown.has(i));
+			if (keep.length) selection.ids = new Set(keep);
+			else selection.clear();
+		}
 	});
 
 	$effect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (open || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-			// Backspace/Delete on the bookmarked photo (nothing selected; the selection bar handles a selection)
-			const del = deleteKey(e);
-			if (del) {
-				if (trash || selection.active || !focused || !net.online || document.querySelector('[role=dialog], [role=alertdialog]')) return;
-				e.preventDefault();
-				const id = focused;
-				const q = deleteQuestion([id], (i) => app.isUpload(i));
-				deleteFlow
-					.remove([id], q.title, q.message, () => deletePhotos([id]), del === 'now')
-					.then((done) => done && focused === id && (focused = null))
-					.catch((err) => alert((err as Error).message));
-				return;
-			}
 			if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
 				e.preventDefault();
 				selection.selectAll(ids);
-			} else if (e.key === 'Escape' && selection.active) selection.clear();
-			else if (e.key === 'Escape') focused = null;
-			else if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('[role=dialog]')) {
-				// one selected photo, or the framed one; several selected: nothing
-				const target = selection.active ? (selection.count === 1 ? [...selection.ids][0] : null) : focused;
-				if (!target && !(selection.active && selection.count > 1)) return; // nothing framed: Space scrolls
+			} else if (e.key === 'Escape' && (selection.count || selection.explicit)) selection.clear();
+			else if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('[role=dialog], [role=alertdialog]')) {
+				// one selected photo opens; several: nothing; none: Space scrolls the page
+				if (!selection.count) return;
 				e.preventDefault();
+				const target = selection.count === 1 ? selection.cursor : null;
 				if (target && ids.includes(target)) pushState('', { viewer: target });
 			}
 		};
@@ -127,9 +124,10 @@
 		<p class="nomatch muted">Nothing here matches “{filterLabel}”.</p>
 	{/if}
 {/if}
-<Grid sections={filtered} {startAtEnd} {selection} {focused} onFocusMove={desktop ? (id) => (focused = id) : undefined} onActivate={activate} onLongPress={(id) => selection.start(id)} />
-{#if selection.active}
-	<ActionBar {selection} order={ids} {albumId} {trash} />
+<Grid sections={filtered} {startAtEnd} {selection} onFocusMove={desktop ? (id) => selection.only(id) : undefined} onActivate={activate} onLongPress={(id) => selection.start(id)} />
+<!-- one photo selected on a desktop: no bar (open it to act on it), but its keys (⌫, L/R) work -->
+{#if selection.active || selection.count}
+	<ActionBar {selection} order={ids} {albumId} {trash} hidden={!selection.active} />
 {/if}
 {#if open}
 	<Viewer {ids} id={open} onChange={(id) => replaceState('', { viewer: id })} onClose={() => history.back()} {trash} />
