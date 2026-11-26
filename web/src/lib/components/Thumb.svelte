@@ -12,7 +12,8 @@
 		selected = false,
 		selecting = false,
 		onActivate,
-		onLongPress
+		onLongPress,
+		defer = false
 	}: {
 		id: string;
 		x: number;
@@ -22,7 +23,13 @@
 		selecting?: boolean;
 		onActivate: (id: string, e: MouseEvent) => void;
 		onLongPress?: (id: string) => void;
+		/** Show only the placeholder for now (the grid is flying past); once loaded, an image stays. */
+		defer?: boolean;
 	} = $props();
+	let started = $state(false);
+	$effect.pre(() => {
+		if (!defer) started = true;
+	});
 	const asset = $derived(app.lookup(id));
 	let loaded = $state(false);
 	const placeholder = $derived(blurhashUrl(asset?.bh ?? null));
@@ -73,7 +80,7 @@
 	aria-label={asset?.name ?? 'Photo'}
 	aria-pressed={selecting ? selected : undefined}
 >
-	{#if asset}
+	{#if asset && started}
 		<img
 			src={thumbUrl(id, asset.ev, app.fmt)}
 			alt=""

@@ -1,17 +1,16 @@
 <script lang="ts">
-	// Jump to a month: years (newest first) with photo counts; a year opens its months.
+	// Jump to a month: every year (newest first) as a calendar of its 12 months with photo counts;
+	// months without photos are greyed out. Opens at the month being looked at.
 	import { onMount } from 'svelte';
 	import { yearGroups, type MonthMark } from '#lib/timeline.ts';
 
 	let { marks, current, onPick, onClose }: { marks: MonthMark[]; current: MonthMark | null; onPick: (m: MonthMark) => void; onClose: () => void } =
 		$props();
 
-	const years = $derived(yearGroups(marks));
-	let open = $state<number | null>(null);
-	$effect.pre(() => {
-		if (open == null) open = current?.year ?? years[0]?.year ?? null;
-	});
-	const short = (m: MonthMark) => new Date(Date.UTC(2000, m.month - 1, 1)).toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' });
+	const years = $derived(
+		yearGroups(marks).map((y) => ({ ...y, all: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, mark: y.months.find((m) => m.month === i + 1) })) }))
+	);
+	const short = (m: { month: number }) => new Date(Date.UTC(2000, m.month - 1, 1)).toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' });
 
 	let panel: HTMLDivElement;
 	onMount(() => {
@@ -22,9 +21,9 @@
 			}
 		};
 		window.addEventListener('keydown', onKey, true);
-		panel.querySelector<HTMLElement>('.year.open, .year')?.focus();
-		// keep the current year in view
-		panel.querySelector('.year.open')?.scrollIntoView({ block: 'center' });
+		const cur = panel.querySelector<HTMLElement>('.month.current') ?? panel.querySelector<HTMLElement>('.month:not(:disabled)');
+		cur?.scrollIntoView({ block: 'center' });
+		cur?.focus({ preventScroll: true });
 		return () => window.removeEventListener('keydown', onKey, true);
 	});
 </script>
@@ -37,21 +36,22 @@
 	</div>
 	<div class="list">
 		{#each years as y (y.year)}
-			<button class="year" class:open={open === y.year} aria-expanded={open === y.year} onclick={() => (open = open === y.year ? null : y.year)}>
-				<span class="ylabel">{y.year}</span>
-				<span class="count">{y.count.toLocaleString()}</span>
-				<span class="chev">›</span>
-			</button>
-			{#if open === y.year}
+			<section class="year">
+				<h4><span class="ylabel">{y.year}</span><span class="count">{y.count.toLocaleString()}</span></h4>
 				<div class="months">
-					{#each y.months as m (m.key)}
-						<button class="month" class:current={current?.key === m.key} onclick={() => onPick(m)}>
+					{#each y.all as m (m.month)}
+						<button
+							class="month"
+							class:current={m.mark != null && current?.key === m.mark.key}
+							disabled={!m.mark}
+							onclick={() => m.mark && onPick(m.mark)}
+						>
 							<span>{short(m)}</span>
-							<span class="count">{m.count.toLocaleString()}</span>
+							<span class="count">{m.mark ? m.mark.count.toLocaleString() : '–'}</span>
 						</button>
 					{/each}
 				</div>
-			{/if}
+			</section>
 		{/each}
 	</div>
 </div>
@@ -69,7 +69,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		max-height: 75dvh;
+		max-height: 85dvh;
 		display: flex;
 		flex-direction: column;
 		background: var(--bg);
@@ -111,40 +111,26 @@
 		overflow-y: auto;
 		padding: 6px 8px 12px;
 	}
-	.year {
+	.year h4 {
+		position: sticky;
+		top: 0;
+		z-index: 1;
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		gap: 10px;
-		width: 100%;
-		border: none;
-		background: none;
-		padding: 10px 8px;
-		border-radius: 8px;
-		font: inherit;
-		color: var(--fg);
-		cursor: pointer;
-	}
-	.year:hover {
-		background: var(--bg-elevated);
+		margin: 0;
+		padding: 10px 8px 6px;
+		background: var(--bg);
 	}
 	.ylabel {
-		font-size: 18px;
+		font-size: 20px;
 		font-weight: 700;
 	}
 	.count {
 		color: var(--fg-secondary);
 		font-size: 13px;
+		font-weight: 400;
 		font-variant-numeric: tabular-nums;
-	}
-	.year .count {
-		margin-left: auto;
-	}
-	.chev {
-		color: var(--fg-secondary);
-		transition: transform 0.15s;
-	}
-	.year.open .chev {
-		transform: rotate(90deg);
 	}
 	.months {
 		display: grid;
@@ -166,8 +152,14 @@
 		color: var(--fg);
 		cursor: pointer;
 	}
-	.month:hover {
+	.month:hover:not(:disabled) {
 		filter: brightness(0.95);
+	}
+	.month:disabled {
+		background: none;
+		color: var(--fg-secondary);
+		opacity: 0.45;
+		cursor: default;
 	}
 	.month.current {
 		background: var(--accent);

@@ -57,7 +57,9 @@
 		return monthMarks(sections, ys);
 	});
 	const currentMark = $derived(markAt(marks, scrollTop - containerTop + 60));
-	const showScrubber = $derived(marks.length >= 2 && layout.height > viewport * 2.5);
+	// Touch screens keep the native scrollbar alone (the month pill opens the month picker).
+	const touch = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+	const showScrubber = $derived(!touch && marks.length >= 2 && layout.height > viewport * 2.5);
 	let jumping = $state(false);
 
 	function jumpTo(m: MonthMark) {
@@ -72,12 +74,29 @@
 		if (container) containerTop = container.getBoundingClientRect().top + window.scrollY;
 	}
 
+	// While the grid flies past (a fling), thumbnails show their blurred placeholder and load once it
+	// slows down: decoding hundreds of images that are on screen for a frame makes iOS sluggish and
+	// can run the page out of memory.
+	let flinging = $state(false);
+	let lastY = 0;
+	let lastT = 0;
+	let settleTimer: ReturnType<typeof setTimeout> | undefined;
 	let raf = 0;
 	function onScroll() {
 		if (raf) return;
-		raf = requestAnimationFrame(() => {
+		raf = requestAnimationFrame((t) => {
 			raf = 0;
-			scrollTop = window.scrollY;
+			const y = window.scrollY;
+			const speed = lastT ? Math.abs(y - lastY) / Math.max(1, t - lastT) : 0; // px per ms
+			lastY = y;
+			lastT = t;
+			scrollTop = y;
+			if (speed > 3) flinging = true;
+			clearTimeout(settleTimer);
+			settleTimer = setTimeout(() => {
+				flinging = false;
+				lastT = 0;
+			}, 120);
 		});
 	}
 
@@ -156,6 +175,7 @@
 		window.addEventListener('keydown', onKey);
 		return () => {
 			window.removeEventListener('scroll', onScroll);
+			clearTimeout(settleTimer);
 			window.removeEventListener('resize', measure);
 			window.removeEventListener('wheel', onWheel);
 			document.removeEventListener('gesturestart', onGestureStart);
@@ -310,6 +330,7 @@
 					selected={selection?.ids.has(id) ?? false}
 					onActivate={activate}
 					{onLongPress}
+					defer={flinging}
 				/>
 			{/each}
 		{/if}
