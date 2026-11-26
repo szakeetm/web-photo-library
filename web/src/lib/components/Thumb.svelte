@@ -27,6 +27,17 @@
 		defer?: boolean;
 	} = $props();
 	let started = $state(false);
+	/** When the grid drops this thumbnail (scrolled far away), WebKit can keep the decoded bitmap of
+	 *  a detached <img> until garbage collection; pointing it at an empty image frees it now, so a
+	 *  long scroll doesn't pile up memory. */
+	function releaseOnRemove(img: HTMLImageElement) {
+		return {
+			destroy() {
+				img.removeAttribute('srcset');
+				img.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+			}
+		};
+	}
 	$effect.pre(() => {
 		if (!defer) started = true;
 	});
@@ -86,6 +97,7 @@
 			alt=""
 			decoding="async"
 			draggable="false"
+			use:releaseOnRemove
 			class:loaded
 			onload={() => (loaded = true)}
 		/>
