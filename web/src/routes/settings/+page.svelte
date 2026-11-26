@@ -1173,7 +1173,7 @@
 					Starts the server on the Mac again, e.g. when it's stuck. Running jobs carry on afterwards.
 				</div>
 			</div>
-			<button class="btn restart" disabled={restartingServer} onclick={restartServer}
+			<button class="btn danger restart" disabled={restartingServer} onclick={restartServer}
 				>{restartingServer ? 'Restarting…' : 'Restart'}</button
 			>
 		</div>
@@ -1437,8 +1437,6 @@
 		margin-top: 4px;
 	}
 	.btn.restart {
-		background: var(--danger);
-		color: white;
 		flex: none;
 	}
 </style>
