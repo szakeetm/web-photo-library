@@ -154,16 +154,14 @@
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
 		{/if}
-		{#if app.uploadsConfigured || app.trash.length}
-			<a class:sub={app.uploadsConfigured} href="/trash" class:active={exact('/trash')}
-				><Icon name="trash" size={app.uploadsConfigured ? 18 : 20} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
-			>
-		{/if}
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
 		<a href="/objects" class:active={page.url.pathname.startsWith('/objects')}><Icon name="tag" size={20} /> Objects</a>
 		<a href="/duplicates" class:active={exact('/duplicates')}><Icon name="duplicate" size={20} /> Duplicates</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
+		<a href="/trash" class:active={exact('/trash')}
+			><Icon name="trash" size={20} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
+		>
 		<div class="group">Filters</div>
 		{#each filterLinks as l (l.f)}
 			<a href="/" class:active={libraryFilter === l.f} onclick={(e) => showLibrary(l.f, e)}

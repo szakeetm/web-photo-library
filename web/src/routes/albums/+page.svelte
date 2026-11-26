@@ -28,6 +28,7 @@
 	const uploadsRoot = $derived(app.folders.find((f) => f.root === 'uploads' && f.relPath === ''));
 	/** Top folders of every source (the library folder, more folders, Photos libraries, rclone folders). */
 	const sourceRoots = $derived(sources(app.folders).map((s) => s.folder));
+	const trashCover = $derived(app.trash[0]?.asset);
 	const firstIn = (root: RootName) =>
 		app.folders.find((f) => f.root === root && f.coverId)?.coverId ?? null;
 	const rootCount = (root: RootName) => {
@@ -164,10 +165,7 @@
 	{#if uploadsRoot}
 		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}
 	{/if}
-	{#if uploadsRoot || app.trash.length}
-		{@const t = app.trash[0]?.asset}
-		{@render card('/trash', 'Trash', app.trash.length, null, 'trash', t ? thumbUrl(t.id, t.ev, app.fmt) : null)}
-	{/if}
+	{@render card('/trash', 'Trash', app.trash.length, null, 'trash', trashCover ? thumbUrl(trashCover.id, trashCover.ev, app.fmt) : null)}
 </div>
 
 <style>
