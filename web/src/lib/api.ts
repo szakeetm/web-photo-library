@@ -195,7 +195,26 @@ export interface AssetDetail {
 	files: string[];
 	faces: FaceInfo[];
 	place: CatalogPlace | null;
+	/** Things recognised in the photo, most confident first. */
+	objects?: ObjectTag[];
 }
+
+export interface ObjectTag {
+	id: number;
+	/** Vision's identifier, e.g. "sea_lion": show with objectName(). */
+	name: string;
+}
+
+export interface ObjectLabel extends ObjectTag {
+	count: number;
+	coverId: string | null;
+}
+
+/** "sea_lion" → "Sea lion" */
+export const objectName = (name: string) => {
+	const s = name.replace(/_/g, ' ');
+	return s.charAt(0).toUpperCase() + s.slice(1);
+};
 
 export interface Settings {
 	libraryPath: string | null;
@@ -242,7 +261,7 @@ export interface EditHistory {
 	versions: EditVersion[];
 }
 
-export type JobKind = 'detect-changes' | 'reindex' | 'rebuild-caches' | 'purge-missing' | 'import-takeout-albums' | 'faces' | 'recluster';
+export type JobKind = 'detect-changes' | 'reindex' | 'rebuild-caches' | 'purge-missing' | 'import-takeout-albums' | 'faces' | 'recluster' | 'objects';
 
 export class ApiError extends Error {
 	constructor(
@@ -401,6 +420,9 @@ export const api = {
 	deleteUploads: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/uploads/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	trash: () => call<TrashItem[]>('/api/trash'),
+	/** Recognised objects, most common first. */
+	objects: () => call<ObjectLabel[]>('/api/objects'),
+	objectAssets: (id: number) => call<{ label: ObjectTag; ids: string[] }>(`/api/objects/${id}`),
 	/** Shows a photo/video (selected) or a folder in the Finder: only from a browser on the server's Mac. */
 	reveal: (what: { asset: string } | { folder: number } | { place: 'uploads' | 'trash' }) =>
 		call<void>('/api/reveal', { method: 'POST', body: JSON.stringify(what) }),

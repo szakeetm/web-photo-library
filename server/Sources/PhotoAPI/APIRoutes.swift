@@ -443,6 +443,15 @@ struct APIRoutes {
             return try await trashCall({ try UploadTrash.deleteForever(ids: body.ids, db: db, uploadsRoot: root) }, purged: true)
         }
 
+        // Objects recognised in photos: the labels (most common first) and a label's photos and videos.
+        api.get("objects") { _, _ in try json(try await blocking { try ObjectService(db: services.db).labels() }) }
+        api.get("objects/:label") { _, ctx in
+            guard let label = ctx.parameters.get("label", as: Int64.self),
+                  let r = try await blocking({ try ObjectService(db: services.db).assets(labelId: label) }) else { throw HTTPError(.notFound) }
+            struct Body: Encodable { let label: ObjectTag; let ids: [String] }
+            return try json(Body(label: r.label, ids: r.ids))
+        }
+
         // Reveal in Finder: only for a browser on this Mac (the Finder opens on this Mac's screen).
         api.post("reveal") { req, ctx in
             guard LocalClient.isLocal(req) else { return errorResponse(.forbidden, "Reveal in Finder works only on the Mac running the server.") }

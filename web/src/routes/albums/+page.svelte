@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { inFolders } from '#lib/assetIndex.ts';
 	import { goto } from '$app/navigation';
-	import { faceThumbUrl, thumbUrl, type CatalogAlbum } from '#lib/api.ts';
+	import { onMount } from 'svelte';
+	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type ObjectLabel } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 	import { pins, pinProgress, pinStatus } from '#lib/pins.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import type { PinRecord } from '#lib/db.ts';
+
+	/** Recognised objects, most common first (the top ones are shown here). */
+	let objects = $state<ObjectLabel[]>([]);
+	const TOP_OBJECTS = 11;
+	onMount(() => {
+		if (net.online) api.objects().then((l) => (objects = l)).catch(() => {});
+	});
 
 	const present = (al: CatalogAlbum) => al.assetIds.filter((i) => app.byId.has(i));
 	const albums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
@@ -73,6 +81,18 @@
 	<div class="cards">
 		{#if videoCount}{@render card('/videos', 'Videos', videoCount, videoCover, 'video')}{/if}
 		{#if liveCount}{@render card('/live', 'Live Photos', liveCount, liveCover, 'live')}{/if}
+	</div>
+{/if}
+
+{#if objects.length}
+	<h2 class="section">Objects</h2>
+	<div class="cards">
+		{#each objects.slice(0, TOP_OBJECTS) as o (o.id)}
+			{@render card(`/objects/${o.id}`, objectName(o.name), o.count, o.coverId && app.byId.has(o.coverId) ? o.coverId : null, 'search')}
+		{/each}
+		{#if objects.length > TOP_OBJECTS}
+			{@render card('/objects', 'All Objects', objects.length, null, 'albums')}
+		{/if}
 	</div>
 {/if}
 

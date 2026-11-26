@@ -11,6 +11,8 @@ public enum JobKind: String, Sendable, CaseIterable {
     case faces
     /// Re-group faces into people from scratch (unnamed groups only).
     case recluster
+    /// Recognise objects (Vision's classifier) in photos and videos not done yet.
+    case objects
 }
 
 /// Runs library jobs one at a time on a background queue; state is persisted in the `job` table.
@@ -58,7 +60,7 @@ public final class JobRunner: @unchecked Sendable {
     /// Jobs that pick up where they stopped when run again: files already indexed, images already
     /// rendered and photos already scanned for faces are skipped. An interrupted Rebuild caches
     /// continues as Detect changes, which renders whatever is missing (rerunning it would start over).
-    static let resumable: [JobKind] = [.detectChanges, .reindex, .rebuildCaches, .faces]
+    static let resumable: [JobKind] = [.detectChanges, .reindex, .rebuildCaches, .faces, .objects]
     private var interrupted: [JobKind] = []
 
     /// Restarts the jobs a server restart interrupted (call once the server is set up).
@@ -187,7 +189,7 @@ public final class JobRunner: @unchecked Sendable {
             let failures = kind == .detectChanges ? try generateDerivatives(id: id, isCancelled: cancelled) : []
             let placed = try PlaceService(db: db).geocodePending()
             if placed > 0 { notes.append("\(placed) photo\(placed == 1 ? "" : "s") placed on the map.") }
-            if kind == .detectChanges { enqueueFacesIfNeeded() }
+            if kind == .detectChanges { enqueueFacesIfNeeded(); enqueueObjectsIfNeeded() }
             if kind == .detectChanges, let pending = try? AlbumService(db: db, settings: settings).pendingTakeoutAlbums(), pending > 0 {
                 notes.append("\(pending) Google Takeout album\(pending == 1 ? "" : "s") can be imported (Settings → Import Takeout albums).")
             }
@@ -208,6 +210,7 @@ public final class JobRunner: @unchecked Sendable {
                 try d.execute(sql: "DELETE FROM edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM face WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM motion WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
+                try d.execute(sql: "DELETE FROM asset_object WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
                 return ids
             }
@@ -217,6 +220,8 @@ public final class JobRunner: @unchecked Sendable {
             return "Purged \(ids.count) missing photos"
         case .faces:
             return try scanFaces(id: id, isCancelled: cancelled)
+        case .objects:
+            return try scanObjects(id: id, isCancelled: cancelled)
         case .recluster:
             let n = try FaceService(db: db).cluster()
             return "\(n) group\(n == 1 ? "" : "s") of faces found"
@@ -233,6 +238,60 @@ public final class JobRunner: @unchecked Sendable {
               let pending = try? FaceService(db: db).pendingAssets(limit: 1), !pending.isEmpty else { return }
         let queued = recent(limit: 10).contains { $0.kind == JobKind.faces.rawValue && ($0.state == "queued" || $0.state == "running") }
         if !queued { enqueue(.faces) }
+    }
+
+    static let underTests = Bundle.allBundles.contains { $0.bundlePath.hasSuffix(".xctest") }
+
+    /// Queues object recognition when photos are waiting for it.
+    public func enqueueObjectsIfNeeded() {
+        // Not inside the test runner: its many parallel job runners block enough threads that Vision's
+        // own work never gets one (Vision then waits forever). Tests that need objects run the job.
+        guard !Self.underTests else { return }
+        guard let pending = try? ObjectService(db: db).pendingAssets(limit: 1), !pending.isEmpty else { return }
+        let queued = recent(limit: 10).contains { $0.kind == JobKind.objects.rawValue && ($0.state == "queued" || $0.state == "running") }
+        if !queued { enqueue(.objects) }
+    }
+
+    private func scanObjects(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {
+        let objects = ObjectService(db: db)
+        let catalog = CatalogService(db: db, settings: settings)
+        let store = derivatives()
+        let ids = try objects.pendingAssets()
+        let report = progressReporter(id, phase: "objects")
+        let counter = Counter()
+        let found = Counter()
+        // One at a time: Vision schedules the work on the Neural Engine itself, and calling it from
+        // several worker threads at once can deadlock inside Vision.
+        for assetId in ids {
+            if isCancelled() { break }
+            InteractiveWork.yield()
+            autoreleasepool {
+                do {
+                    // the preview (photos) or poster (videos), downscaled: the classifier works at ~360 px
+                    var preview = store.url(id: assetId, kind: .preview, format: .heic)
+                    if !FileManager.default.fileExists(atPath: preview.path) {
+                        guard let src = try catalog.sourceURL(id: assetId) else { return }
+                        if try catalog.kind(id: assetId) == "video" {
+                            preview = try store.ensurePoster(id: assetId, source: src, format: .heic, ffmpeg: ffmpeg).preview
+                        } else {
+                            preview = try store.ensure(id: assetId, source: src, kind: .preview, format: .heic)
+                        }
+                    }
+                    let image = try DerivativeStore.downscaled(source: preview, maxPixel: 512)
+                    let labels = try ObjectService.classify(image)
+                    for _ in labels { _ = found.increment() }
+                    try objects.store(assetId: assetId, labels: labels)
+                } catch {
+                    // unreadable: mark it done so it isn't retried forever
+                    try? objects.store(assetId: assetId, labels: [])
+                }
+            }
+            report(counter.increment(), ids.count)
+        }
+        if isCancelled() { throw ScanError.cancelled }
+        // search covers the labels: let it rebuild its index
+        try db.writer.write { try ChangeLog.record($0, entity: "objects", id: "*", op: "upsert") }
+        return "\(ids.count) photos and videos looked at, \(found.current) objects recognised"
     }
 
     private func scanFaces(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {
@@ -386,6 +445,10 @@ final class Counter: @unchecked Sendable {
     @discardableResult func increment() -> Int {
         lock.lock(); defer { lock.unlock() }
         value += 1
+        return value
+    }
+    var current: Int {
+        lock.lock(); defer { lock.unlock() }
         return value
     }
 }

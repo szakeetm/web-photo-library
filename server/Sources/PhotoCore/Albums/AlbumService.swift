@@ -235,7 +235,9 @@ public final class AlbumService: Sendable {
                                   WHERE aa.assetId = a.id), '') || ' ' ||
                        COALESCE((SELECT p.name || ' ' || COALESCE(p.region, '') || ' ' || p.country FROM place p WHERE p.id = a.placeId), '') || ' ' ||
                        COALESCE((SELECT group_concat(DISTINCT pe.name) FROM face fc JOIN person pe ON pe.id = fc.personId
-                                  WHERE fc.assetId = a.id AND pe.hidden = 0 AND pe.name IS NOT NULL), '')
+                                  WHERE fc.assetId = a.id AND pe.hidden = 0 AND pe.name IS NOT NULL), '') || ' ' ||
+                       COALESCE((SELECT group_concat(replace(l.name, '_', ' '), ' ') FROM asset_object ao
+                                  JOIN object_label l ON l.id = ao.labelId WHERE ao.assetId = a.id), '')
                 FROM asset a WHERE a.missingSince IS NULL
                 """)
         }

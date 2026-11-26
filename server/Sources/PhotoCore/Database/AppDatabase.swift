@@ -225,6 +225,19 @@ public final class AppDatabase: Sendable {
             // Deleted uploads wait here (files untouched) until restored or deleted for good.
             try db.execute(sql: "CREATE TABLE trash (assetId TEXT PRIMARY KEY, trashedAt DATETIME NOT NULL)")
         }
+        m.registerMigration("v9-objects") { db in
+            // Things recognised in photos (Vision's classifier); asset.objectsVersion marks what's done.
+            try db.execute(sql: """
+                CREATE TABLE object_label (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+                CREATE TABLE asset_object (
+                    assetId TEXT NOT NULL,
+                    labelId INTEGER NOT NULL REFERENCES object_label(id) ON DELETE CASCADE,
+                    confidence DOUBLE NOT NULL,
+                    PRIMARY KEY (assetId, labelId));
+                CREATE INDEX asset_object_label ON asset_object(labelId);
+                ALTER TABLE asset ADD COLUMN objectsVersion INTEGER NOT NULL DEFAULT 0;
+                """)
+        }
         return m
     }
 }

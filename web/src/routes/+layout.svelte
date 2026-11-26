@@ -23,7 +23,7 @@
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
 	// Albums, favourites, folders, uploads, people and places all live under Collections on the phone.
-	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash'];
+	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash', '/objects'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'

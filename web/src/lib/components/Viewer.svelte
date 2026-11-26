@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail, TRASH_KEEP_DAYS } from '#lib/api.ts';
+	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -997,6 +997,12 @@
 					{/each}
 				{/if}
 			</dl>
+			{#if detail?.objects?.length}
+				<!-- recognised objects: each opens all photos and videos showing it -->
+				<div class="objects" aria-label="Recognised objects">
+					{#each detail.objects as o (o.id)}<a href="/objects/{o.id}">{objectName(o.name)}</a>{/each}
+				</div>
+			{/if}
 		</aside>
 	{/if}
 	{#if gestureDebug.enabled}<GestureDebug snapshot={debugState} />{/if}
@@ -1249,6 +1255,24 @@
 		.info-close {
 			top: calc(env(safe-area-inset-top) + 56px);
 		}
+	}
+	.objects {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 6px;
+		margin-top: 14px;
+		padding-top: 10px;
+		border-top: 0.5px solid var(--separator);
+	}
+	.objects a {
+		font-size: 12px;
+		padding: 2px 8px;
+		border-radius: 999px;
+		color: var(--fg-secondary);
+		background: rgba(127, 127, 127, 0.12);
+	}
+	.objects a:hover {
+		color: var(--accent);
 	}
 	.info-close {
 		position: absolute;
