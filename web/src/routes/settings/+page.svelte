@@ -546,10 +546,10 @@
 	{/snippet}
 
 	<section>
-		<h3>Folders on this Mac</h3>
+		<h3>Local folders</h3>
 		<div class="row">
 			<div class="label">
-				<div>{settings?.libraryPath ? settings.libraryPath.split('/').pop() : 'Library folder'}</div>
+				<div>Main folder</div>
 				<div class="muted path">{settings?.libraryPath ?? 'Not set'}</div>
 				{#if settings?.libraryPath}
 					<div class="muted small">{settings.libraryFiles.toLocaleString()} photo and video files</div>
@@ -572,8 +572,8 @@
 		<div class="row">
 			<div class="label">
 				<div class="muted small">
-					Folders of photos and videos on the Mac or its drives, read where they are (never changed). The same photo in
-					several folders is shown once.
+					Folders of photos and videos on the Mac or its drives, read where they are (never changed): the main folder, and
+					more next to it. The same photo in several folders is shown once.
 				</div>
 			</div>
 			<button class="btn" disabled={!settings?.libraryPath} onclick={() => (picker = 'folder')}>Add Folder…</button>

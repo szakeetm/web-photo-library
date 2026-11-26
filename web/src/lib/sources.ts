@@ -4,6 +4,9 @@ import type { FolderNode, RootName } from './api.ts';
 
 export type SourceKind = 'library' | 'folder' | 'photos' | 'remote';
 
+/** What the library folder on the Mac is called in the app. */
+export const LOCAL_FOLDERS = 'Local folders';
+
 export interface Source {
 	root: RootName;
 	kind: SourceKind;
@@ -22,8 +25,8 @@ export function kindOf(root: string): SourceKind | null {
 
 export const kindIcon: Record<SourceKind, string> = { library: 'folder', folder: 'folder', photos: 'photos', remote: 'cloud' };
 export const kindLabel: Record<SourceKind, string> = {
-	library: 'Folder on this Mac',
-	folder: 'Folder on this Mac',
+	library: 'On this Mac',
+	folder: 'Local folder',
 	photos: 'Apple Photos library',
 	remote: 'rclone folder'
 };
@@ -37,7 +40,8 @@ export function sources(folders: FolderNode[]): Source[] {
 		if (f.relPath !== '') continue;
 		const kind = kindOf(f.root);
 		if (!kind) continue;
-		out.push({ root: f.root, kind, folder: f, title: f.name || (kind === 'library' ? 'Library folder' : 'Source') });
+		// the library folder on the Mac is "Local folders" (its own name is just where they are)
+		out.push({ root: f.root, kind, folder: f, title: kind === 'library' ? LOCAL_FOLDERS : f.name || 'Source' });
 	}
 	return out.sort((a, b) => order[a.kind] - order[b.kind] || a.title.localeCompare(b.title));
 }

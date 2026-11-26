@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { folderHref } from '#lib/sources.ts';
+	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
@@ -274,7 +274,7 @@
 			.filter((f): f is NonNullable<typeof f> => !!f)
 			.map((f) => {
 				const top = app.folders.find((r) => r.root === f.root && r.relPath === '');
-				const source = f.root === 'uploads' ? 'Uploads' : top?.name || (f.root === 'library' ? 'Library folder' : 'Source');
+				const source = f.root === 'uploads' ? 'Uploads' : f.root === 'library' ? LOCAL_FOLDERS : top?.name || 'Source';
 				// a Photos library is shown as one (its folders are 0…F)
 				if (isPhotosRoot(f.root)) return { id: f.id, href: folderHref(f.root, ''), name: source };
 				return { id: f.id, href: folderHref(f.root, f.relPath), name: f.relPath ? `${source}/${f.relPath}` : source };
