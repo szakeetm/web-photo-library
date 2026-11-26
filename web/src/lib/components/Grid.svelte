@@ -79,10 +79,18 @@
 
 	// While the grid flies past (a fling), thumbnails show their blurred placeholder and load once it
 	// slows down: decoding hundreds of images that are on screen for a frame makes iOS sluggish and
-	// can run the page out of memory.
+	// can run the page out of memory. Thumbnails load again as soon as the grid slows down, not when a
+	// long momentum scroll finally stops. A desktop (mouse/trackpad) has power to spare: it only holds
+	// back at real speed (scrubber drags, hard flings). Decoding is off the main thread either way.
+	const desktopPointer = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+	/** px per ms: hold back above FAST, load again below SLOW (desktop: about a screen per 100 ms;
+	 *  phone: about a screen per half second, so what loads stays on screen a while) */
+	const FAST = desktopPointer ? 9 : 3;
+	const SLOW = desktopPointer ? 5 : 1.5;
 	let flinging = $state(false);
 	let lastY = 0;
 	let lastT = 0;
+	let smooth = 0;
 	let settleTimer: ReturnType<typeof setTimeout> | undefined;
 	let raf = 0;
 	function onScroll() {
@@ -94,12 +102,16 @@
 			lastY = y;
 			lastT = t;
 			scrollTop = y;
-			if (speed > 3) flinging = true;
+			// a few frames' average, so one uneven frame doesn't flip it
+			smooth = smooth * 0.6 + speed * 0.4;
+			if (smooth > FAST) flinging = true;
+			else if (smooth < SLOW) flinging = false;
 			clearTimeout(settleTimer);
 			settleTimer = setTimeout(() => {
 				flinging = false;
 				lastT = 0;
-			}, 120);
+				smooth = 0;
+			}, desktopPointer ? 60 : 120);
 		});
 	}
 
