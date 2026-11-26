@@ -8,7 +8,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
-	import { pins, pinProgress, pinStatus } from '#lib/pins.svelte.ts';
+	import { confirmDownload, pins, pinProgress, pinStatus } from '#lib/pins.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import type { PinRecord } from '#lib/db.ts';
 
@@ -48,7 +48,8 @@
 		{ key: 'screenshots', title: 'Screenshots', list: app.index.screenshots }
 	]);
 
-	// Selecting albums to export several at once (desktop: a phone shares one album at a time).
+	// Selecting albums to delete, download or export several at once. Desktop: buttons in the title
+	// bar; touch screens: a bar at the bottom (in place of the tabs), like a photo selection.
 	/** Phone layout: People, Places, Folders, Duplicates and Trash are tabs of their own. */
 	let phone = $state(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches);
 	onMount(() => {
@@ -92,6 +93,27 @@
 		}
 	}
 
+	/** Every selected album is already downloaded (or downloading): the action removes them. */
+	const allPinned = $derived(picking.size > 0 && [...picking].every((i) => pins.has(i)));
+	/** Downloads the selected albums to this device, or removes their downloads if all are. */
+	async function downloadPicked() {
+		const picked = albums.filter((al) => picking.has(al.id));
+		if (!picked.length) return;
+		if (allPinned) {
+			const what = picked.length === 1 ? `“${picked[0].title}”` : `${picked.length} albums`;
+			if (!confirm(`Remove the download of ${what} from this device?`)) return;
+			stopPicking();
+			for (const al of picked) await pins.remove(al.id);
+			return;
+		}
+		const todo = picked.filter((al) => !pins.has(al.id));
+		const photos = new Set(todo.flatMap(present)).size;
+		const title = todo.length === 1 ? todo[0].title : `${todo.length} albums`;
+		if (!confirmDownload(title, photos)) return;
+		stopPicking();
+		for (const al of todo) await pins.download(al);
+	}
+
 	async function newAlbum() {
 		const title = prompt('New album name');
 		if (!title?.trim()) return;
@@ -130,19 +152,41 @@
 
 <TitleBar title="Collections" subtitle={selecting ? `${picking.size} ${picking.size === 1 ? 'album' : 'albums'} selected` : undefined}>
 	{#snippet actions()}
-		{#if desktop && albums.length && net.online}
+		{#if albums.length && (net.online || Object.keys(pins.records).length) && (desktop || !selecting)}
 			<button class="btn" onclick={() => (selecting ? stopPicking() : (selecting = true))}>{selecting ? 'Cancel' : 'Select'}</button>
 		{/if}
 		{#if selecting}
-			<button class="btn danger" disabled={!picking.size || deletingAlbums} onclick={deletePicked}
-				>{deletingAlbums ? 'Deleting…' : 'Delete'}</button
-			>
-			<button class="btn primary" disabled={!picking.size || deletingAlbums} onclick={() => (exportingAlbums = true)}>Export…</button>
+			{#if desktop}
+				<button class="btn danger" disabled={!picking.size || deletingAlbums || !net.online} onclick={deletePicked}
+					>{deletingAlbums ? 'Deleting…' : 'Delete'}</button
+				>
+				<button class="btn" disabled={!picking.size || deletingAlbums || (!allPinned && !net.online)} onclick={downloadPicked}
+					>{allPinned ? 'Remove Download' : 'Download'}</button
+				>
+				<button class="btn primary" disabled={!picking.size || deletingAlbums || !net.online} onclick={() => (exportingAlbums = true)}>Export…</button>
+			{/if}
 		{:else}
 			<button class="btn" onclick={newAlbum}>New Album</button>
 		{/if}
 	{/snippet}
 </TitleBar>
+{#if selecting && !desktop}
+	<div class="selbar" role="toolbar" aria-label="Album selection">
+		<button class="btn" onclick={stopPicking}>Done</button>
+		<span class="selcount">{picking.size ? `${picking.size} selected` : 'Select albums'}</span>
+		<button class="link" onclick={() => (picking = new Set(albums.map((al) => al.id)))}>All</button>
+		<div class="selactions">
+			<button class="icon-btn" disabled={!picking.size || deletingAlbums || (!allPinned && !net.online)}
+				title={allPinned ? 'Remove download from this device' : 'Download to this device'}
+				aria-label={allPinned ? 'Remove download from this device' : 'Download to this device'}
+				onclick={downloadPicked}><span class:pinned={allPinned}><Icon name="device" /></span></button>
+			<button class="icon-btn" disabled={!picking.size || deletingAlbums || !net.online} title="Export" aria-label="Export"
+				onclick={() => (exportingAlbums = true)}><Icon name="share" /></button>
+			<button class="icon-btn danger" disabled={!picking.size || deletingAlbums || !net.online} title="Delete albums"
+				aria-label="Delete albums" onclick={deletePicked}><Icon name="trash" /></button>
+		</div>
+	</div>
+{/if}
 {#if exportingAlbums}
 	<MultiExportSheet albums={[...picking]} onClose={() => { exportingAlbums = false; stopPicking(); }} />
 {/if}
@@ -200,6 +244,52 @@
 <style>
 
 	.dl {
+		color: var(--accent);
+	}
+	/* touch screens: the album selection's bar, over the tabs (as for a photo selection) */
+	.selbar {
+		position: fixed;
+		z-index: 30;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+		background: var(--bg-elevated);
+		border-top: 0.5px solid var(--separator);
+		min-height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+	}
+	@media (min-width: 768px) {
+		.selbar {
+			left: var(--sidebar-w);
+		}
+	}
+	.selcount {
+		font-weight: 600;
+		font-size: 14px;
+	}
+	.link {
+		border: none;
+		background: none;
+		color: var(--accent);
+		cursor: pointer;
+		padding: 4px;
+	}
+	.selactions {
+		margin-left: auto;
+		display: flex;
+		gap: 2px;
+	}
+	.icon-btn:disabled {
+		opacity: 0.35;
+	}
+	.danger {
+		color: var(--danger);
+	}
+	.pinned {
+		display: flex;
 		color: var(--accent);
 	}
 	.section {

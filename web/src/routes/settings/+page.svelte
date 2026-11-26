@@ -8,6 +8,7 @@
 	import RemotePicker from '#lib/components/RemotePicker.svelte';
 	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import RestoreSheet from '#lib/components/RestoreSheet.svelte';
+	import TakeoutImportSheet from '#lib/components/TakeoutImportSheet.svelte';
 	import { net } from '#lib/net.svelte.ts';
 	import { applyUpdate } from '#lib/sw.ts';
 	import { isIOS } from '#lib/download.ts';
@@ -480,6 +481,8 @@
 		exports: 'Exports'
 	};
 	const cacheLabel = (name: string) => cacheLabels[name] ?? (name === 'other' ? 'Other' : name);
+	/** The Import Takeout albums list is open. */
+	let takeoutOpen = $state(false);
 </script>
 
 <div class="page">
@@ -758,12 +761,12 @@
 			<button class="btn danger" onclick={() => start('purge-missing')}>Purge missing</button>
 		</div>
 		<div class="row actions">
-			<button class="btn" disabled={!hasSources} onclick={() => start('import-takeout-albums')}>Import Takeout albums</button>
+			<button class="btn" disabled={!hasSources} onclick={() => (takeoutOpen = true)}>Import Takeout albums…</button>
 			<span class="muted small"
-				>Turns Google Photos album folders into albums, in every source including rclone ones: folders with a
-				metadata.json (titled from it), and every folder inside Regular_albums or Special_albums. Only runs when you press
-				it; safe to run again.</span
+				>Lists the Google Takeout album folders (with a metadata.json) in every source, rclone ones included, to choose
+				which become albums. Safe to run again.</span
 			>
+			{#if takeoutOpen}<TakeoutImportSheet onClose={() => (takeoutOpen = false)} />{/if}
 		</div>
 		<p class="hint muted">
 			Detect changes picks up new, changed and removed files. Re-index re-reads dates and locations of every photo.

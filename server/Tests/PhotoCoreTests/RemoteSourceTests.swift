@@ -61,21 +61,27 @@ struct RemoteSourceTests {
         #expect(again.unchanged == 2 && again.added == 0 && none.isEmpty, "\(again)")
     }
 
-    @Test func takeoutAlbumsOnARemoteBecomeAlbumsWhenAsked() throws {
+    @Test func takeoutAlbumsOnARemoteAreListedAndTheChosenOnesImported() throws {
         let e = try env()
-        // a Google Photos export sorted into Library / Regular_albums / Special_albums
+        // a Google Photos export: album folders with a metadata.json; others are no albums
         Fixtures.writeJPEG(to: e.remote.appendingPathComponent("Regular_albums/2023-04 Italy/c.jpg"), dateTimeOriginal: "2023:04:08 10:00:00", offset: "+02:00", color: (0, 0, 1))
         try Data(#"{"title":"2023-04-08 Easter trip to Italy"}"#.utf8).write(to: e.remote.appendingPathComponent("Regular_albums/2023-04 Italy/metadata.json"))
-        Fixtures.writeJPEG(to: e.remote.appendingPathComponent("Special_albums/What I eat/d.jpg"), dateTimeOriginal: "2022:01:01 10:00:00", offset: "+02:00", color: (1, 1, 0))
+        Fixtures.writeJPEG(to: e.remote.appendingPathComponent("Special_albums/Archive/d.jpg"), dateTimeOriginal: "2022:01:01 10:00:00", offset: "+02:00", color: (1, 1, 0))
+        try Data(#"{"title":"Archive"}"#.utf8).write(to: e.remote.appendingPathComponent("Special_albums/Archive/metadata.json"))
+        Fixtures.writeJPEG(to: e.remote.appendingPathComponent("Special_albums/What I eat/f.jpg"), dateTimeOriginal: "2022:02:01 10:00:00", offset: "+02:00", color: (0, 1, 1))
         _ = try e.scan(budget: 0)   // originals leave the Mac; the sidecars (metadata.json) stay
         let albums = AlbumService(db: e.db, settings: e.settings, dataDir: e.dataDir)
-        #expect(try albums.pendingTakeoutAlbums() == 2)
+        let found = try albums.takeoutAlbums()
+        #expect(found.map(\.title) == ["2023-04-08 Easter trip to Italy", "Archive"])   // by path; no metadata.json, no album
+        #expect(found.allSatisfy { $0.count == 1 && $0.missing == 1 && $0.albumId == nil })
+        #expect(found[0].path == e.remote.path + "/Regular_albums/2023-04 Italy")
         #expect(try albums.list().isEmpty)   // nothing happens on its own
-        #expect(try albums.importTakeoutAlbums().created == 2)
-        let made = try albums.list()
-        #expect(Set(made.map(\.title)) == ["2023-04-08 Easter trip to Italy", "What I eat"])   // "2021" is no album
-        #expect(made.allSatisfy { $0.count == 1 })
-        #expect(try albums.importTakeoutAlbums().created == 0)
+
+        #expect(try albums.importTakeoutAlbums(keys: [found[1].key]).created == 1)
+        #expect(try albums.list().map(\.title) == ["Archive"])
+        let after = try albums.takeoutAlbums()
+        #expect(after[1].albumId != nil && after[1].missing == 0 && after[0].albumId == nil)
+        #expect(try albums.importTakeoutAlbums(keys: [found[1].key]).created == 0)
     }
 
     @Test func originalsLeaveThisMacAndComeBackWhenNeeded() throws {

@@ -568,6 +568,21 @@ export const originalUrl = (id: string) => `/api/assets/${id}/original`;
 /** The photo's HDR gain map for the editor (204 for SDR photos). */
 export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
 /** Full-resolution render of the current edit (made on demand on the Mac). */
+/** A Google Takeout album folder, for choosing which become albums. */
+export interface TakeoutAlbum {
+	/** "<root>:<relPath>" */
+	key: string;
+	title: string;
+	/** the source's path, then the folder within it */
+	path: string;
+	/** photos and videos in the folder */
+	count: number;
+	/** the album made from it earlier */
+	albumId: number | null;
+	/** photos the album doesn't have yet (all of them when not imported) */
+	missing: number;
+}
+
 export const faceThumbUrl = (faceId: number) => `/api/faces/${faceId}/thumb`;
 /** `h264=1`: this browser can't decode HEVC, so the server sends H.264 (originals or copies it makes). */
 const h264 = (sep: '?' | '&') => (playsHevc ? '' : `${sep}h264=1`);
@@ -695,6 +710,11 @@ export const api = {
 		call<AlbumSummary>('/api/albums', { method: 'POST', body: JSON.stringify({ title, assetIds }) }),
 	updateAlbum: (id: number, patch: { title?: string; coverAssetId?: string }) =>
 		call<AlbumSummary>(`/api/albums/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+	/** Google Takeout album folders (with a metadata.json) in every source. */
+	takeoutAlbums: () => call<TakeoutAlbum[]>('/api/takeout-albums'),
+	/** Makes albums of the chosen Takeout folders (by key). */
+	importTakeoutAlbums: (keys: string[]) =>
+		call<{ created: number; updated: number }>('/api/takeout-albums/import', { method: 'POST', body: JSON.stringify({ keys }) }),
 	deleteAlbum: (id: number) => call<void>(`/api/albums/${id}`, { method: 'DELETE' }),
 	albumAssets: (id: number, change: { add?: string[]; remove?: string[]; order?: string[] }) =>
 		call<AlbumSummary>(`/api/albums/${id}/assets`, { method: 'POST', body: JSON.stringify(change) }),

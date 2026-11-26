@@ -82,6 +82,8 @@ struct APIRoutes {
         let bytes: Int64
         let lastScan: SourceScan?
     }
+    struct TakeoutImport: Decodable { let keys: [String] }
+    struct TakeoutImportResult: Encodable { let created: Int; let updated: Int }
     struct CachePart: Encodable { let name: String; let bytes: Int64 }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
@@ -307,6 +309,13 @@ struct APIRoutes {
 
         // Albums
         api.get("albums") { _, _ in try json(try services.albums.list()) }
+        // Google Takeout album folders, and importing the chosen ones
+        api.get("takeout-albums") { _, _ in try json(try services.albums.takeoutAlbums()) }
+        api.post("takeout-albums/import") { req, ctx in
+            let body = try await req.decode(as: TakeoutImport.self, context: ctx)
+            let r = try services.albums.importTakeoutAlbums(keys: Set(body.keys))
+            return try json(TakeoutImportResult(created: r.created, updated: r.updated))
+        }
         api.post("albums") { req, ctx in
             let body = try await req.decode(as: NewAlbum.self, context: ctx)
             return try albumCall { try json(try services.albums.create(title: body.title, assetIds: body.assetIds ?? [])) }
