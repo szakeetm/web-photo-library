@@ -156,7 +156,7 @@
 <div class="shell" class:with-subtabs={collectionTab != null}>
 	<nav class="sidebar" aria-label="Sections">
 		<div class="brand">
-			<span>Photos</span>
+			<span class="name"><img class="logo" src="/icons/icon-192.png" alt="" width="28" height="28" />Photos</span>
 			<a class="cog" href="/settings" class:active={exact('/settings')} aria-label="Settings" title="Settings"
 				><Icon name="settings" size={20} /></a
 			>
@@ -398,6 +398,23 @@
 			font-weight: 700;
 			font-size: 20px;
 			padding: 6px 4px 14px 10px;
+			/* stays at the top while the sidebar scrolls; the negative margin covers the sidebar's top padding */
+			position: sticky;
+			top: -16px;
+			z-index: 2;
+			margin: -16px -10px 0;
+			padding: 22px 14px 14px 20px;
+			background: var(--bg-elevated);
+		}
+		.brand .name {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+		.brand .logo {
+			width: 28px;
+			height: 28px;
+			border-radius: 7px;
 		}
 		.sidebar .brand .cog {
 			padding: 5px;
