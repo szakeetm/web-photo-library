@@ -70,6 +70,13 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
 - **Search** across file names, folders, descriptions, album titles, people, places, recognised
   objects and **text in photos** (signs, documents, screenshots — read on the Mac with the OCR built
   into macOS; nothing to download).
+- **Sources**: the library folder, more folders on the Mac, Apple Photos libraries (originals read in
+  place, edited photos as Photos renders them, albums imported) and folders on any rclone remote
+  (pCloud…; originals fetched when needed, a size-limited cache on the Mac). The same photo in several
+  sources is shown once.
+- **Backup** (Settings): the database and the uploads to any rclone destination, daily by default;
+  Restore checks the backup's format and the sources first. Format and compatibility rules:
+  [docs/backup-format.md](docs/backup-format.md).
 - **Duplicates** (Collections): copies of the same photo (re-saved, resized, converted); shots
   that are only alike (bursts, crops) aren't listed. Keep one: it gets the others' albums and favourite; uploaded copies
   go to the Trash, library copies are shown in the Finder for you to delete.

@@ -128,6 +128,21 @@ struct BackupTests {
         #expect(throws: BackupError.self) { try e.service.restore(e.remote) }
     }
 
+    @Test func backupFormatsOutsideWhatThisServerRestoresAreRefused() throws {
+        let e = try env()
+        try e.settings.set(.backupDestination, e.remote)
+        try e.service.backup()
+        let url = URL(fileURLWithPath: e.remote + "/manifest.json")
+        var m = try BackupService.decoder.decode(BackupManifest.self, from: Data(contentsOf: url))
+        #expect(m.version == BackupFormat.current)
+        m.version = BackupFormat.current + 1
+        try BackupService.encoder.encode(m).write(to: url)
+        let i = try e.service.inspect(e.remote)
+        #expect(!i.canRestore && i.checks.contains { $0.title == "Version" && $0.detail.contains("newer") })
+        #expect(!BackupFormat.check(BackupFormat.oldestRestorable - 1).ok)
+        #expect(BackupFormat.check(BackupFormat.current).ok)
+    }
+
     @Test func aReportSavedByAnEarlierVersionStillReads() throws {
         let db = try AppDatabase.inMemory()
         let settings = SettingsStore(db: db)

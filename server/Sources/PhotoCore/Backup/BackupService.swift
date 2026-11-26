@@ -40,7 +40,8 @@ public struct BackupSource: Codable, Sendable, Equatable {
 
 /// What a backup holds: written next to it as manifest.json, after the database and uploads.
 public struct BackupManifest: Codable, Sendable, Equatable {
-    public var version = 1
+    /// The backup format (`BackupFormat.current` when written): see docs/backup-format.md.
+    public var version = BackupFormat.current
     public var createdAt: Date
     public var serverVersion: String
     /// The database's applied migrations: a server that doesn't know one of them can't open it.
@@ -52,6 +53,32 @@ public struct BackupManifest: Codable, Sendable, Equatable {
     public var uploadsPath: String?
     public var uploadsFiles: Int
     public var uploadsBytes: Int64
+}
+
+/// Versions of the backup format, and the changes that broke restoring older backups. Documented in
+/// docs/backup-format.md: bump `current` when the layout or the manifest changes; when a change means
+/// older backups can't be restored any more, raise `oldestRestorable` and say why in `breaking`.
+/// (Database changes don't need either: restored databases are migrated forward, and one from a
+/// newer server is refused by its migrations.)
+public enum BackupFormat {
+    /// written by this server
+    public static let current = 1
+    /// the oldest this server restores
+    public static let oldestRestorable = 1
+    /// why backups older than a format can't be restored: format → explanation
+    public static let breaking: [Int: String] = [:]
+
+    /// Whether a backup in `format` can be restored here, and why not.
+    public static func check(_ format: Int) -> (ok: Bool, detail: String) {
+        if format > current {
+            return (false, "Backup format \(format) is newer than this server's (\(current)): update the server first.")
+        }
+        if format < oldestRestorable {
+            let why = breaking.filter { $0.key > format }.sorted { $0.key < $1.key }.map(\.value).joined(separator: " ")
+            return (false, "Backup format \(format) can't be restored by this server (oldest: \(oldestRestorable)). \(why)")
+        }
+        return (true, "Format \(format)")
+    }
 }
 
 /// How a backup went (kept in the settings, shown in Settings).
@@ -380,9 +407,13 @@ public final class BackupService: @unchecked Sendable {
         if let manifest {
             let known = Set(try db.writer.read { try Self.migrations($0) })
             let unknown = manifest.migrations.filter { !known.contains($0) }
-            checks.append(unknown.isEmpty
-                          ? .init(title: "Version", ok: true, detail: "This server can open it.")
-                          : .init(title: "Version", ok: false, detail: BackupError.newerDatabase.description))
+            let format = BackupFormat.check(manifest.version)
+            let schema = manifest.migrations.max() ?? "none"
+            checks.append(!format.ok
+                          ? .init(title: "Version", ok: false, detail: format.detail)
+                          : !unknown.isEmpty
+                          ? .init(title: "Version", ok: false, detail: BackupError.newerDatabase.description)
+                          : .init(title: "Version", ok: true, detail: "\(format.detail), database \(schema): this server can open it."))
             for s in manifest.sources { checks.append(check(s, rclone: rclone)) }
             if manifest.uploadsFiles > 0 || uploads.count > 0 {
                 checks.append(uploadsTarget.map { .init(title: "Uploads", ok: true, detail: "\(uploads.count) files (\(Self.bytes(uploads.bytes))) go into \($0).") }
