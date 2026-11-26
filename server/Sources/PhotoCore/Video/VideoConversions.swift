@@ -199,8 +199,10 @@ public final class VideoConversions: @unchecked Sendable {
 
     // MARK: - Convert all
 
+    /// Also turns off the cleanup of unplayed conversions, which would otherwise delete what this makes.
     public func startAll() {
         guard ffmpeg != nil else { return }
+        try? SettingsStore(db: db).set(.videoCacheDays, nil)
         let ids = ((try? db.writer.read { d in
             try String.fetchAll(d, sql: """
                 SELECT id FROM asset WHERE kind = 'video' AND servePlan = 'preview' AND missingSince IS NULL ORDER BY takenAt DESC

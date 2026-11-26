@@ -493,4 +493,13 @@ import GRDB
         try SettingsStore(db: e.db).set(.videoCacheDays, 7)
         #expect(e.conv.allState().keepDays == 7)
     }
+
+    /// "Convert all" keeps everything it makes: it turns the cleanup off.
+    @Test(.enabled(if: FFmpeg.locate() != nil))
+    func convertAllDisablesCleanup() throws {
+        let e = try env(Fixtures.tempDir())
+        try SettingsStore(db: e.db).set(.videoCacheDays, 1)
+        e.conv.startAll()
+        #expect(e.conv.allState().keepDays == nil)
+    }
 }

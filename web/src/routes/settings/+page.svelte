@@ -505,7 +505,7 @@
 				<div class="row">
 					<div class="label">
 						<div>Delete conversions not played for</div>
-						<div class="muted small">Keeps the server's cache small; a deleted conversion is made again when the video is played.</div>
+						<div class="muted small">Keeps the server's cache small; a deleted conversion is made again when the video is played. Convert all turns this off.</div>
 					</div>
 					<select
 						value={vid.keepDays ?? 0}
