@@ -2,6 +2,7 @@
 	import { inFolders } from '#lib/assetIndex.ts';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { sources } from '#lib/sources.ts';
 	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type DuplicateGroup, type ObjectLabel, type RootName } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
@@ -25,12 +26,8 @@
 	const albums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 	const libraryRoot = $derived(app.folders.find((f) => f.root === 'library' && f.relPath === ''));
 	const uploadsRoot = $derived(app.folders.find((f) => f.root === 'uploads' && f.relPath === ''));
-	/** Top folders of library sources on rclone remotes (named after the source). */
-	const remoteRoots = $derived(
-		app.folders
-			.filter((f) => f.relPath === '' && f.root !== 'library' && f.root !== 'uploads')
-			.sort((a, b) => a.name.localeCompare(b.name))
-	);
+	/** Top folders of every source (the library folder, more folders, Photos libraries, rclone folders). */
+	const sourceRoots = $derived(sources(app.folders).map((s) => s.folder));
 	const firstIn = (root: RootName) =>
 		app.folders.find((f) => f.root === root && f.coverId)?.coverId ?? null;
 	const rootCount = (root: RootName) => {
@@ -161,10 +158,9 @@
 
 <h2 class="section">Folders</h2>
 <div class="cards">
-	{#if libraryRoot}{@render card('/folders', 'Library folders', rootCount('library'), firstIn('library'), 'folder', null, pins.folderPin(libraryRoot))}{/if}
-	{#each remoteRoots as r (r.id)}
-		{@render card(`/sources/${r.root}`, r.name || 'Source', rootCount(r.root), firstIn(r.root), r.root.startsWith('photos-') ? 'photos' : 'folder', null, pins.folderPin(r))}
-	{/each}
+	{#if sourceRoots.length}
+		{@render card('/folders', 'Folders', sourceRoots.reduce((n, r) => n + rootCount(r.root), 0), firstIn(sourceRoots[0].root), 'folder', null, libraryRoot ? pins.folderPin(libraryRoot) : undefined)}
+	{/if}
 	{#if uploadsRoot}
 		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}
 	{/if}

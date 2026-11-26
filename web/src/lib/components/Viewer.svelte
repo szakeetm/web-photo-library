@@ -7,7 +7,8 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { api, isNamedRoot, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
+	import { folderHref } from '#lib/sources.ts';
+	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -272,15 +273,11 @@
 			.map((fid) => app.folders.find((f) => f.id === fid))
 			.filter((f): f is NonNullable<typeof f> => !!f)
 			.map((f) => {
-				const photosLib = isPhotosRoot(f.root);
-				const remote = isNamedRoot(f.root) ? app.folders.find((r) => r.root === f.root && r.relPath === '') : undefined;
+				const top = app.folders.find((r) => r.root === f.root && r.relPath === '');
+				const source = f.root === 'uploads' ? 'Uploads' : top?.name || (f.root === 'library' ? 'Library folder' : 'Source');
 				// a Photos library is shown as one (its folders are 0…F)
-				if (photosLib) return { id: f.id, href: `/sources/${f.root}`, name: remote?.name || 'Photos library' };
-				const base = f.root === 'uploads' ? '/uploads' : remote ? `/sources/${f.root}` : '/folders';
-				const path = f.relPath ? '/' + f.relPath.split('/').map(encodeURIComponent).join('/') : '';
-				const name = f.relPath || (f.root === 'uploads' ? 'Uploads' : remote ? remote.name || 'Source' : 'Library');
-				const prefix = f.root === 'uploads' ? 'Uploads/' : remote ? `${remote.name || 'Source'}/` : '';
-				return { id: f.id, href: base + path, name: f.relPath ? prefix + name : name };
+				if (isPhotosRoot(f.root)) return { id: f.id, href: folderHref(f.root, ''), name: source };
+				return { id: f.id, href: folderHref(f.root, f.relPath), name: f.relPath ? `${source}/${f.relPath}` : source };
 			})
 	);
 	const albumLinks = $derived(asset ? app.albums.filter((al) => al.assetIds.includes(asset.id)) : []);

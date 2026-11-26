@@ -14,7 +14,10 @@
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
 	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
 	import type { LayoutProps } from './$types';
-	import { isPhotosRoot, isRemoteRoot } from '#lib/api.ts';
+	import type { FolderNode } from '#lib/api.ts';
+	import { isFlat, kindIcon, sources } from '#lib/sources.ts';
+	import { sidebarTree } from '#lib/sidebarTree.svelte.ts';
+	import SidebarFolder from '#lib/components/SidebarFolder.svelte';
 
 	let { children }: LayoutProps = $props();
 
@@ -75,11 +78,14 @@
 	});
 
 	/** Sources shown under Folders: more folders on the Mac, Photos libraries, rclone folders. */
-	const sourceRoots = $derived(
-		app.folders
-			.filter((f) => f.relPath === '' && f.root !== 'library' && f.root !== 'uploads')
-			.sort((a, b) => a.name.localeCompare(b.name))
-	);
+	/** Sources (the library folder, more folders on the Mac, Photos libraries, rclone folders) and the folder tree. */
+	const sidebarSources = $derived(sources(app.folders));
+	const childrenOf = $derived.by(() => {
+		const m = new Map<number, FolderNode[]>();
+		for (const f of app.folders) if (f.parentId != null) m.set(f.parentId, [...(m.get(f.parentId) ?? []), f]);
+		for (const l of m.values()) l.sort((a, b) => a.name.localeCompare(b.name));
+		return m;
+	});
 
 	// ---- resizable sidebar (desktop): dragged by its edge, remembered on this device
 	const SIDEBAR_KEY = 'sidebarWidth';
@@ -136,16 +142,15 @@
 
 <div class="shell">
 	<nav class="sidebar" aria-label="Sections">
-		<div class="brand">Photos</div>
+		<div class="brand">
+			<span>Photos</span>
+			<a class="cog" href="/settings" class:active={exact('/settings')} aria-label="Settings" title="Settings"
+				><Icon name="settings" size={20} /></a
+			>
+		</div>
 		<a href="/" class:active={onLibrary && libraryFilter === 'all'} onclick={(e) => showLibrary('all', e)}
 			><Icon name="photos" size={20} /> Library</a
 		>
-		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
-		{#each sourceRoots as r (r.id)}
-			<a class="sub" href="/sources/{r.root}" class:active={page.url.pathname.startsWith(`/sources/${r.root}`)}
-				><Icon name={isPhotosRoot(r.root) ? 'photos' : isRemoteRoot(r.root) ? 'server' : 'folder'} size={18} /> <span>{r.name || 'Source'}</span></a
-			>
-		{/each}
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
 			<a class="sub" href="/trash" class:active={exact('/trash')}
@@ -163,13 +168,34 @@
 				><Icon name={l.icon} size={20} /> {l.label}</a
 			>
 		{/each}
-		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
-		<div class="albumlist">
-			{#each sidebarAlbums as al (al.id)}
-				<a href="/albums/{al.id}" class:active={page.url.pathname === `/albums/${al.id}`}><Icon name="albums" size={18} /> <span>{al.title}</span></a>
-			{/each}
-		</div>
-		<a class="bottom" href="/settings" class:active={exact('/settings')}><Icon name="settings" size={20} /> Settings</a>
+		{#snippet groupHead(group: 'albums' | 'folders', href: string, label: string)}
+			<div class="group">
+				<button
+					class="twisty"
+					class:open={sidebarTree[group]}
+					aria-label={sidebarTree[group] ? `Collapse ${label}` : `Expand ${label}`}
+					aria-expanded={sidebarTree[group]}
+					onclick={() => sidebarTree.toggleGroup(group)}><Icon name="chevron" size={11} /></button
+				>
+				<a class="grouplink" {href} class:active={exact(href)}>{label}</a>
+			</div>
+		{/snippet}
+		{@render groupHead('albums', '/albums', 'Albums')}
+		{#if sidebarTree.albums}
+			<div class="albumlist">
+				{#each sidebarAlbums as al (al.id)}
+					<a href="/albums/{al.id}" class:active={page.url.pathname === `/albums/${al.id}`}><Icon name="albums" size={18} /> <span>{al.title}</span></a>
+				{/each}
+			</div>
+		{/if}
+		{@render groupHead('folders', '/folders', 'Folders')}
+		{#if sidebarTree.folders}
+			<div class="tree">
+				{#each sidebarSources as src (src.root)}
+					<SidebarFolder folder={src.folder} title={src.title} icon={kindIcon[src.kind]} {childrenOf} flat={isFlat(src)} />
+				{/each}
+			</div>
+		{/if}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="resizer"
@@ -311,9 +337,16 @@
 			background: color-mix(in srgb, var(--accent) 35%, transparent);
 		}
 		.brand {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
 			font-weight: 700;
 			font-size: 20px;
-			padding: 6px 10px 14px;
+			padding: 6px 4px 14px 10px;
+		}
+		.sidebar .brand .cog {
+			padding: 5px;
+			border-radius: 8px;
 		}
 		.sidebar a {
 			display: flex;
@@ -344,23 +377,53 @@
 			text-overflow: ellipsis;
 		}
 		.group {
-			margin: 14px 10px 2px;
+			display: flex;
+			align-items: center;
+			margin: 14px 10px 2px 0;
 			font-size: 12px;
 			font-weight: 600;
 			color: var(--fg-secondary);
 		}
+		.group:not(:has(.twisty)) {
+			margin-left: 10px;
+		}
 		.sidebar .grouplink {
 			padding: 0;
 			color: inherit;
+		}
+		.sidebar .grouplink.active {
+			background: none;
+			color: var(--fg);
+		}
+		.twisty {
+			width: 20px;
+			height: 20px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			border: none;
+			background: none;
+			padding: 0;
+			color: var(--fg-secondary);
+			cursor: pointer;
+		}
+		.twisty :global(svg) {
+			transition: transform 0.15s;
+		}
+		.twisty.open :global(svg) {
+			transform: rotate(90deg);
+		}
+		.tree {
+			display: flex;
+			flex-direction: column;
+			gap: 1px;
+			padding-bottom: 12px;
 		}
 		.albumlist {
 			display: flex;
 			flex-direction: column;
 			gap: 2px;
 		}
-		.bottom {
-			margin-top: auto;
-			padding-top: 8px;
-		}
+
 	}
 </style>

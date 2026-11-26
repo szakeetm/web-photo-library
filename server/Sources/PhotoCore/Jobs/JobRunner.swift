@@ -242,6 +242,7 @@ public final class JobRunner: @unchecked Sendable {
                     total.merge(r)
                     if isSource { try? settings.recordScan(SourceScan(root: name, report: r, note: r.errors.first)) }
                     if let f = try LocalFolders.source(root: name, settings) { try scanner.nameRootFolder(f.title) }
+                    if name == Roots.library { try scanner.nameRootFolder(url.lastPathComponent) }
                 } catch ScanError.rootUnreadable(let path) where name == Roots.uploads {
                     notes.append("Uploads folder is not readable (\(path)); its photos were left untouched.")
                 } catch ScanError.rootUnreadable(let path) where LocalFolders.isLocalFolder(name) {
