@@ -24,6 +24,24 @@ import CoreGraphics
         #expect(ImageProbe.probe(url: url).map { max($0.width, $0.height) } == 2048)
     }
 
+    /// ImageIO's thumbnail path returns 1×2048 for some Samsung NX1100 JPEGs: a result with the wrong
+    /// proportions is caught (and the image decoded in full instead).
+    @Test func wrongShapeIsCaught() {
+        #expect(DerivativeStore.sameShape(width: 2048, height: 1365, as: (5472, 3648)))
+        #expect(DerivativeStore.sameShape(width: 1365, height: 2048, as: (3648, 5472)))
+        #expect(DerivativeStore.sameShape(width: 3, height: 512, as: (10, 1800)))      // rounding on a tiny side
+        #expect(!DerivativeStore.sameShape(width: 1, height: 2048, as: (5472, 3648)))
+        #expect(!DerivativeStore.sameShape(width: 1280, height: 1, as: (1280, 720)))
+        #expect(!DerivativeStore.sameShape(width: 2048, height: 1365, as: (3648, 5472))) // turned the wrong way
+    }
+
+    @Test func orientedSourceKeepsShape() throws {
+        let (store, src) = setup(width: 4000, height: 3000, orientation: 6)
+        let url = try store.ensure(id: "abcdef", source: src, kind: .preview, format: .heic)
+        let p = try #require(ImageProbe.probe(url: url))
+        #expect(p.width == 1536 && p.height == 2048)
+    }
+
     @Test func smallSourceNotUpscaled() throws {
         let (store, src) = setup(width: 300, height: 200)
         let url = try store.ensure(id: "abcdef", source: src, kind: .preview, format: .heic)

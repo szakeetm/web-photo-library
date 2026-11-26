@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import CoreImage
 import UniformTypeIdentifiers
 
 public enum DerivativeKind: String, Sendable, CaseIterable {
@@ -196,7 +197,48 @@ public final class DerivativeStore: @unchecked Sendable {
         guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
             throw DerivativeError.unreadableSource(path)
         }
+        if let expected = orientedPixelSize(src), !sameShape(width: img.width, height: img.height, as: expected) {
+            // ImageIO's thumbnail path mis-decodes some files (Samsung NX1100 JPEGs come out 1 pixel wide,
+            // saved as a black preview): decode the whole image instead and scale it here.
+            return try fullyDecoded(src, path: path, maxPixel: maxPixel)
+        }
         return img
+    }
+
+    /// The photo's size as shown (orientation applied), from its properties; nil when they don't say.
+    static func orientedPixelSize(_ src: CGImageSource) -> (width: Int, height: Int)? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue, w > 0, h > 0 else { return nil }
+        let o = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        return (5...8).contains(o) ? (h, w) : (w, h)
+    }
+
+    /// A downscaled image has the photo's proportions (within 5%, rounding of small sizes allowed).
+    static func sameShape(width: Int, height: Int, as expected: (width: Int, height: Int)) -> Bool {
+        guard width > 0, height > 0 else { return false }
+        let tolerance = 0.05 + 2 / Double(min(width, height)) // a pixel of rounding on a small side
+        let ratio = (Double(width) / Double(height)) / (Double(expected.width) / Double(expected.height))
+        return abs(log(ratio)) < tolerance
+    }
+
+    /// The whole image decoded, oriented and scaled to fit `maxPixel` (slower than ImageIO's thumbnail path).
+    private static func fullyDecoded(_ src: CGImageSource, path: String, maxPixel: Int) throws -> CGImage {
+        guard let full = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+            throw DerivativeError.unreadableSource(path)
+        }
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let orientation = (props?[kCGImagePropertyOrientation] as? NSNumber).flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
+        var image = full
+        if orientation != .up {
+            let ci = CIImage(cgImage: full).oriented(orientation)
+            let space = full.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+            guard let cg = GainMap.context.createCGImage(ci, from: ci.extent, format: .RGBA8, colorSpace: space) else {
+                throw DerivativeError.unreadableSource(path)
+            }
+            image = cg
+        }
+        return try downscaled(image: image, maxPixel: maxPixel)
     }
 
     /// Stores an edited render as the version's preview, plus a thumbnail made from it.
