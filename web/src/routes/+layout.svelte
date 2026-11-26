@@ -5,6 +5,7 @@
 	import { page, updated } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import { app } from '#lib/state.svelte.ts';
+	import { gridView, type ViewFilter } from '#lib/gridView.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { pins } from '#lib/pins.svelte.ts';
 	import { applyUpdate, registerServiceWorker } from '#lib/sw.ts';
@@ -31,12 +32,35 @@
 				? albumsSection.some((p) => page.url.pathname.startsWith(p))
 				: page.url.pathname.startsWith(href);
 	const exact = (href: string) => page.url.pathname === href || page.url.pathname.startsWith(href + '/');
-	/** Media types that only show when there are any. */
-	const mediaLinks = $derived([
-		{ href: '/media/selfies', label: 'Selfies', count: app.index.selfies.length },
-		{ href: '/media/portraits', label: 'Portraits', count: app.index.portraits.length },
-		{ href: '/media/screenshots', label: 'Screenshots', count: app.index.screenshots.length }
-	]);
+	/** Desktop sidebar filters: each shows the Library filtered (media types only when there are any). */
+	const filterLinks = $derived(
+		[
+			{ f: 'favorites' as ViewFilter, label: 'Favourites', icon: 'heart', show: true },
+			{ f: 'edited' as ViewFilter, label: 'Edited', icon: 'edit', show: true },
+			{ f: 'videos' as ViewFilter, label: 'Videos', icon: 'video', show: true },
+			{ f: 'live' as ViewFilter, label: 'Live Photos', icon: 'live', show: true },
+			{ f: 'selfies' as ViewFilter, label: 'Selfies', icon: 'photos', show: app.index.selfies.length > 0 },
+			{ f: 'portraits' as ViewFilter, label: 'Portraits', icon: 'photos', show: app.index.portraits.length > 0 },
+			{ f: 'screenshots' as ViewFilter, label: 'Screenshots', icon: 'photos', show: app.index.screenshots.length > 0 }
+		].filter((l) => l.show)
+	);
+	const onLibrary = $derived(page.url.pathname === '/');
+	const libraryFilter = $derived(onLibrary && gridView.enabled ? gridView.filter : 'all');
+
+	/** Shows the Library with this filter (keeping its sort). */
+	function showLibrary(f: ViewFilter, e: MouseEvent) {
+		if (e.metaKey || e.ctrlKey || e.shiftKey) return; // new tab/window: plain link
+		e.preventDefault();
+		if (onLibrary && gridView.enabled) return gridView.set(f, gridView.sort);
+		let sort = null;
+		try {
+			sort = JSON.parse(sessionStorage.getItem('view:/') ?? 'null')?.sort ?? null;
+			sessionStorage.setItem('view:/', JSON.stringify({ filter: f, sort }));
+		} catch {
+			/* private mode */
+		}
+		goto('/');
+	}
 	const sidebarAlbums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 
 	let updating = $state(false);
@@ -69,14 +93,9 @@
 <div class="shell">
 	<nav class="sidebar" aria-label="Sections">
 		<div class="brand">Photos</div>
-		<a href="/" class:active={page.url.pathname === '/'}><Icon name="photos" size={20} /> Library</a>
-		<a href="/favorites" class:active={exact('/favorites')}><Icon name="heart" size={20} /> Favourites</a>
-		<a href="/edited" class:active={exact('/edited')}><Icon name="edit" size={20} /> Edited</a>
-		<a href="/videos" class:active={exact('/videos')}><Icon name="video" size={20} /> Videos</a>
-		<a href="/live" class:active={exact('/live')}><Icon name="live" size={20} /> Live Photos</a>
-		{#each mediaLinks as m (m.href)}
-			{#if m.count}<a href={m.href} class:active={exact(m.href)}><Icon name="photos" size={20} /> {m.label}</a>{/if}
-		{/each}
+		<a href="/" class:active={onLibrary && libraryFilter === 'all'} onclick={(e) => showLibrary('all', e)}
+			><Icon name="photos" size={20} /> Library</a
+		>
 		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
@@ -89,6 +108,12 @@
 		<a href="/objects" class:active={page.url.pathname.startsWith('/objects')}><Icon name="tag" size={20} /> Objects</a>
 		<a href="/duplicates" class:active={exact('/duplicates')}><Icon name="duplicate" size={20} /> Duplicates</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
+		<div class="group">Filters</div>
+		{#each filterLinks as l (l.f)}
+			<a href="/" class:active={libraryFilter === l.f} onclick={(e) => showLibrary(l.f, e)}
+				><Icon name={l.icon} size={20} /> {l.label}</a
+			>
+		{/each}
 		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
 		<div class="albumlist">
 			{#each sidebarAlbums as al (al.id)}
