@@ -111,8 +111,6 @@ public struct AssetDetail: Codable, Sendable {
     public var files: [String]
     public var faces: [FaceInfo] = []
     public var place: CatalogPlace? = nil
-    /// Things recognised in the photo, most confident first.
-    public var objects: [ObjectTag] = []
     /// Text recognised in the photo.
     public var text: String? = nil
 }
@@ -274,7 +272,7 @@ public final class CatalogService: Sendable {
             let faces = try Row.fetchAll(d, sql: "SELECT id, assetId, personId, x, y, w, h FROM face WHERE assetId = ? ORDER BY x",
                                          arguments: [id]).map(FaceService.info)
             let place = try a.placeId.flatMap { pid in try PlaceService.catalogPlaces(d).first { $0.id == pid } }
-            return AssetDetail(asset: a, files: files, faces: faces, place: place, objects: try ObjectService.tags(d, assetId: id),
+            return AssetDetail(asset: a, files: files, faces: faces, place: place,
                                text: try TextService.text(d, assetId: id))
         }
     }

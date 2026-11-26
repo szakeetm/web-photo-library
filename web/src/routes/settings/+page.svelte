@@ -1098,10 +1098,10 @@
 		</div>
 		<div class="row">
 			<div class="label">
-				<div>Objects, text and duplicates</div>
+				<div>Text and duplicates</div>
 				<div class="muted small">
-					Recognises things in photos and videos (dogs, beaches, food…), reads text in photos for search, and fingerprints
-					photos to find duplicates. Browse them in Collections (Objects, Duplicates), or search for text.
+					Reads text in photos for search, and fingerprints photos to find duplicates. Browse them in Collections
+					(Duplicates), or search for text.
 				</div>
 			</div>
 			<label class="switch">

@@ -8,7 +8,7 @@
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
-	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, objectName } from '#lib/api.ts';
+	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow, deleteKey } from '#lib/deleteFlow.svelte.ts';
@@ -1177,12 +1177,6 @@
 					<button class="link adjust" onclick={() => navigator.clipboard?.writeText(detail?.text ?? '')}>Copy</button>
 				</details>
 			{/if}
-			{#if detail?.objects?.length}
-				<!-- recognised objects: each opens all photos and videos showing it -->
-				<div class="objects" aria-label="Recognised objects">
-					{#each detail.objects as o (o.id)}<a href="/objects/{o.id}">{objectName(o.name)}</a>{/each}
-				</div>
-			{/if}
 		</aside>
 	{/if}
 	{#if gestureDebug.enabled}<GestureDebug snapshot={debugState} />{/if}
@@ -1456,24 +1450,6 @@
 		.info-close {
 			top: calc(env(safe-area-inset-top) + 56px);
 		}
-	}
-	.objects {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px 6px;
-		margin-top: 14px;
-		padding-top: 10px;
-		border-top: 0.5px solid var(--separator);
-	}
-	.objects a {
-		font-size: 12px;
-		padding: 2px 8px;
-		border-radius: 999px;
-		color: var(--fg-secondary);
-		background: rgba(127, 127, 127, 0.12);
-	}
-	.objects a:hover {
-		color: var(--accent);
 	}
 	.info-close {
 		position: absolute;

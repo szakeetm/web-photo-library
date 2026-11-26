@@ -5,7 +5,7 @@ import GRDB
 /// objects and text, fingerprints, Live Photo clip and Trash entry go with them. Their files aren't
 /// touched (the caller deletes cached images).
 public enum AssetPurge {
-    static let tables = ["album_asset", "edit", "face", "motion", "asset_object", "asset_text", "asset_print", "video_trim",
+    static let tables = ["album_asset", "edit", "face", "motion", "asset_text", "asset_print", "video_trim",
                          "meta_edit", "trash", "search_index", "file"]
 
     public static func purge(_ ids: [String], _ d: Database) throws {

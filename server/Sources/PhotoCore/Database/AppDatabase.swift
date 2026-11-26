@@ -319,6 +319,16 @@ public final class AppDatabase: Sendable {
                                           mtime DOUBLE NOT NULL, PRIMARY KEY (root, relPath));
                 """)
         }
+        m.registerMigration("v19-no-objects") { db in
+            // Object recognition is gone (it wasn't reliable): its labels go, and the search index is
+            // rebuilt without them.
+            try db.execute(sql: """
+                DROP TABLE asset_object;
+                DROP TABLE object_label;
+                ALTER TABLE asset DROP COLUMN objectsVersion;
+                DELETE FROM setting WHERE key = 'searchIndexSeq';
+                """)
+        }
         return m
     }
 }

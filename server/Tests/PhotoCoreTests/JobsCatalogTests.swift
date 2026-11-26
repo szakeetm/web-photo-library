@@ -158,7 +158,7 @@ import GRDB
         try SettingsStore(db: e.db).set(.objectsEnabled, false)
         let id = e.runner.enqueue(.objects)
         e.runner.waitUntilIdle()
-        #expect(e.runner.job(id: id)?.message == "Object recognition is turned off.")
+        #expect(e.runner.job(id: id)?.message == "Analyse photos is turned off.")
 
         // waiting jobs of a kind turned off are cancelled at once
         e.runner.enqueue(.detectChanges)

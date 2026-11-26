@@ -225,7 +225,7 @@ public enum UploadTrash {
             let list = ids.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" }.joined(separator: ",")
             for id in ids { try ChangeLog.record(d, entity: "asset", id: id, op: "delete") }
             try ChangeLog.recordAlbums(d, containing: ids)
-            for table in ["album_asset", "edit", "face", "motion", "file", "trash", "asset_object"] {
+            for table in ["album_asset", "edit", "face", "motion", "file", "trash"] {
                 try d.execute(sql: "DELETE FROM \(table) WHERE assetId IN (\(list))")
             }
             try d.execute(sql: "DELETE FROM search_index WHERE assetId IN (\(list))")

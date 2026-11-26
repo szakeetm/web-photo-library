@@ -36,6 +36,21 @@
 	const visible = $derived((groups ?? []).filter((g) => g.items.some((i) => app.byId.has(i.id))));
 	const same = $derived(visible.filter((g) => g.kind === 'same'));
 
+	// Hundreds of groups at once (thousands of thumbnails) ran an iPhone out of memory and the app was
+	// restarted: groups are put on the page a batch at a time, as the end of the list comes near.
+	const BATCH = 30;
+	let shown = $state(BATCH);
+	const rendered = $derived(same.slice(0, shown));
+
+	/** Shows the next batch when this element (after the last group) comes within a screen or so. */
+	function more(node: HTMLElement) {
+		const io = new IntersectionObserver((entries) => {
+			if (entries.some((e) => e.isIntersecting)) shown += BATCH;
+		}, { rootMargin: '0px 0px 1200px 0px' });
+		io.observe(node);
+		return { destroy: () => io.disconnect() };
+	}
+
 	async function keepOne(g: DuplicateGroup) {
 		const kept = keep[g.key] ?? best(g);
 		const others = g.items.filter((i) => i.id !== kept);
@@ -123,7 +138,11 @@
 		Keep one photo of each group: it gets the others' albums and favourite, and the other copies go to the Trash. Uploads
 		are deleted from disk when the Trash is emptied; copies in folders, Photos libraries and pCloud are only hidden here.
 	</p>
-	{#each same as g (g.key)}{@render group(g)}{/each}
+	{#each rendered as g (g.key)}{@render group(g)}{/each}
+	{#if rendered.length < same.length}
+		<!-- re-created after each batch, so the observer fires again if it's still in view -->
+		{#key shown}<div class="more muted" use:more>Showing {rendered.length} of {same.length} groups…</div>{/key}
+	{/if}
 {/if}
 
 <style>
@@ -143,6 +162,14 @@
 		padding: 10px;
 		border-radius: 12px;
 		background: var(--bg-elevated);
+		/* groups off screen aren't laid out or painted */
+		content-visibility: auto;
+		contain-intrinsic-size: auto 330px;
+	}
+	.more {
+		text-align: center;
+		padding: 16px 0 32px;
+		font-size: 13px;
 	}
 	.items {
 		display: flex;

@@ -99,7 +99,7 @@ struct APIRoutes {
         let cacheParts: [CachePart]
         let facesEnabled: Bool; let objectsEnabled: Bool; let faceModelInstalled: Bool; let faceModelPath: String
         let mapStyleURL: String?; let defaultMapStyleURL: String
-        /// Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them.
+        /// Photos and videos still waiting for Analyse photos (text, duplicates), out of all of them.
         let analysisPending: Int; let analysisTotal: Int
         /// rclone on this Mac (for backups and remote sources); nil when it isn't installed
         let rclone: RcloneInfo.Info?
@@ -566,7 +566,6 @@ struct APIRoutes {
             return try await trashCall({ try PhotoTrash.deleteForever(ids: body.ids, db: db, uploadsRoot: root) }, purged: true)
         }
 
-        // Objects recognised in photos: the labels (most common first) and a label's photos and videos.
         // Duplicates (photos that look the same, or nearly)
         let duplicates = DuplicateService(db: services.db)
         api.get("duplicates") { _, _ in try json(try await blocking { try duplicates.groups() }) }
@@ -581,13 +580,6 @@ struct APIRoutes {
             }
             try await blocking { try duplicates.merge(keep: body.keep, others: body.others) }
             return Response(status: .noContent)
-        }
-        api.get("objects") { _, _ in try json(try await blocking { try ObjectService(db: services.db).labels() }) }
-        api.get("objects/:label") { _, ctx in
-            guard let label = ctx.parameters.get("label", as: Int64.self),
-                  let r = try await blocking({ try ObjectService(db: services.db).assets(labelId: label) }) else { throw HTTPError(.notFound) }
-            struct Body: Encodable { let label: ObjectTag; let ids: [String] }
-            return try json(Body(label: r.label, ids: r.ids))
         }
 
         // Reveal in Finder: only for a browser on this Mac (the Finder opens on this Mac's screen).

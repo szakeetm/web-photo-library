@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { sources } from '#lib/sources.ts';
-	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type DuplicateGroup, type ObjectLabel, type RootName } from '#lib/api.ts';
+	import { api, faceThumbUrl, thumbUrl, type CatalogAlbum, type DuplicateGroup, type RootName } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
@@ -12,13 +12,9 @@
 	import { net } from '#lib/net.svelte.ts';
 	import type { PinRecord } from '#lib/db.ts';
 
-	/** Recognised objects, most common first (the top ones are shown here). */
-	let objects = $state<ObjectLabel[]>([]);
-	const TOP_OBJECTS = 12;
 	/** Duplicate groups (server only). */
 	let duplicates = $state<DuplicateGroup[]>([]);
 	onMount(() => {
-		if (net.online) api.objects().then((l) => (objects = l)).catch(() => {});
 		if (net.online) api.duplicates().then((g) => (duplicates = g)).catch(() => {});
 	});
 
@@ -210,15 +206,6 @@
 			{#if k.list.length}{@render card(`/media/${k.key}`, k.title, k.list.length, k.list.at(-1)?.id ?? null, 'photos')}{/if}
 		{/each}
 		{#if duplicates.length && !phone}{@render card('/duplicates', 'Duplicates', duplicates.length, duplicates[0].items[0]?.id ?? null, 'photos')}{/if}
-	</div>
-{/if}
-
-{#if objects.length}
-	<h2 class="section">Objects</h2>
-	<div class="cards">
-		{#each objects.slice(0, TOP_OBJECTS) as o (o.id)}
-			{@render card(`/objects/${o.id}`, objectName(o.name), o.count, o.coverId && app.byId.has(o.coverId) ? o.coverId : null, 'search')}
-		{/each}
 	</div>
 {/if}
 

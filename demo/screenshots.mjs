@@ -104,26 +104,6 @@ if (want('desktop-viewer-people')) {
 	await settle(d, 2000);
 	await shot(d, 'desktop-viewer-people');
 }
-if (want('desktop-objects')) {
-	// the Objects row in Collections (there is no page of all objects)
-	await d.goto(BASE + '/albums');
-	await settle(d, 2500);
-	await d.getByRole('heading', { name: 'Objects' }).scrollIntoViewIfNeeded();
-	await settle(d);
-	await shot(d, 'desktop-objects');
-}
-if (want('desktop-viewer-objects')) {
-	// info open: the recognised objects at the bottom (the zoom slider shows top left)
-	await d.goto(BASE + '/albums/2');
-	await settle(d);
-	await d.locator('.thumb').nth(3).click();
-	await settle(d, 2500);
-	await d.getByRole('button', { name: 'Info' }).click();
-	await settle(d, 1500);
-	await d.locator('aside.info').evaluate((el) => el.scrollTo(0, el.scrollHeight));
-	await settle(d, 800);
-	await shot(d, 'desktop-viewer-objects');
-}
 if (want('desktop-download')) {
 	await d.goto(BASE + '/albums/3');
 	await settle(d);

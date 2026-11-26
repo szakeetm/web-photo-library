@@ -1,10 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
-	import { api, objectName, type ObjectLabel } from '#lib/api.ts';
+	import { api } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
-	import { net } from '#lib/net.svelte.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
@@ -56,16 +54,10 @@
 
 	// ---- suggestions: what the search can find, from the library itself (most photos first)
 
-	let objects = $state<ObjectLabel[]>([]);
-	onMount(() => {
-		if (net.online) api.objects().then((l) => (objects = l)).catch(() => {});
-	});
-
-	type Kind = 'people' | 'places' | 'objects' | 'albums' | 'folders';
+	type Kind = 'people' | 'places' | 'albums' | 'folders';
 	const kinds: { key: Kind; label: string; icon: string }[] = [
 		{ key: 'people', label: 'People', icon: 'people' },
 		{ key: 'places', label: 'Places', icon: 'map' },
-		{ key: 'objects', label: 'Things', icon: 'tag' },
 		{ key: 'albums', label: 'Albums', icon: 'albums' },
 		{ key: 'folders', label: 'Folders', icon: 'folder' }
 	];
@@ -81,13 +73,11 @@
 		for (const p of app.people) if (!p.hidden) add(people, p.name, p.count);
 		const places = new Map<string, number>();
 		for (const p of app.places) add(places, p.name, perPlace.get(p.id) ?? 0);
-		const things = new Map<string, number>();
-		for (const o of objects) add(things, objectName(o.name), o.count);
 		const albums = new Map<string, number>();
 		for (const a of app.albums) add(albums, a.title, a.assetIds.length);
 		const folders = new Map<string, number>();
 		for (const f of app.folders) if (f.parentId != null) add(folders, f.name, f.count);
-		return { people: rank(people), places: rank(places), objects: rank(things), albums: rank(albums), folders: rank(folders) } as Record<Kind, string[]>;
+		return { people: rank(people), places: rank(places), albums: rank(albums), folders: rank(folders) } as Record<Kind, string[]>;
 	});
 
 	/** Photos per place. */
@@ -97,8 +87,8 @@
 		return m;
 	});
 
-	/** Where a person, place, album or folder chip goes: its own page (the one with the most photos when
-	 *  several share the name). Other chips (things) add the word to the search instead. */
+	/** Where a chip goes: the person's, place's, album's or folder's own page (the one with the most
+	 *  photos when several share the name). */
 	const pages = $derived.by(() => {
 		const out: Partial<Record<Kind, Map<string, { href: string; n: number }>>> = {};
 		const add = (k: Kind, name: string | null | undefined, href: string, n: number) => {

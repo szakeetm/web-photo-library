@@ -7,7 +7,7 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 > Status: **all 6 milestones** of the [spec](docs/superpowers/specs/2026-11-25-photo-server-design.md) —
 > indexing, timeline, folders, viewer, albums, favourites, search, uploads, installable app,
 > offline mode, non-destructive editing, people (face recognition) and places (map); since then
-> object recognition, a Trash for uploads, local mode on the Mac and big-library tuning.
+> text in photos and duplicates, a Trash for uploads, local mode on the Mac and big-library tuning.
 
 ## Screenshots
 
@@ -23,8 +23,7 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 | ![Exporting a selection on desktop](docs/screenshots/desktop-download.jpg) | ![Selecting photos by dragging a finger on iPhone](docs/screenshots/mobile-select.jpg) |
 | ![Duplicates on desktop](docs/screenshots/desktop-duplicates.jpg) | ![Adjust Date & Time on iPhone](docs/screenshots/mobile-date.jpg) |
 | ![Search on desktop](docs/screenshots/desktop-search.jpg) | ![The info sheet, swiped up on iPhone](docs/screenshots/mobile-info.jpg) |
-| ![Recognised objects on desktop](docs/screenshots/desktop-objects.jpg) | ![Media types and objects on iPhone](docs/screenshots/mobile-objects.jpg) |
-| ![A photo's recognised objects at the bottom of the info panel](docs/screenshots/desktop-viewer-objects.jpg) | ![Folders on iPhone](docs/screenshots/mobile-folder.jpg) |
+|  | ![Folders on iPhone](docs/screenshots/mobile-folder.jpg) |
 | ![People on desktop](docs/screenshots/desktop-people.jpg) | ![People on iPhone](docs/screenshots/mobile-people.jpg) |
 | ![The people in a photo, in the info panel](docs/screenshots/desktop-viewer-people.jpg) | ![Places by country and city on iPhone](docs/screenshots/mobile-places-list.jpg) |
 | ![Photos on a map on desktop](docs/screenshots/desktop-places.jpg) | ![Photos on a map on iPhone](docs/screenshots/mobile-places.jpg) |
@@ -67,8 +66,8 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
 - **Adjust Date & Time** for one photo (info panel) or a selection: shift them all (spacing kept),
   set them all to one time, or change the time zone. Kept in the database only — the files never
   change, re-indexing keeps it — and written into exported copies. Revert goes back to the file's date.
-- **Search** across file names, folders, descriptions, album titles, people, places, recognised
-  objects and **text in photos** (signs, documents, screenshots — read on the Mac with the OCR built
+- **Search** across file names, folders, descriptions, album titles, people, places and **text in
+  photos** (signs, documents, screenshots — read on the Mac with the OCR built
   into macOS; nothing to download).
 - **Sources**: the library folder, more folders on the Mac, Apple Photos libraries (originals read in
   place, edited photos as Photos renders them, albums imported) and folders on any rclone remote
@@ -83,11 +82,8 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
 - **Trim videos** in the viewer (filmstrip with two handles). Save keeps the trim in the database
   (playback and exports use it); Save as New writes a trimmed copy, without re-encoding, into the
   uploads folder.
-- **Objects.** Things in photos and videos (dogs, beaches, food, mountains…) are recognised on the
-  Mac with the classifier built into macOS (Apple Vision on the Neural Engine: nothing to download,
-  nothing leaves the Mac); only confident labels are kept. They show discreetly at the bottom of the
-  info panel — click one for every photo and video showing it — and in Collections → Objects, most
-  common first. New photos are done after each scan; Settings → Analyse photos runs it by hand (objects, text and duplicate fingerprints in one pass).
+- **Analyse photos.** Text in photos (for search) and duplicate fingerprints are made on the Mac
+  after each scan, in one pass; Settings → Analyse photos runs it by hand.
 - **Export.** One photo, a selection, an album, several albums (Collections → Select) or the whole
   library (Library → ↓). On desktop: originals, with edits, or both (the originals of edited items in
   an `Originals/` folder); Live Photo videos; Google Photos JSON or XMP sidecars (date with time zone,

@@ -304,28 +304,9 @@ export interface AssetDetail {
 	files: string[];
 	faces: FaceInfo[];
 	place: CatalogPlace | null;
-	/** Things recognised in the photo, most confident first. */
-	objects?: ObjectTag[];
 	/** Text recognised in the photo. */
 	text?: string | null;
 }
-
-export interface ObjectTag {
-	id: number;
-	/** Vision's identifier, e.g. "sea_lion": show with objectName(). */
-	name: string;
-}
-
-export interface ObjectLabel extends ObjectTag {
-	count: number;
-	coverId: string | null;
-}
-
-/** "sea_lion" → "Sea lion" */
-export const objectName = (name: string) => {
-	const s = name.replace(/_/g, ' ');
-	return s.charAt(0).toUpperCase() + s.slice(1);
-};
 
 export interface Settings {
 	libraryPath: string | null;
@@ -338,13 +319,13 @@ export interface Settings {
 	databaseBytes: number;
 	dataLocationMissing: boolean;
 	facesEnabled: boolean;
-	/** objects, text and duplicate fingerprints */
+	/** Analyse photos: text and duplicate fingerprints (the name is from when it also recognised objects) */
 	objectsEnabled: boolean;
 	faceModelInstalled: boolean;
 	faceModelPath: string;
 	mapStyleURL: string | null;
 	defaultMapStyleURL: string;
-	/** Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them. */
+	/** Photos and videos still waiting for Analyse photos (text, duplicates), out of all of them. */
 	analysisPending: number;
 	analysisTotal: number;
 	/** rclone on the server (backups, remote sources); null when it isn't installed */
@@ -744,8 +725,6 @@ export const api = {
 	deletePhotos: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/assets/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	trash: () => call<TrashItem[]>('/api/trash'),
-	/** Recognised objects, most common first. */
-	objects: () => call<ObjectLabel[]>('/api/objects'),
 	setTrim: (id: string, start: number, end: number) =>
 		call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim`, { method: 'PUT', body: JSON.stringify({ start, end }) }),
 	revertTrim: (id: string) => call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim`, { method: 'DELETE' }),
@@ -765,7 +744,6 @@ export const api = {
 	/** The kept photo gets the others' albums and favourite (call before removing them). */
 	mergeDuplicates: (keep: string, others: string[]) =>
 		call<void>('/api/duplicates/merge', { method: 'POST', body: JSON.stringify({ keep, others }) }),
-	objectAssets: (id: number) => call<{ label: ObjectTag; ids: string[] }>(`/api/objects/${id}`),
 	/** Shows a photo/video (selected) or a folder in the Finder: only from a browser on the server's Mac. */
 	reveal: (what: { asset: string } | { folder: number } | { place: 'uploads' | 'trash' }) =>
 		call<void>('/api/reveal', { method: 'POST', body: JSON.stringify(what) }),

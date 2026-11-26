@@ -20,7 +20,7 @@ extension SettingKey where T == String? {
 extension SettingKey where T == Bool {
     /// Face recognition (detection + grouping into people) runs after scans.
     public static let facesEnabled = SettingKey("facesEnabled", default: true)
-    /// Objects, text and duplicate fingerprints (Analyse photos)
+    /// Text and duplicate fingerprints (Analyse photos; the name is from when it also recognised objects)
     public static let objectsEnabled = SettingKey("objectsEnabled", default: true)
 }
 

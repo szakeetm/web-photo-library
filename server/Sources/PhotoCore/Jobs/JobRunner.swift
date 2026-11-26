@@ -11,7 +11,8 @@ public enum JobKind: String, Sendable, CaseIterable {
     case faces
     /// Re-group faces into people from scratch (unnamed groups only).
     case recluster
-    /// Recognise objects (Vision's classifier) in photos and videos not done yet.
+    /// Analyse photos not done yet: text in them (OCR) and duplicate fingerprints. (Named from when
+    /// it also recognised objects.)
     case objects
 }
 
@@ -309,24 +310,24 @@ public final class JobRunner: @unchecked Sendable {
 
     static let underTests = Bundle.allBundles.contains { $0.bundlePath.hasSuffix(".xctest") }
 
-    /// Queues object recognition when photos are waiting for it.
+    /// Queues Analyse photos when photos are waiting for it.
     public func enqueueObjectsIfNeeded() {
         // Not inside the test runner: its many parallel job runners block enough threads that Vision's
-        // own work never gets one (Vision then waits forever). Tests that need objects run the job.
+        // own work never gets one (Vision then waits forever). Tests that need analysis run the job.
         guard !Self.underTests, (try? settings.get(.objectsEnabled)) ?? true else { return }
         guard let pending = try? Self.pendingAnalysis(db, limit: 1), !pending.isEmpty else { return }
         let queued = recent(limit: 10).contains { $0.kind == JobKind.objects.rawValue && ($0.state == "queued" || $0.state == "running") }
         if !queued { enqueue(.objects) }
     }
 
-    /// Photos and videos missing any analysis (objects, text, fingerprints), newest first.
+    /// Photos and videos missing any analysis (text, fingerprints), newest first.
     static func pendingAnalysis(_ db: AppDatabase, limit: Int? = nil) throws -> [String] {
         try db.writer.read {
             try String.fetchAll($0, sql: """
                 SELECT id FROM asset WHERE missingSince IS NULL
-                  AND (objectsVersion < ? OR textVersion < ? OR printVersion < ?)
+                  AND (textVersion < ? OR printVersion < ?)
                 ORDER BY takenAt DESC \(limit.map { "LIMIT \($0)" } ?? "")
-                """, arguments: [ObjectService.version, TextService.version, DuplicateService.version])
+                """, arguments: [TextService.version, DuplicateService.version])
         }
     }
 
@@ -335,18 +336,17 @@ public final class JobRunner: @unchecked Sendable {
         try db.writer.read { d in
             let row = try Row.fetchOne(d, sql: """
                 SELECT COUNT(*) AS total,
-                       COALESCE(SUM(objectsVersion < ? OR textVersion < ? OR printVersion < ?), 0) AS pending
+                       COALESCE(SUM(textVersion < ? OR printVersion < ?), 0) AS pending
                 FROM asset WHERE missingSince IS NULL
-                """, arguments: [ObjectService.version, TextService.version, DuplicateService.version])
+                """, arguments: [TextService.version, DuplicateService.version])
             return (row?["pending"] ?? 0, row?["total"] ?? 0)
         }
     }
 
-    /// One pass per photo: the preview is decoded once for objects (classifier), text (OCR) and
-    /// fingerprints (duplicates). Videos get objects only (from their poster).
+    /// One pass per photo: the preview is decoded once for text (OCR) and fingerprints (duplicates).
+    /// Videos are only marked done.
     private func scanObjects(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {
-        guard (try? settings.get(.objectsEnabled)) ?? true else { return "Object recognition is turned off." }
-        let objects = ObjectService(db: db)
+        guard (try? settings.get(.objectsEnabled)) ?? true else { return "Analyse photos is turned off." }
         let texts = TextService(db: db)
         let duplicates = DuplicateService(db: db)
         let catalog = CatalogService(db: db, settings: settings)
@@ -354,7 +354,6 @@ public final class JobRunner: @unchecked Sendable {
         let ids = try Self.pendingAnalysis(db)
         let report = progressReporter(id, phase: "analyse")
         let counter = Counter()
-        let found = Counter()
         let withText = Counter()
         // One at a time: Vision schedules the work on the Neural Engine itself, and calling it from
         // several worker threads at once can deadlock inside Vision.
@@ -363,11 +362,10 @@ public final class JobRunner: @unchecked Sendable {
             InteractiveWork.yield()
             autoreleasepool {
                 let done = (try? db.writer.read { d in
-                    try Row.fetchOne(d, sql: "SELECT objectsVersion, textVersion, printVersion, kind FROM asset WHERE id = ?", arguments: [assetId])
+                    try Row.fetchOne(d, sql: "SELECT textVersion, printVersion, kind FROM asset WHERE id = ?", arguments: [assetId])
                 }) ?? nil
                 guard let done else { return }
                 let isVideo = (done["kind"] as String) == "video"
-                let needObjects = (done["objectsVersion"] as Int) < ObjectService.version
                 let needText = (done["textVersion"] as Int) < TextService.version
                 let needPrint = (done["printVersion"] as Int) < DuplicateService.version
                 do {
@@ -381,15 +379,10 @@ public final class JobRunner: @unchecked Sendable {
                             preview = try store.ensure(id: assetId, source: src, kind: .preview, format: .heic)
                         }
                     }
-                    // the classifier and fingerprints work at a few hundred pixels; text needs more
-                    let small = try DerivativeStore.downscaled(source: preview, maxPixel: 512)
-                    if needObjects {
-                        let labels = try ObjectService.classify(small)
-                        for _ in labels { _ = found.increment() }
-                        try objects.store(assetId: assetId, labels: labels)
-                    }
                     if needPrint {
                         if isVideo { try duplicates.store(assetId: assetId, dhash: nil, print: []) } else {
+                            // fingerprints work at a few hundred pixels; text needs more
+                            let small = try DerivativeStore.downscaled(source: preview, maxPixel: 512)
                             try duplicates.store(assetId: assetId, dhash: DuplicateService.dhash(small),
                                                  print: try DuplicateService.featurePrint(small))
                         }
@@ -401,7 +394,6 @@ public final class JobRunner: @unchecked Sendable {
                     }
                 } catch {
                     // unreadable: mark it done so it isn't retried forever
-                    if needObjects { try? objects.store(assetId: assetId, labels: []) }
                     if needPrint { try? duplicates.store(assetId: assetId, dhash: nil, print: []) }
                     if needText { try? texts.store(assetId: assetId, text: "") }
                 }
@@ -409,9 +401,9 @@ public final class JobRunner: @unchecked Sendable {
             report(counter.increment(), ids.count)
         }
         if isCancelled() { throw ScanError.cancelled }
-        // search covers labels and text, duplicates the fingerprints: let them rebuild
+        // search covers the text, duplicates the fingerprints: let them rebuild
         try db.writer.write { try ChangeLog.record($0, entity: "objects", id: "*", op: "upsert") }
-        return "\(ids.count) photos and videos looked at: \(found.current) objects recognised, text found in \(withText.current)"
+        return "\(ids.count) photos and videos looked at: text found in \(withText.current)"
     }
 
     private func scanFaces(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {

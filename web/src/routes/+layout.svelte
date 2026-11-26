@@ -31,7 +31,7 @@
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
 	// Albums, favourites, folders, uploads, people and places all live under Collections on the phone.
-	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash', '/objects'];
+	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'
@@ -40,7 +40,7 @@
 				: page.url.pathname.startsWith(href);
 	// On the phone, Collections has its own tabs (a second bar above the main one).
 	const collectionTabs = [
-		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/favorites', '/edited', '/videos', '/live', '/media', '/objects'] },
+		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/favorites', '/edited', '/videos', '/live', '/media'] },
 		{ href: '/folders', label: 'Folders', icon: 'folder', also: ['/uploads', '/sources'] },
 		{ href: '/people', label: 'People', icon: 'people', also: [] },
 		{ href: '/places', label: 'Places', icon: 'map', also: [] },
