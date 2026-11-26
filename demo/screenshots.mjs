@@ -126,10 +126,44 @@ if (want('desktop-download')) {
 	await settle(d);
 	await d.getByRole('button', { name: 'Select' }).click();
 	for (const i of [0, 1, 2, 4]) await d.locator('.thumb').nth(i).click();
-	await d.getByRole('button', { name: 'Download' }).click();
+	await d.getByRole('button', { name: 'Export', exact: true }).click();
 	await settle(d, 800);
 	await shot(d, 'desktop-download');
 	await d.keyboard.press('Escape');
+}
+if (want('desktop-filter')) {
+	// the title bar's filter and sort menu
+	await d.goto(BASE + '/');
+	await settle(d, 2000);
+	await d.getByRole('button', { name: 'Filter and sort' }).click();
+	await settle(d, 600);
+	await shot(d, 'desktop-filter');
+	await d.keyboard.press('Escape');
+}
+if (want('desktop-trim')) {
+	await d.goto(BASE + '/videos');
+	await settle(d);
+	await d.locator('.thumb').first().click();
+	await settle(d, 2500);
+	await d.getByRole('button', { name: 'Trim' }).click();
+	await settle(d, 2500);
+	await shot(d, 'desktop-trim');
+}
+if (want('desktop-export')) {
+	await d.goto(BASE + '/');
+	await settle(d, 2000);
+	await d.getByRole('button', { name: 'Export library' }).click();
+	await settle(d, 800);
+	await d.locator('select').first().selectOption('xmp');
+	await d.getByRole('radio', { name: /^Both/ }).check();
+	await settle(d, 400);
+	await shot(d, 'desktop-export');
+	await d.keyboard.press('Escape');
+}
+if (want('desktop-duplicates')) {
+	await d.goto(BASE + '/duplicates');
+	await settle(d, 2500);
+	await shot(d, 'desktop-duplicates');
 }
 if (want('desktop-upload')) {
 	await d.goto(BASE + '/');
@@ -139,8 +173,11 @@ if (want('desktop-upload')) {
 	await shot(d, 'desktop-upload');
 }
 
+// Phone shots are emulated unless PHONE=none (then they're taken in the iOS Simulator instead).
+const phone = process.env.PHONE !== 'none';
+
 // Phone editor: Chromium with iPhone emulation (Playwright's WebKit has no WebGPU).
-if (want('mobile-editor')) {
+if (phone && want('mobile-editor')) {
 	const mctx = await cb.newContext(iPhone);
 	await mctx.addInitScript(() => localStorage.setItem('photos.forceRemote', '1'));
 	const m = await mctx.newPage();
@@ -154,6 +191,7 @@ if (want('mobile-editor')) {
 await cb.close();
 
 // Phone: WebKit (iPhone Safari).
+if (!phone) process.exit(0);
 const wb = await webkit.launch();
 const wctx = await wb.newContext(iPhone);
 await wctx.addInitScript(() => localStorage.setItem('photos.forceRemote', '1'));

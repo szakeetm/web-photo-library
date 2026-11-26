@@ -107,7 +107,7 @@
 		const out: [string, string][] = [];
 		for (const a of assets) {
 			const base = a.name.replace(/\.[^.]*$/, '');
-			if (content !== 'original' && isEdited(a)) {
+			if (edited && content !== 'original' && isEdited(a)) {
 				const ext = a.ev > 0 && a.dur == null ? (fmt === 'heic' ? 'heic' : 'jpg') : a.name.split('.').pop();
 				out.push([exportUrl(a.id, fmt), `${base}.${ext}`]);
 			} else out.push([originalUrl(a.id), a.name]);
@@ -166,7 +166,7 @@
 	function options(): ExportOptions {
 		return {
 			...(library ? { library: true } : albumList.length ? { albums: albumList.map((a) => a.id) } : { ids: assets.map((a) => a.id) }),
-			content,
+			content: edited ? content : 'original',
 			editFormat: fmt,
 			livePhotoVideo: withMotion,
 			sidecar,
@@ -218,25 +218,25 @@
 <div class="sheet" class:wide={!viaShare} role="dialog" aria-modal="true" aria-label="Export">
 	{#if phase === 'choose'}
 		<h3>Export {what}</h3>
-		<fieldset>
-			<legend>Photos and videos</legend>
-			<label><input type="radio" bind:group={content} value="edited" /> With edits</label>
-			<label><input type="radio" bind:group={content} value="original" /> Originals</label>
-			{#if !viaShare}
-				<label><input type="radio" bind:group={content} value="both" /> Both <span class="muted">(originals of edited items in an Originals folder)</span></label>
-			{/if}
-			{#if content !== 'original' && (pixelEdited || library || albumList.length)}
-				<div class="fmt">
-					<span class="muted">Edited photos as</span>
-					<label><input type="radio" bind:group={fmt} value="jpeg" /> JPEG</label>
-					<label><input type="radio" bind:group={fmt} value="heic" /> HEIC</label>
-				</div>
-			{/if}
-			{#if !library && !albumList.length}
-				<p class="note muted">{edited ? `${edited} edited (photo edits, adjusted dates, trims).` : 'None of these is edited.'}</p>
-			{/if}
-		</fieldset>
-		{#if live || library || albumList.length}
+		{#if edited}
+			<fieldset>
+				<legend>{edited} edited {edited === 1 ? 'item' : 'items'}</legend>
+				<label><input type="radio" bind:group={content} value="edited" /> With edits</label>
+				<label><input type="radio" bind:group={content} value="original" /> Originals</label>
+				{#if !viaShare}
+					<label><input type="radio" bind:group={content} value="both" /> Both <span class="muted">(originals of edited items in an Originals folder)</span></label>
+				{/if}
+				{#if content !== 'original' && pixelEdited}
+					<div class="fmt">
+						<span class="muted">Edited photos as</span>
+						<label><input type="radio" bind:group={fmt} value="jpeg" /> JPEG</label>
+						<label><input type="radio" bind:group={fmt} value="heic" /> HEIC</label>
+					</div>
+				{/if}
+				<p class="note muted">Photo edits, adjusted dates and video trims.</p>
+			</fieldset>
+		{/if}
+		{#if live}
 			<fieldset>
 				<legend>Live Photos</legend>
 				<label><input type="checkbox" bind:checked={withMotion} /> Include the video (.MOV next to the photo)</label>

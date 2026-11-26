@@ -14,23 +14,29 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 | Desktop | iPhone |
 |---|---|
 | ![Library timeline on desktop](docs/screenshots/desktop-library.jpg) | ![Library timeline on iPhone](docs/screenshots/mobile-library.jpg) |
+| ![Filter and sort menu on desktop](docs/screenshots/desktop-filter.jpg) | ![Filter and sort menu on iPhone](docs/screenshots/mobile-filter.jpg) |
 | ![Photo viewer on desktop](docs/screenshots/desktop-viewer.jpg) | ![Photo viewer on iPhone](docs/screenshots/mobile-viewer.jpg) |
 | ![Photo editor on desktop](docs/screenshots/desktop-editor.jpg) | ![Photo editor on iPhone](docs/screenshots/mobile-editor.jpg) |
-| ![Albums on desktop](docs/screenshots/desktop-albums.jpg) | ![Albums on iPhone](docs/screenshots/mobile-albums.jpg) |
-| ![Search on desktop](docs/screenshots/desktop-search.jpg) | ![Selecting photos in an album on iPhone](docs/screenshots/mobile-select.jpg) |
-| ![Uploading by drag and drop on desktop](docs/screenshots/desktop-upload.jpg) | ![A folder on iPhone](docs/screenshots/mobile-folder.jpg) |
+| ![Trimming a video on desktop](docs/screenshots/desktop-trim.jpg) | ![Trimming a video on iPhone](docs/screenshots/mobile-trim.jpg) |
+| ![Albums and collections on desktop](docs/screenshots/desktop-albums.jpg) | ![Albums on iPhone](docs/screenshots/mobile-albums.jpg) |
+| ![Exporting the library: originals and edits, XMP sidecars, by month](docs/screenshots/desktop-export.jpg) | ![Exporting an album on iPhone](docs/screenshots/mobile-export.jpg) |
+| ![Exporting a selection on desktop](docs/screenshots/desktop-download.jpg) | ![Selecting photos by dragging a finger on iPhone](docs/screenshots/mobile-select.jpg) |
+| ![Duplicates on desktop](docs/screenshots/desktop-duplicates.jpg) | ![Adjust Date & Time on iPhone](docs/screenshots/mobile-date.jpg) |
+| ![Search on desktop](docs/screenshots/desktop-search.jpg) | ![The info sheet, swiped up on iPhone](docs/screenshots/mobile-info.jpg) |
+| ![Recognised objects on desktop](docs/screenshots/desktop-objects.jpg) | ![Media types and objects on iPhone](docs/screenshots/mobile-objects.jpg) |
+| ![A photo's recognised objects at the bottom of the info panel](docs/screenshots/desktop-viewer-objects.jpg) | ![Folders on iPhone](docs/screenshots/mobile-folder.jpg) |
 | ![People on desktop](docs/screenshots/desktop-people.jpg) | ![People on iPhone](docs/screenshots/mobile-people.jpg) |
 | ![The people in a photo, in the info panel](docs/screenshots/desktop-viewer-people.jpg) | ![Places by country and city on iPhone](docs/screenshots/mobile-places-list.jpg) |
 | ![Photos on a map on desktop](docs/screenshots/desktop-places.jpg) | ![Photos on a map on iPhone](docs/screenshots/mobile-places.jpg) |
-| ![Recognised objects on desktop](docs/screenshots/desktop-objects.jpg) | ![The info sheet, swiped up on iPhone](docs/screenshots/mobile-info.jpg) |
-| ![A photo's recognised objects at the bottom of the info panel](docs/screenshots/desktop-viewer-objects.jpg) | |
-| ![Downloading a selection with edits and Live Photo videos](docs/screenshots/desktop-download.jpg) | |
-| ![Folders on desktop](docs/screenshots/desktop-folders.jpg) | |
-| ![Settings on desktop](docs/screenshots/desktop-settings.jpg) | |
+| ![Uploading by drag and drop on desktop](docs/screenshots/desktop-upload.jpg) |  |
+| ![Folders on desktop](docs/screenshots/desktop-folders.jpg) |  |
+| ![Settings on desktop](docs/screenshots/desktop-settings.jpg) |  |
 
 Screenshots use the stock-photo demo library in [`demo/`](demo/) (the people are NASA astronauts in
 public-domain NASA photos; [credits](docs/screenshots/CREDITS.md));
-regenerate them with `demo/take-screenshots.sh`.
+regenerate them with `demo/take-screenshots.sh` (desktop; `PHONE=none KEEP=1` leaves the demo server
+running). The iPhone shots are taken in the iOS Simulator, in the app added to the Home Screen (not a
+Safari tab), with Local mode off; the phone editor shot is older (the Simulator has no WebGPU).
 
 ## What it does today
 

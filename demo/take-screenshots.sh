@@ -3,6 +3,8 @@
 #
 #   cd web && npm run build && cd ../server && swift build -c release && cd ..
 #   demo/take-screenshots.sh [name,name,...]     # e.g. desktop-editor,mobile-editor
+#   PHONE=none KEEP=1 demo/take-screenshots.sh     # desktop only, server left running (iPhone shots
+#                                                  # taken in the iOS Simulator against it, see below)
 #
 # The library is copied to /Users/Shared/PhotoDemo so no personal paths show up in Settings.
 # A throwaway server instance (own data dir, free port) is started and stopped again.
@@ -25,10 +27,20 @@ cp -R $REPO/demo/Library $DEMO/Library
 cp $REPO/demo/upload-samples/* $DEMO/upload-samples/
 # An upload that's already in the library, to show de-duplication.
 cp "$(ls $DEMO/Library/Dolomites/*.jpg | head -1)" $DEMO/upload-samples/IMG_from_phone.jpg
+# A smaller re-saved copy of a library photo in the uploads, to show Duplicates.
+mkdir -p $DEMO/Uploads/phone-uploads/2024-07
+DUP=$(ls $DEMO/Library/Dolomites/*.jpg | sed -n 3p)
+sips -Z 1000 -s formatOptions 70 "$DUP" --out "$DEMO/Uploads/phone-uploads/2024-07/${DUP:t:r}-small.jpg" >/dev/null
+# A short video (a slow pan over a coast photo) to show videos and trimming.
+if command -v ffmpeg >/dev/null; then
+	ffmpeg -loglevel error -y -loop 1 -i "$DEMO/Library/Coast Trip/IMG_4208.jpg" -t 12 -r 30 \
+		-vf "scale=3840:-2,zoompan=z='1.15':x='iw/2-(iw/zoom/2)+(on-180)*3':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=30,format=yuv420p" \
+		-c:v libx264 -crf 23 "$DEMO/Library/Coast Trip/IMG_4209.MOV"
+fi
 
 PHOTOSERVER_HOME=$DEMO/Data PORT=$PORT WEB_ROOT=$WEB $BIN >$DEMO/server.log 2>&1 &
 SERVER=$!
-trap 'kill $SERVER 2>/dev/null' EXIT
+[[ -n ${KEEP:-} ]] || trap 'kill $SERVER 2>/dev/null' EXIT
 for _ in {1..50}; do curl -sf $BASE/api/health >/dev/null && break; sleep 0.2; done
 
 api() { curl -sf -X $1 $BASE/api/$2 -H 'content-type: application/json' ${3:+-d} ${3:-} >/dev/null; }
@@ -37,6 +49,12 @@ api PUT settings "{\"libraryPath\":\"$DEMO/Library\",\"uploadsPath\":\"$DEMO/Upl
 api POST jobs/detect-changes; sleep 1; idle
 api POST jobs/import-takeout-albums; sleep 1; idle
 api POST jobs/objects; sleep 1; idle
+# the demo video is dated with the trip (Adjust Date & Time) and shown trimmed (2–9 s of 12)
+VID=$(curl -sf $BASE/api/catalog | python3 -c "import json,sys;print(next((a['id'] for a in json.load(sys.stdin)['assets'] if a['name']=='IMG_4209.MOV'),''))")
+if [[ -n $VID ]]; then
+	api PATCH assets/meta "{\"ids\":[\"$VID\"],\"change\":{\"setTo\":\"2025-07-14T13:02:14Z\",\"tzOffset\":7200}}"
+	api PUT assets/$VID/trim '{"start":2,"end":9}'
+fi
 # faces (if the model is installed in the demo data dir) run after the scan
 if [[ -n ${FACE_MODEL:-} ]]; then
 	mkdir -p $DEMO/Data/models && cp -R $FACE_MODEL $DEMO/Data/models/FaceNet.mlpackage
