@@ -23,7 +23,8 @@
 		'purge-missing': 'Purge missing',
 		'import-takeout-albums': 'Import Takeout albums',
 		faces: 'Find faces',
-		recluster: 'Regroup faces'
+		recluster: 'Regroup faces',
+		objects: 'Analyse photos'
 	};
 	const phaseNames: Record<string, string> = {
 		scan: 'Scanning library',
@@ -31,8 +32,27 @@
 		thumbnails: 'Generating thumbnails',
 		previews: 'Generating previews',
 		images: 'Generating thumbnails and previews',
-		faces: 'Looking for faces'
+		faces: 'Looking for faces',
+		analyse: 'Analysing photos'
 	};
+
+	/** The Analyse photos job, when it is running or waiting its turn. */
+	const analysisJob = $derived(
+		current?.kind === 'objects' ? current : (recent.find((r) => r.kind === 'objects' && r.state === 'queued') ?? null)
+	);
+	const analysisStatus = $derived.by(() => {
+		const n = (x: number) => x.toLocaleString();
+		const j = analysisJob;
+		if (j?.state === 'running') {
+			return j.total > 0 ? `Analysing… ${n(j.progress)} of ${n(j.total)}` : 'Analysing…';
+		}
+		if (j?.state === 'queued') return 'Waiting for the current job to finish';
+		if (!settings) return '';
+		if (settings.analysisTotal === 0) return 'No photos yet';
+		if (settings.analysisPending === 0) return `All ${n(settings.analysisTotal)} analysed`;
+		const done = settings.analysisTotal - settings.analysisPending;
+		return `${n(done)} of ${n(settings.analysisTotal)} analysed · ${n(settings.analysisPending)} waiting`;
+	});
 
 	async function loadSettings() {
 		settings = await api.settings();
@@ -486,7 +506,16 @@
 			</div>
 		</div>
 		<div class="row actions">
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('objects')}>Analyse photos</button>
+			<button
+				class="btn"
+				disabled={!settings?.libraryPath || !!analysisJob || settings?.analysisPending === 0}
+				onclick={() => start('objects')}>Analyse photos</button
+			>
+			<span class="small" class:muted={!analysisJob}
+				>{analysisStatus}</span
+			>
+		</div>
+		<div class="row">
 			<span class="muted small">Browse them in Collections (Objects, Duplicates), or search for text.</span>
 		</div>
 	</section>

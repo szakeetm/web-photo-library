@@ -92,7 +92,7 @@ export interface ExportOptions {
 	editFormat: ImageFmt;
 	livePhotoVideo: boolean;
 	sidecar: 'none' | 'google' | 'xmp';
-	organize: 'flat' | 'albums' | 'months';
+	organize: 'flat' | 'albums' | 'years' | 'months';
 }
 
 export interface ExportStatus {
@@ -302,6 +302,9 @@ export interface Settings {
 	faceModelPath: string;
 	mapStyleURL: string | null;
 	defaultMapStyleURL: string;
+	/** Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them. */
+	analysisPending: number;
+	analysisTotal: number;
 }
 
 export interface Job {

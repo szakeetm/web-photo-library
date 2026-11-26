@@ -267,6 +267,18 @@ public final class JobRunner: @unchecked Sendable {
         }
     }
 
+    /// How many photos and videos (not missing) still need analysis, out of how many.
+    public static func analysisCounts(_ db: AppDatabase) throws -> (pending: Int, total: Int) {
+        try db.writer.read { d in
+            let row = try Row.fetchOne(d, sql: """
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(objectsVersion < ? OR textVersion < ? OR printVersion < ?), 0) AS pending
+                FROM asset WHERE missingSince IS NULL
+                """, arguments: [ObjectService.version, TextService.version, DuplicateService.version])
+            return (row?["pending"] ?? 0, row?["total"] ?? 0)
+        }
+    }
+
     /// One pass per photo: the preview is decoded once for objects (classifier), text (OCR) and
     /// fingerprints (duplicates). Videos get objects only (from their poster).
     private func scanObjects(id: Int64, isCancelled: @escaping () -> Bool) throws -> String {

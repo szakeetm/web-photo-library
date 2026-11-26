@@ -64,6 +64,8 @@ struct APIRoutes {
         let dataDir: String; let cacheBytes: Int64; let databaseBytes: Int64; let dataLocationMissing: Bool
         let facesEnabled: Bool; let faceModelInstalled: Bool; let faceModelPath: String
         let mapStyleURL: String?; let defaultMapStyleURL: String
+        /// Photos and videos still waiting for Analyse photos (objects, text, duplicates), out of all of them.
+        let analysisPending: Int; let analysisTotal: Int
     }
     static let defaultMapStyle = "https://tiles.openfreemap.org/styles/liberty"
     struct PersonPatch: Decodable { var name: String??; var hidden: Bool?; var coverFaceId: Int64? }
@@ -717,12 +719,14 @@ struct APIRoutes {
             let attrs = try? FileManager.default.attributesOfItem(atPath: services.paths.databaseURL.path + suffix)
             return sum + ((attrs?[.size] as? NSNumber)?.int64Value ?? 0)
         }
+        let analysis = try JobRunner.analysisCounts(services.db)
         return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), uploadsPath: try s.get(.uploadsPath), ownerLogin: try s.get(.ownerLogin),
                                          dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
                                          databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing,
                                          facesEnabled: try s.get(.facesEnabled),
                                          faceModelInstalled: FaceAnalyzer.modelInstalled(dataDir: services.paths.dataDir),
                                          faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,
-                                         mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle))
+                                         mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle,
+                                         analysisPending: analysis.pending, analysisTotal: analysis.total))
     }
 }

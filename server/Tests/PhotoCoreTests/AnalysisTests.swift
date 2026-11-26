@@ -106,3 +106,19 @@ import GRDB
         #expect(albums == 1 && fav == true)
     }
 }
+
+@Suite struct AnalysisCountTests {
+    @Test func countsPendingAndTotalSkippingMissing() throws {
+        let db = try AppDatabase.inMemory()
+        let ids = ["a", "b", "c"].map { String(repeating: $0, count: 64) }
+        try db.writer.write { d in
+            for id in ids { try Asset.placeholder(id: id).insert(d) }
+            try d.execute(sql: "UPDATE asset SET objectsVersion = ?, textVersion = ?, printVersion = ? WHERE id = ?",
+                          arguments: [ObjectService.version, TextService.version, DuplicateService.version, ids[0]])
+            try d.execute(sql: "UPDATE asset SET missingSince = ? WHERE id = ?", arguments: [Date(), ids[2]])
+        }
+        let c = try JobRunner.analysisCounts(db)
+        #expect(c.total == 2)
+        #expect(c.pending == 1)
+    }
+}
