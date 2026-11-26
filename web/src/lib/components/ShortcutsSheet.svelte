@@ -7,6 +7,9 @@
 	let { onClose }: { onClose: () => void } = $props();
 
 	const mod = isApple ? '⌘' : 'Ctrl+';
+	// the delete keys: ⌫ on a Mac keyboard; Backspace or Delete elsewhere (both work everywhere)
+	const del = isApple ? ['⌫'] : ['Delete', 'Backspace'];
+	const delNow = isApple ? ['⌘⌫'] : ['Ctrl+Delete', 'Ctrl+Backspace'];
 	const shift = isApple ? '⇧' : 'Shift+';
 
 	/** [keys (alternatives), what they do] */
@@ -18,7 +21,10 @@
 				[[`${shift}click`], 'Select every photo up to this one'],
 				[[shortcut('A')], 'Select all'],
 				[['L', 'R'], 'Rotate the selected photos left / right'],
-				[['Space'], 'Open the framed photo (one selected, or the last one open)'],
+				[['Space'], 'Open the selected photo (one selected), or the one last open'],
+				[del, 'Delete (asks first)'],
+				[delNow, 'Delete at once (with Undo)'],
+				[[shortcut('Z')], 'Undo the deletion'],
 				[['Esc'], 'Stop selecting']
 			]
 		},
@@ -31,6 +37,8 @@
 				[['F'], 'Favourite'],
 				[['I'], 'Info'],
 				[['E', 'Return'], 'Edit'],
+				[del, 'Delete (asks first)'],
+				[delNow, 'Delete at once (with Undo)'],
 				[['Space'], 'Play or pause a video; close a photo'],
 				[['Esc'], 'Close the info, then the viewer']
 			]

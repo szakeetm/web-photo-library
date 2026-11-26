@@ -95,10 +95,6 @@
 </script>
 
 <div class="overlay" style="width: {width}px; height: {height}px">
-	<div class="dim" style="left: 0; top: 0; width: {width}px; height: {px.y}px"></div>
-	<div class="dim" style="left: 0; top: {px.y + px.h}px; width: {width}px; height: {Math.max(0, height - px.y - px.h)}px"></div>
-	<div class="dim" style="left: 0; top: {px.y}px; width: {px.x}px; height: {px.h}px"></div>
-	<div class="dim" style="left: {px.x + px.w}px; top: {px.y}px; width: {Math.max(0, width - px.x - px.w)}px; height: {px.h}px"></div>
 	<div
 		class="box"
 		class:dragging={!!drag}
@@ -133,15 +129,13 @@
 		overflow: hidden;
 		touch-action: none;
 	}
-	.dim {
-		position: absolute;
-		background: rgba(0, 0, 0, 0.55);
-		pointer-events: none;
-	}
+	/* the dim outside the crop is the box's own shadow (the overlay clips it): it repaints with the
+	   box, where separate dim blocks over the WebGPU canvas were sometimes left unpainted */
 	.box {
 		position: absolute;
 		cursor: move;
 		touch-action: none;
+		box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
 	}
 	/* drawn inside the box: a crop of the whole photo (box on the overlay's clipped edges) keeps it */
 	.box::before {

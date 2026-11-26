@@ -3,13 +3,28 @@
 	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 
 	function onkey(e: KeyboardEvent) {
+		// ⌘Z / Ctrl+Z: undo the last deletion while its Undo bar shows (not in a field or the editor)
+		if (deleteFlow.undo && !deleteFlow.pending && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+			const t = e.target as HTMLElement;
+			if (t.closest?.('input, select, textarea, [contenteditable]') || document.querySelector('.editor')) return;
+			e.preventDefault();
+			deleteFlow.undoLast();
+			return;
+		}
 		if (!deleteFlow.pending) return;
-		if (e.key === 'Escape') deleteFlow.answer(false);
-		else if (e.key === 'Enter') deleteFlow.answer(true);
+		// the question takes these keys (Escape must not also end selecting behind it)
+		if (e.key === 'Escape' || e.key === 'Enter') {
+			e.preventDefault();
+			e.stopPropagation();
+			deleteFlow.answer(e.key === 'Enter');
+		}
 	}
+	$effect(() => {
+		window.addEventListener('keydown', onkey, true);
+		return () => window.removeEventListener('keydown', onkey, true);
+	});
 </script>
 
-<svelte:window onkeydown={onkey} />
 
 {#if deleteFlow.pending}
 	<div class="scrim" role="presentation" onclick={() => deleteFlow.answer(false)}></div>

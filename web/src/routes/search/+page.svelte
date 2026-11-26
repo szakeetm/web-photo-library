@@ -12,7 +12,9 @@
 
 	const selection = new Selection();
 	let q = $state(page.url.searchParams.get('q') ?? '');
-	let ids = $state<string[]>([]);
+	/** what the server found; shown once the catalog (still loading on a fresh start) has them */
+	let found = $state<string[]>([]);
+	const ids = $derived(found.filter((i) => app.byId.has(i)));
 	let searched = $state(false);
 	let ctrl: AbortController | undefined;
 	let input: HTMLInputElement;
@@ -21,7 +23,7 @@
 		const query = q.trim();
 		ctrl?.abort();
 		if (!query) {
-			ids = [];
+			found = [];
 			searched = false;
 			return;
 		}
@@ -29,9 +31,9 @@
 		const t = setTimeout(async () => {
 			try {
 				const r = await api.search(query, c.signal);
-				ids = r.ids.filter((i) => app.byId.has(i));
+				found = r.ids;
 				// a new search keeps only the selected photos it still shows
-				const shown = new Set(ids);
+				const shown = new Set(r.ids);
 				if ([...selection.ids].some((i) => !shown.has(i))) selection.ids = new Set([...selection.ids].filter((i) => shown.has(i)));
 				searched = true;
 				const url = new URL(location.href);

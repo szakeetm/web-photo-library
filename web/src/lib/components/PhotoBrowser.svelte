@@ -4,7 +4,9 @@
 	import { page } from '$app/state';
 	import type { Section } from '#lib/gridLayout.ts';
 	import { applyView, FILTERS, gridView, naturalOrder, SORTS } from '#lib/gridView.svelte.ts';
-	import { app } from '#lib/state.svelte.ts';
+	import { app, deletePhotos } from '#lib/state.svelte.ts';
+	import { deleteFlow, deleteKey, deleteQuestion } from '#lib/deleteFlow.svelte.ts';
+	import { net } from '#lib/net.svelte.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import ActionBar from './ActionBar.svelte';
 	import Grid from './Grid.svelte';
@@ -85,6 +87,19 @@
 	$effect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (open || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+			// Backspace/Delete on the bookmarked photo (nothing selected; the selection bar handles a selection)
+			const del = deleteKey(e);
+			if (del) {
+				if (trash || selection.active || !focused || !net.online || document.querySelector('[role=dialog], [role=alertdialog]')) return;
+				e.preventDefault();
+				const id = focused;
+				const q = deleteQuestion([id], (i) => app.isUpload(i));
+				deleteFlow
+					.remove([id], q.title, q.message, () => deletePhotos([id]), del === 'now')
+					.then((done) => done && focused === id && (focused = null))
+					.catch((err) => alert((err as Error).message));
+				return;
+			}
 			if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
 				e.preventDefault();
 				selection.selectAll(ids);

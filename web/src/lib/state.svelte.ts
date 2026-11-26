@@ -250,6 +250,9 @@ const addTurn = (id: string, d: number) => {
 	else pendingTurns.delete(id);
 };
 
+/** A thumbnail's previous picture (turned on the client), kept on top while its new rendition loads. */
+export const thumbGhosts = new SvelteMap<string, { src: string; turn: number }>();
+
 /** Loads an image into the browser's cache (errors ignored). */
 function preload(url: string) {
 	return new Promise<void>((resolve) => {
@@ -263,8 +266,13 @@ function preload(url: string) {
 /** Turns photos a quarter turn without opening the editor: the current edit (crop included) turns
  * with the image and is saved as a new edit version. Videos are skipped. A few photos are saved at
  * once; the first error is thrown after the rest are done. The picture turns on screen at once;
- * `preview`: also load the viewer's rendition before showing the saved one. */
-export async function rotatePhotos(ids: string[], clockwise: boolean, { preview = false } = {}) {
+ * `preview`: also load the viewer's rendition before showing the saved one; `beforeSwap` runs just
+ * before a photo's new rendition replaces the turned picture. */
+export async function rotatePhotos(
+	ids: string[],
+	clockwise: boolean,
+	{ preview = false, beforeSwap }: { preview?: boolean; beforeSwap?: (id: string) => void } = {}
+) {
 	const photos = ids.filter((i) => app.byId.get(i)?.dur == null);
 	const d = clockwise ? 1 : -1;
 	for (const id of photos) addTurn(id, d);
@@ -283,9 +291,20 @@ export async function rotatePhotos(ids: string[], clockwise: boolean, { preview 
 					preload(thumbUrl(asset.id, asset.ev, app.fmt)),
 					preview ? preload(previewUrl(asset.id, asset.ev, app.fmt)) : null
 				]);
+				beforeSwap?.(id);
+				const old = app.byId.get(id);
+				if (old) {
+					const g = { src: thumbUrl(old.id, old.ev, app.fmt), turn: pendingTurns.get(id) ?? 0 };
+					thumbGhosts.set(id, g);
+					setTimeout(() => thumbGhosts.get(id) === g && thumbGhosts.delete(id), 4000); // never stuck
+				}
 				app.patchAsset(asset);
+				addTurn(id, -d);
 			})
-			.finally(() => addTurn(id, -d));
+			.catch((e) => {
+				addTurn(id, -d);
+				throw e;
+			});
 		rotating.set(id, next);
 		next.finally(() => rotating.get(id) === next && rotating.delete(id)).catch(() => {});
 		return next.catch((e) => (failed ??= e));

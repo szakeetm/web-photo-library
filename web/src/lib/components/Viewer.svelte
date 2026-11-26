@@ -11,7 +11,7 @@
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
-	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
+	import { deleteFlow, deleteKey } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
 	import FaceAvatar from './FaceAvatar.svelte';
@@ -332,7 +332,16 @@
 		if (!asset || !net.online || isVideo) return;
 		resetZoom();
 		rotations++;
-		rotatePhotos([asset.id], clockwise, { preview: true })
+		rotatePhotos([asset.id], clockwise, {
+			preview: true,
+			beforeSwap: (pid) => {
+				const a = app.byId.get(pid);
+				if (!a || a.id !== asset?.id) return;
+				const src = previewUrl(a.id, a.ev, app.fmt);
+				ghost = { id: a.id, src, style: `transform: translate(${tx}px, ${ty}px) scale(${scale})${turnTransform(a)}` };
+				setTimeout(() => ghost?.src === src && (ghost = null), 4000); // never stuck
+			}
+		})
 			.catch((e) => alert(`Couldn't rotate the photo: ${(e as Error).message}`))
 			.finally(() => rotations--);
 	}
@@ -358,13 +367,16 @@
 		}
 	}
 
-	function removeUpload() {
-		if (!asset) return;
+	/** `immediate` (⌘⌫ / Ctrl+Delete): no question, Undo instead. */
+	function removeUpload(immediate = false) {
+		if (!asset || !net.online) return;
 		const id = asset.id;
 		const msg = app.isUpload(id)
 			? "It stays in the Trash until you delete it there (then it's deleted from disk)."
 			: 'Its file stays where it is (it is never deleted): it is only hidden here. Restore it from the Trash any time.';
-		deleteFlow.remove([id], app.isUpload(id) ? 'Delete this uploaded photo?' : 'Hide this photo?', msg, () => leave((x) => deletePhotos([x])));
+		deleteFlow
+			.remove([id], app.isUpload(id) ? 'Delete this uploaded photo?' : 'Hide this photo?', msg, () => leave((x) => deletePhotos([x])), immediate)
+			.catch((e) => alert((e as Error).message));
 	}
 
 	function deletePermanently() {
@@ -422,6 +434,9 @@
 		return ` rotate(${n * 90}deg) scale(${k})`;
 	}
 
+	// When a rotation's new rendition replaces the picture, the old one (turned on the client) stays on
+	// top until the new one is decoded: swapping the <img> source alone shows a black frame first.
+	let ghost = $state<{ id: string; src: string; style: string } | null>(null);
 	/** Rect the image occupies when fitted into the viewport. */
 	function fittedRect(): { x: number; y: number; w: number; h: number } {
 		const a = asset;
@@ -493,7 +508,10 @@
 				close();
 			} else if (e.key === 'i') infoOpen = !infoOpen;
 			else if (e.key === 'f' && !trash) toggleFavorite();
-			else if ((e.key === 'e' || e.key === 'Enter') && !trash && !(e.target as HTMLElement).closest?.('button')) openEditor();
+			else if (deleteKey(e) && !trash && !document.querySelector('[role=alertdialog]')) {
+				e.preventDefault();
+				removeUpload(deleteKey(e) === 'now');
+			} else if ((e.key === 'e' || e.key === 'Enter') && !trash && !(e.target as HTMLElement).closest?.('button')) openEditor();
 			else if (['[', ']', 'l', 'L', 'r', 'R'].includes(e.key) && !trash && !e.metaKey && !e.ctrlKey && !e.altKey)
 				rotate(e.key === ']' || e.key.toLowerCase() === 'r');
 		};
@@ -833,7 +851,14 @@
 								// while off-screen, so swiping to them paints at once (Safari and desktop alike).
 								img.decode()
 									.catch(() => {})
-									.finally(() => (ready = new Set(ready).add(a.id)));
+									.finally(() => {
+										ready = new Set(ready).add(a.id);
+										// the old picture leaves once the new one has been painted (two frames later)
+										if (ghost?.id === a.id && img.src.endsWith(previewUrl(a.id, a.ev, app.fmt))) {
+											const g = ghost;
+											requestAnimationFrame(() => requestAnimationFrame(() => ghost === g && (ghost = null)));
+										}
+									});
 							}}
 						/>
 						{#if s.o === 0 && fullSrc}
@@ -859,6 +884,11 @@
 							/>
 						{/if}
 					</div>
+					{#if s.o === 0 && ghost?.id === a.id}
+						<div class="frame ghost" style={ghost.style}>
+							<img class="high" src={ghost.src} alt="" draggable="false" />
+						</div>
+					{/if}
 				</div>
 			{/if}
 		{/each}
@@ -927,7 +957,7 @@
 			{/if}
 			<button class="icon-btn" onclick={() => (exporting = true)} title="Download / share" aria-label="Download"><Icon name="download" /></button>
 			{#if asset}
-				<button class="icon-btn" onclick={removeUpload} title="Delete" aria-label="Delete"><Icon name="trash" /></button>
+				<button class="icon-btn" onclick={() => removeUpload()} title="Delete" aria-label="Delete"><Icon name="trash" /></button>
 			{/if}
 		{/if}
 		{/if}
@@ -1246,6 +1276,9 @@
 	.mirror {
 		display: inline-flex;
 		transform: scaleX(-1);
+	}
+	.frame.ghost {
+		pointer-events: none;
 	}
 	/* turning ahead of the server; the new rendition replaces it without animating back */
 	.frame.turning {

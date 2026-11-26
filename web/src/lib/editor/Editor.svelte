@@ -260,14 +260,15 @@
 	}
 
 	// Desktop: dragging outside the crop box turns the picture (straighten), like Photos on the Mac.
-	let spin: { cx: number; cy: number; a0: number; s0: number } | null = null;
+	let spin: { cx: number; cy: number; a0: number; s0: number; moved: boolean } | null = null;
 	const angleAt = (e: PointerEvent) => (Math.atan2(e.clientY - spin!.cy, e.clientX - spin!.cx) * 180) / Math.PI;
 	function spinStart(e: PointerEvent) {
 		if (mode !== 'crop' || !wide || e.button !== 0 || !canvas) return false;
 		if ((e.target as HTMLElement).closest('.box, button, input')) return false;
 		const r = canvas.getBoundingClientRect();
-		spin = { cx: r.left + r.width / 2, cy: r.top + r.height / 2, a0: 0, s0: recipe.straighten ?? 0 };
+		spin = { cx: r.left + r.width / 2, cy: r.top + r.height / 2, a0: 0, s0: recipe.straighten ?? 0, moved: false };
 		spin.a0 = angleAt(e);
+		straightening = true; // the alignment grid shows from the press on
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		e.preventDefault();
 		return true;
@@ -277,12 +278,15 @@
 		let d = angleAt(e) - spin.a0;
 		if (d > 180) d -= 360;
 		if (d < -180) d += 360;
+		spin.moved = true;
 		setStraighten(Math.max(-45, Math.min(45, spin.s0 + d)));
 	}
 	function spinEnd() {
 		if (!spin) return;
+		const moved = spin.moved;
 		spin = null;
-		if (straightening) commitStraighten();
+		if (moved) commitStraighten();
+		else straightening = false;
 	}
 
 	function chooseAspect(label: string) {

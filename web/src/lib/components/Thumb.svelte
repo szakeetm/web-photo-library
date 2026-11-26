@@ -2,7 +2,7 @@
 	import { thumbUrl } from '#lib/api.ts';
 	import { blurhashUrl } from '#lib/blurhash.ts';
 	import { formatDuration } from '#lib/video.ts';
-	import { app, pendingTurns } from '#lib/state.svelte.ts';
+	import { app, pendingTurns, thumbGhosts } from '#lib/state.svelte.ts';
 
 	let {
 		id,
@@ -48,6 +48,13 @@
 	let loaded = $state(false);
 	/** quarter turns shown ahead of the server's new rendition (rotate) */
 	const turn = $derived(pendingTurns.get(id) ?? 0);
+	/** the picture before a rotation's new rendition, on top until that one is painted */
+	const ghost = $derived(thumbGhosts.get(id));
+	function loadedNew() {
+		loaded = true;
+		const g = thumbGhosts.get(id);
+		if (g) requestAnimationFrame(() => requestAnimationFrame(() => thumbGhosts.get(id) === g && thumbGhosts.delete(id)));
+	}
 	const placeholder = $derived(blurhashUrl(asset?.bh ?? null));
 
 	// Long-press (touch) starts selection; a long press must not also "click".
@@ -107,8 +114,11 @@
 			class:loaded
 			class:turned={turn !== 0}
 			style:transform={turn ? `rotate(${turn * 90}deg)` : undefined}
-			onload={() => (loaded = true)}
+			onload={loadedNew}
 		/>
+		{#if ghost}
+			<img class="ghost loaded" src={ghost.src} alt="" draggable="false" style:transform={ghost.turn ? `rotate(${ghost.turn * 90}deg)` : undefined} />
+		{/if}
 	{/if}
 	{#if asset?.fav}<span class="fav">♥</span>{/if}
 	{#if asset?.dur != null}<span class="dur">{formatDuration(asset.tr ? asset.tr[1] - asset.tr[0] : asset.dur)}</span>{/if}
@@ -147,7 +157,12 @@
 	img.loaded {
 		opacity: 1;
 	}
-	/* selected (and the photo last open, on desktop): a blue frame, like Photos on the Mac */
+	img.ghost {
+		position: absolute;
+		inset: 0;
+		transition: none;
+	}
+	/* selected: a blue frame, like Photos on the Mac */
 	.selected::after,
 	.focused::after {
 		content: '';
@@ -155,6 +170,11 @@
 		inset: 0;
 		border: 3px solid var(--accent);
 		pointer-events: none;
+	}
+	/* the photo last open (desktop) is only bookmarked, not selected: a thin outline */
+	.focused::after {
+		border-width: 1.5px;
+		border-color: color-mix(in srgb, var(--accent) 75%, white);
 	}
 	.fav {
 		position: absolute;

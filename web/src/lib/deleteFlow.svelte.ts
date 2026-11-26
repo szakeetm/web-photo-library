@@ -40,12 +40,19 @@ class DeleteFlow {
 
 	/**
 	 * Puts photos in the Trash after asking; `run` does the deleting (defaults to deletePhotos), e.g. one
-	 * that also leaves the viewer. Returns whether they were deleted.
+	 * that also leaves the viewer. `immediate` (⌘⌫ / Ctrl+Delete): no question, Undo instead. Returns
+	 * whether they were deleted.
 	 */
-	async remove(ids: string[], title: string, message: string, run: () => Promise<unknown> = () => deletePhotos(ids)) {
-		if (!ids.length || !(await this.ask(title, message))) return false;
+	async remove(
+		ids: string[],
+		title: string,
+		message: string,
+		run: () => Promise<unknown> = () => deletePhotos(ids),
+		immediate = false
+	) {
+		if (!ids.length || (!immediate && !(await this.ask(title, message)))) return false;
 		await run();
-		if (this.skip) this.offerUndo(ids);
+		if (this.skip || immediate) this.offerUndo(ids);
 		return true;
 	}
 
@@ -77,3 +84,29 @@ class DeleteFlow {
 }
 
 export const deleteFlow = new DeleteFlow();
+
+/**
+ * The delete key of a keyboard event, the same on a Mac and on Windows/Linux: Backspace or Delete
+ * asks first ('ask'); with ⌘ (Mac) or Ctrl (Windows/Linux) it deletes at once with Undo ('now').
+ * Not while typing in a field.
+ */
+export function deleteKey(e: KeyboardEvent): 'ask' | 'now' | null {
+	if (e.key !== 'Backspace' && e.key !== 'Delete') return null;
+	if (e.altKey || e.shiftKey) return null;
+	if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable]')) return null;
+	return e.metaKey || e.ctrlKey ? 'now' : 'ask';
+}
+
+/** The question for deleting photos: uploads go to the Trash, other photos are only hidden. */
+export function deleteQuestion(ids: string[], isUpload: (id: string) => boolean) {
+	const n = ids.length;
+	const uploads = ids.filter(isUpload).length;
+	const others = n - uploads;
+	const parts = [
+		uploads &&
+			`${uploads === 1 ? 'The upload stays' : `${uploads} uploads stay`} in the Trash until you delete ${uploads === 1 ? 'it' : 'them'} there (then ${uploads === 1 ? "it's" : "they're"} deleted from disk).`,
+		others &&
+			`${others === 1 ? (n === 1 ? 'The photo is' : 'The other photo is') : `${others} photos are`} only hidden: ${others === 1 ? 'its file stays' : 'their files stay'} where they are (local folders, Photos libraries, pCloud…) and can be restored from the Trash any time.`
+	].filter(Boolean);
+	return { title: `Delete ${n === 1 ? 'this photo' : `${n} photos`}?`, message: parts.join('\n\n') };
+}

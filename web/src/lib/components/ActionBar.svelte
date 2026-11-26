@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
 	import { app, setFavorite, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
-	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
+	import { deleteFlow, deleteKey, deleteQuestion } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
@@ -40,6 +40,15 @@
 	// L / R rotate the selected photos (not while the viewer, a sheet or a text field has the keys).
 	$effect(() => {
 		const onKey = (e: KeyboardEvent) => {
+			// Backspace/Delete: delete the selected photos (asking first); with ⌘ or Ctrl at once, with Undo
+			const del = deleteKey(e);
+			if (del) {
+				if (trash || page.state.viewer || picking || dating || downloading || busy || !selection.count || !net.online) return;
+				if (document.querySelector('[role=dialog], [role=alertdialog]')) return;
+				e.preventDefault();
+				remove(del === 'now');
+				return;
+			}
 			const k = e.key.toLowerCase();
 			if ((k !== 'l' && k !== 'r') || e.metaKey || e.ctrlKey || e.altKey || trash) return;
 			if ((e.target as HTMLElement).closest?.('input, select, textarea') || document.querySelector('[role=dialog]')) return;
@@ -57,19 +66,11 @@
 		downloading = true;
 	}
 
-	function remove() {
-		const n = ids.length;
-		const uploads = ids.filter((i) => app.isUpload(i)).length;
-		const others = n - uploads;
-		const parts = [
-			uploads &&
-				`${uploads === 1 ? 'The upload stays' : `${uploads} uploads stay`} in the Trash until you delete ${uploads === 1 ? 'it' : 'them'} there (then ${uploads === 1 ? "it's" : "they're"} deleted from disk).`,
-			others &&
-				`${others === 1 ? 'The other photo is' : `${others} photos are`} only hidden: ${others === 1 ? 'its file stays' : 'their files stay'} where they are (local folders, Photos libraries, pCloud…) and can be restored from the Trash any time.`
-		].filter(Boolean);
+	function remove(immediate = false) {
 		const chosen = [...ids];
+		const q = deleteQuestion(chosen, (i) => app.isUpload(i));
 		run(async () => {
-			const done = await deleteFlow.remove(chosen, `Delete ${n === 1 ? 'this photo' : `${n} photos`}?`, parts.join('\n\n'));
+			const done = await deleteFlow.remove(chosen, q.title, q.message, undefined, immediate);
 			if (done) selection.clear();
 		});
 	}
@@ -123,7 +124,7 @@
 				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
 		{/if}
 		<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Delete" aria-label="Delete"
-			onclick={remove}><Icon name="trash" /></button>
+			onclick={() => remove()}><Icon name="trash" /></button>
 		<button class="icon-btn" disabled={!selection.count || !net.online} title="Export / download" aria-label="Export"
 			onclick={download}><Icon name="download" /></button>
 		{/if}
