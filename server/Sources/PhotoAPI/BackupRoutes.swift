@@ -47,6 +47,22 @@ extension APIRoutes {
     struct PathBody: Decodable { let path: String }
     struct Folders: Encodable { let path: String; let folders: [String] }
 
+    /// Points a folder on this Mac that was moved at its new place, keeping its photos; then scans it.
+    func relocateLocal(_ root: String, _ path: String) async throws -> Response {
+        if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+        do {
+            try await blocking {
+                try SourceRelocation.relocateLocal(root: root, to: path, db: services.db, services.settings, dataDir: services.paths.dataDir)
+            }
+        } catch let e as LocalFolderError {
+            return errorResponse(.badRequest, e.description)
+        } catch let e as SourceRelocation.Failure {
+            return errorResponse(.badRequest, e.description)
+        }
+        _ = services.jobs.enqueue(.detectChanges)
+        return try settingsResponse()
+    }
+
     func registerBackupRoutes(on api: RouterGroup<BasicRequestContext>) {
         let services = self.services
         let backup = services.backup
@@ -141,6 +157,32 @@ extension APIRoutes {
             _ = services.jobs.enqueue(.detectChanges)
             return try settingsResponse()
         }
+        // An rclone folder that was moved: point it at its new place, keeping its photos.
+        api.put("sources/:id") { req, ctx in
+            guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
+            let path = try await req.decode(as: PathBody.self, context: ctx).path.trimmingCharacters(in: .whitespaces)
+            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+            guard let r = Rclone.locate() else { return errorResponse(.conflict, RcloneError.notInstalled.description) }
+            if try RemoteSources.all(services.settings).contains(where: { $0.path == path && $0.id != id }) {
+                return errorResponse(.conflict, "\(path) is already a source.")
+            }
+            do {
+                guard let entry = try await blocking({ try r.stat(path) }), entry.IsDir else {
+                    return errorResponse(.badRequest, "\(path) isn't a folder rclone can read.")
+                }
+                try await blocking {
+                    try SourceRelocation.relocateRemote(id: id, to: path, db: services.db, services.settings) { files in
+                        Set(try r.sizes(in: path, files: files).keys)
+                    }
+                }
+            } catch let e as RcloneError {
+                return errorResponse(.badRequest, e.description)
+            } catch let e as SourceRelocation.Failure {
+                return errorResponse(.badRequest, e.description)
+            }
+            _ = services.jobs.enqueue(.detectChanges)
+            return try settingsResponse()
+        }
         api.delete("sources/:id") { _, ctx in
             guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
             if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
@@ -158,6 +200,14 @@ extension APIRoutes {
             }
             _ = services.jobs.enqueue(.detectChanges)
             return try settingsResponse()
+        }
+        // A folder that was moved: point it at its new place, keeping its photos.
+        api.put("local-folders/:id") { req, ctx in
+            guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
+            return try await relocateLocal(LocalFolders.rootPrefix + String(id), try await req.decode(as: PathBody.self, context: ctx).path)
+        }
+        api.put("library-folder") { req, ctx in
+            try await relocateLocal(Roots.library, try await req.decode(as: PathBody.self, context: ctx).path)
         }
         api.delete("local-folders/:id") { _, ctx in
             guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }

@@ -15,6 +15,8 @@
 
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
+	/** A source whose folder was moved, being pointed at its new place. */
+	let relocating = $state<{ kind: 'library' | 'folder' | 'remote'; id: number; path: string } | null>(null);
 	let recent = $state<Job[]>([]);
 	let picker = $state<'data' | 'uploads' | 'photos' | 'folder' | null>(null);
 	let message = $state<{ text: string; error?: boolean } | null>(null);
@@ -31,6 +33,8 @@
 		recluster: 'Regroup faces',
 		objects: 'Analyse photos'
 	};
+	/** Why removing or relocating a source has to wait. */
+	const busyTitle = $derived(current ? `Wait for ${jobNames[current.kind] ?? current.kind} to finish (see Library below).` : undefined);
 	const phaseNames: Record<string, string> = {
 		scan: 'Scanning library',
 		metadata: 'Reading metadata',
@@ -178,6 +182,23 @@
 			settings = await api.addPhotosLibrary(path);
 			message = { text: `${path.split('/').pop()} added. Scanning…` };
 			app.libraryConfigured = true;
+			poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	async function relocate(path: string) {
+		const r = relocating;
+		relocating = null;
+		if (!r || path === r.path) return;
+		try {
+			settings =
+				r.kind === 'library'
+					? await api.relocateLibraryFolder(path)
+					: r.kind === 'folder'
+						? await api.relocateLocalFolder(r.id, path)
+						: await api.relocateSource(r.id, path);
+			message = { text: `Now reading ${r.path.split('/').filter(Boolean).pop()} from ${path}. Scanning…` };
 			poll();
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
@@ -606,7 +627,10 @@
 					<div class="muted small">{settings.libraryFiles.toLocaleString()} photo and video files</div>
 					{@render status('library', settings.libraryLastScan)}
 				</div>
-				<button class="btn" disabled={!!current} onclick={() => removeLibraryFolder(settings!.libraryPath!)}>Remove</button>
+				<div class="btns">
+					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'library', id: 0, path: settings!.libraryPath! })}>Locate…</button>
+					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => removeLibraryFolder(settings!.libraryPath!)}>Remove</button>
+				</div>
 			</div>
 		{/if}
 		{#each settings?.localFolders ?? [] as f (f.id)}
@@ -617,14 +641,18 @@
 					<div class="muted small">{f.files.toLocaleString()} photo and video files · {fmtBytes(f.bytes)}</div>
 					{@render status(f.root, f.lastScan)}
 				</div>
-				<button class="btn" disabled={!!current} onclick={() => removeLocalFolder(f.id, f.path)}>Remove</button>
+				<div class="btns">
+					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'folder', id: f.id, path: f.path })}>Locate…</button>
+					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => removeLocalFolder(f.id, f.path)}>Remove</button>
+				</div>
 			</div>
 		{/each}
 		<div class="row">
 			<div class="label">
 				<div class="muted small">
 					Folders of photos and videos on the Mac or its drives, read where they are (never changed). Add as many as you
-					like, or none. The same photo in several folders is shown once.
+					like, or none. The same photo in several folders is shown once. Moved a folder? Locate… points the app at its new
+					place, keeping everything done to its photos.
 				</div>
 			</div>
 			<button class="btn" onclick={() => (picker = 'folder')}>Add Folder…</button>
@@ -646,7 +674,7 @@
 					{/if}
 					{@render status(lib.root, lib.lastScan)}
 				</div>
-				<button class="btn" disabled={!!current} onclick={() => removePhotosLibrary(lib.id, lib.title)}>Remove</button>
+				<button class="btn" disabled={!!current} title={busyTitle} onclick={() => removePhotosLibrary(lib.id, lib.title)}>Remove</button>
 			</div>
 		{/each}
 		<div class="row">
@@ -671,7 +699,10 @@
 					<div class="muted small">{src.files.toLocaleString()} photo and video files · {fmtBytes(src.bytes)}</div>
 					{@render status(src.root, src.lastScan)}
 				</div>
-				<button class="btn" disabled={!!current} onclick={() => removeSource(src.id, src.path)}>Remove</button>
+				<div class="btns">
+					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'remote', id: src.id, path: src.path })}>Locate…</button>
+					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => removeSource(src.id, src.path)}>Remove</button>
+				</div>
 			</div>
 		{/each}
 		<div class="row">
@@ -679,7 +710,7 @@
 				<div class="muted small">
 					Folders on pCloud or any other rclone remote, read-only. Scans list them in one go and fetch new photos (many at a
 					time) to make their thumbnails and previews; originals are fetched again when needed — to zoom, edit, play or
-					export.{#if !settings?.rclone} Needs rclone on the Mac (see Backup).{/if}
+					export. Moved one? Locate… points the app at its new place, keeping everything.{#if !settings?.rclone} Needs rclone on the Mac (see Backup).{/if}
 				</div>
 			</div>
 			<button class="btn" disabled={!settings?.rclone} onclick={() => (pickingSource = true)}>Add rclone Folder…</button>
@@ -1029,6 +1060,22 @@
 	{/if}
 </div>
 
+{#if relocating?.kind === 'remote'}
+	<RemotePicker
+		title={`Where is ${relocating.path} now?`}
+		start={relocating.path}
+		chooseLabel="It's Here"
+		onPick={relocate}
+		onCancel={() => (relocating = null)}
+	/>
+{:else if relocating}
+	<FolderPicker
+		title={`Where is ${relocating.path.split('/').filter(Boolean).pop()} now?`}
+		start={relocating.path.split('/').slice(0, -1).join('/') || '/'}
+		onPick={relocate}
+		onCancel={() => (relocating = null)}
+	/>
+{/if}
 {#if pickingSource}
 	<RemotePicker title="Add a library folder" chooseLabel="Add This Folder" onPick={addSource} onCancel={() => (pickingSource = false)} />
 {/if}
@@ -1070,6 +1117,11 @@
 {/if}
 
 <style>
+	.btns {
+		display: flex;
+		gap: 8px;
+		flex-shrink: 0;
+	}
 	.page {
 		max-width: 760px;
 		margin: 0 auto;

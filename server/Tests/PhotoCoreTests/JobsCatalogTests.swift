@@ -124,6 +124,35 @@ import GRDB
         #expect(FileManager.default.fileExists(atPath: e.root.appendingPathComponent("A/x.jpg").path))
     }
 
+    @Test func movedFolderIsRelocatedKeepingItsPhotos() throws {
+        let e = try env(withLibrary: false)
+        let settings = SettingsStore(db: e.db)
+        let dataDir = Fixtures.tempDir()
+        let folder = try LocalFolders.add(path: e.root.path, settings, dataDir: dataDir)
+        e.runner.enqueue(.detectChanges)
+        e.runner.waitUntilIdle()
+        let before = try e.catalog.catalog().assets.map(\.id).sorted()
+        #expect(before.count == 2)
+
+        // pointing it at an unrelated folder is refused
+        let unrelated = Fixtures.tempDir()
+        Fixtures.writeJPEG(to: unrelated.appendingPathComponent("other.jpg"), dateTimeOriginal: "2020:01:01 00:00:00", offset: "+00:00")
+        #expect(throws: SourceRelocation.Failure.self) {
+            try SourceRelocation.relocateLocal(root: folder.root, to: unrelated.path, db: e.db, settings, dataDir: dataDir)
+        }
+
+        // the folder is moved; the app follows it, and the photos stay the same photos
+        let moved = Fixtures.tempDir().appendingPathComponent("moved")
+        try FileManager.default.moveItem(at: e.root, to: moved)
+        try SourceRelocation.relocateLocal(root: folder.root, to: moved.path, db: e.db, settings, dataDir: dataDir)
+        #expect(try LocalFolders.all(settings).first?.path == moved.standardizedFileURL.path)
+        let id = e.runner.enqueue(.detectChanges)
+        e.runner.waitUntilIdle()
+        #expect(e.runner.job(id: id)?.state == "done")
+        #expect(try e.catalog.catalog().assets.map(\.id).sorted() == before)
+        #expect(try SourceRelocation.sample(root: folder.root, db: e.db).count == 3)
+    }
+
     @Test func unreadableLibraryFailsJobNotServer() throws {
         let e = try env()
         try SettingsStore(db: e.db).set(.libraryPath, "/nonexistent-\(UUID())")
