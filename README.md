@@ -52,17 +52,37 @@ regenerate them with `demo/take-screenshots.sh`.
   full-resolution original in the background (progress in the corner) and swaps it in once decoded,
   so zooming never stalls.
 - **Albums and favourites.** Create albums from a multi-selection (Select button, long-press on
-  iPhone, ⌘/shift-click on desktop), reorder-safe membership by content hash, ♥ in the viewer
-  (or press F). Google Takeout album folders become albums with one click.
-- **Search** across file names, folders, descriptions, album titles, people, places and
-  recognised objects.
+  iPhone, ⌘/shift-click on desktop; in Select mode drag sideways across photos — finger or mouse —
+  to select a range), reorder-safe membership by content hash, ♥ in the viewer (or press F).
+  Albums show oldest to newest. Google Takeout album folders become albums with one click.
+- **Filter and sort** any grid from the title bar: Favourites, Photos, Videos, Live Photos, Edited,
+  Screenshots, Selfies, Portraits; Newest/Oldest First or Recently Added (albums keep their order).
+  Screenshots, selfies (front camera) and Portrait-mode photos also get Media Types collections.
+- **Adjust Date & Time** for one photo (info panel) or a selection: shift them all (spacing kept),
+  set them all to one time, or change the time zone. Kept in the database only — the files never
+  change, re-indexing keeps it — and written into exported copies. Revert goes back to the file's date.
+- **Search** across file names, folders, descriptions, album titles, people, places, recognised
+  objects and **text in photos** (signs, documents, screenshots — read on the Mac with the OCR built
+  into macOS; nothing to download).
+- **Duplicates** (Collections): copies of the same photo (re-saved, resized, converted) and very
+  similar shots (bursts, crops). Keep one: it gets the others' albums and favourite; uploaded copies
+  go to the Trash, library copies are shown in the Finder for you to delete.
+- **Trim videos** in the viewer (filmstrip with two handles). Save keeps the trim in the database
+  (playback and exports use it); Save as New writes a trimmed copy, without re-encoding, into the
+  uploads folder.
 - **Objects.** Things in photos and videos (dogs, beaches, food, mountains…) are recognised on the
   Mac with the classifier built into macOS (Apple Vision on the Neural Engine: nothing to download,
   nothing leaves the Mac); only confident labels are kept. They show discreetly at the bottom of the
   info panel — click one for every photo and video showing it — and in Collections → Objects, most
-  common first. New photos are done after each scan; Settings → Objects → Find objects runs it by hand.
-- **Downloads.** Export one photo as the original or with its edits (JPEG/HEIC, full resolution),
-  or select several and download them: edited photos with or without edits, plus each Live
+  common first. New photos are done after each scan; Settings → Analyse photos runs it by hand (objects, text and duplicate fingerprints in one pass).
+- **Export.** One photo, a selection, an album, several albums (Collections → Select) or the whole
+  library (Library → ↓). On desktop: originals, with edits, or both (the originals of edited items in
+  an `Originals/` folder); Live Photo videos; Google Photos JSON or XMP sidecars (date with time zone,
+  place, description, favourite, albums and people as keywords, named faces); all in one folder, one
+  per album or `YYYY/YYYY-MM` folders. The Mac streams it as one ZIP, or — on the Mac itself — writes
+  it into a folder you choose. Edits are applied without re-encoding where possible (an adjusted date
+  is rewritten into the same JPEG/HEIC, trims are cut losslessly). On the iPhone: the files, with or
+  without edits, through the share sheet, plus each Live
   Photo's video (.MOV named like the still) if wanted. Edited stills keep the Live Photo's content
   identifier, so importing the photo and its .MOV together into Photos on a Mac gives the Live Photo
   back. On the iPhone files go through the share sheet (a web app can't save Live Photos, so they

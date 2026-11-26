@@ -307,11 +307,20 @@ import HummingbirdTesting
             try await client.execute(uri: "/api/assets/\(id)/auto-enhance", method: .post) { res in
                 #expect(res.status == .badRequest)
             }
+            // no edits: nothing to export with edits (the original is /original)
             try await client.execute(uri: "/api/assets/\(id)/export", method: .get) { res in
-                #expect(res.status == .badRequest)
+                #expect(res.status == .notFound)
             }
             try await client.execute(uri: "/api/gainmap/\(id)", method: .get) { res in
                 #expect(res.status == .noContent)
+            }
+            // trimmed: the export is the trimmed clip
+            try await client.execute(uri: "/api/assets/\(id)/trim", method: .put, body: ByteBuffer(string: #"{"start":0.1,"end":0.9}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/api/assets/\(id)/export", method: .get) { res in
+                #expect(res.status == .ok)
+                #expect(res.headers[.contentType] == "video/quicktime")
             }
         }
         #expect(try e.services.catalog.catalogAsset(id: id)?.ev == 0)

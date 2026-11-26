@@ -102,6 +102,22 @@
 <div class="sheet" role="dialog" aria-modal="true" aria-label="Export">
 	{#if phase === 'choose'}
 		<h3>Export</h3>
+		{#if isVideo && (asset.tr || asset.md)}
+			{#if iosStandalone}
+				<button class="opt" onclick={() => prepare(exportUrl(asset.id, 'jpeg'), asset.name, true)}>
+					With edits <span>{asset.tr ? 'trimmed' : 'adjusted date'}, not re-encoded</span>
+				</button>
+			{:else}
+				<a class="opt" href={exportUrl(asset.id, 'jpeg')} download={asset.name} onclick={onClose}>
+					With edits <span>{asset.tr ? 'trimmed' : 'adjusted date'}, not re-encoded</span>
+				</a>
+			{/if}
+		{/if}
+		{#if !isVideo && asset.md && asset.ev === 0}
+			<button class="opt" onclick={() => prepare(exportUrl(asset.id, 'jpeg'), asset.name, true)}>
+				With adjusted date <span>same file, new date</span>
+			</button>
+		{/if}
 		{#if asset.ev > 0}
 			<button class="opt" onclick={() => prepare(exportUrl(asset.id, 'jpeg'), `${asset.name}-edited.jpg`, true)}>
 				Edited photo <span>JPEG, full resolution</span>
@@ -131,7 +147,7 @@
 			{/if}
 		{:else}
 			<button class="opt" onclick={() => prepare(originalUrl(asset.id), asset.name)}>
-				Original <span>unchanged file{asset.ev > 0 ? ', without edits' : ''}</span>
+				Original <span>unchanged file{asset.ev > 0 || asset.md ? ', without edits' : ''}</span>
 			</button>
 		{/if}
 		<button class="btn cancel" onclick={cancel}>Cancel</button>

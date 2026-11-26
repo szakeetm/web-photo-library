@@ -1,5 +1,6 @@
 import Foundation
 import Hummingbird
+import NIOCore
 import HTTPTypes
 import PhotoCore
 
@@ -388,17 +389,37 @@ struct APIRoutes {
             let edits = services.edits
             return try await editCall { try json(AutoRecipe(recipe: try await blocking { try edits.autoEnhance(id: id) })) }
         }
+        // One photo or video with its edits, at full resolution: pixel edits rendered, an adjusted date
+        // written in without re-encoding, a video trimmed without re-encoding.
         api.get("assets/:id/export") { req, ctx in
             guard let id = validId(ctx) else { throw HTTPError(.notFound) }
-            if try isVideo(id) { return Self.notEditable }
             let format = req.uri.queryParameters.get("fmt").flatMap(ImageFormat.init(rawValue:)) ?? .jpeg
-            let edits = services.edits
+            let exporter = ExportService(db: services.db, catalog: services.catalog, edits: services.edits, ffmpeg: services.ffmpeg,
+                                         cacheDir: services.paths.cacheDir)
             return try await editCall {
-                let (url, name) = try await renderLimiter.run { try await blocking { try edits.export(id: id, format: format) } }
-                let body = try await fileIO.loadFile(path: url.path, context: ctx)
+                guard let f = try await renderLimiter.run({ try await exporter.editedFile(id: id, format: format) }) else {
+                    throw EditError.notFound
+                }
+                let body: ResponseBody
+                if f.temporary {
+                    // a file made for this request: stream it, then delete it
+                    let url = f.url
+                    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
+                    body = ResponseBody(contentLength: size) { writer in
+                        defer { try? FileManager.default.removeItem(at: url) }
+                        let handle = try FileHandle(forReadingFrom: url)
+                        defer { try? handle.close() }
+                        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+                            try await writer.write(ByteBuffer(data: chunk))
+                        }
+                        try await writer.finish(nil)
+                    }
+                } else {
+                    body = try await fileIO.loadFile(path: f.url.path, context: ctx)
+                }
                 return Response(status: .ok, headers: [
-                    .contentType: format.mimeType,
-                    .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(name))",
+                    .contentType: contentType(forExtension: f.url.pathExtension),
+                    .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(f.name))",
                     .cacheControl: "private, no-store",
                 ], body: body)
             }
@@ -541,6 +562,7 @@ struct APIRoutes {
         }
 
         registerVideoRoutes(on: api)
+        registerExportRoutes(on: api)
     }
 
     func upload(_ req: Request, _ ctx: BasicRequestContext) async throws -> Response {

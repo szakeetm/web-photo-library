@@ -7,12 +7,14 @@
 	import { net } from '#lib/net.svelte.ts';
 	import { confirmDownload, pins, pinStatus } from '#lib/pins.svelte.ts';
 	import DownloadBar from '#lib/components/DownloadBar.svelte';
+	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 
 	let menu = $state(false);
+	let exporting = $state(false);
 
 	const selection = new Selection();
 	const id = $derived(Number(page.params.id));
@@ -74,6 +76,7 @@
 							<button role="menuitem" disabled={!pin && !net.online} onclick={() => { menu = false; toggleDownload(); }}
 								>{pin ? 'Remove Download' : 'Download to This Device'}</button>
 						{/if}
+						<button role="menuitem" disabled={!net.online || !items.length} onclick={() => { menu = false; exporting = true; }}>Export Album…</button>
 						<button role="menuitem" disabled={!net.online} onclick={() => { menu = false; rename(); }}>Rename</button>
 						<button role="menuitem" class="danger" disabled={!net.online} onclick={() => { menu = false; remove(); }}>Delete Album</button>
 					</div>
@@ -84,6 +87,9 @@
 </TitleBar>
 
 <DownloadBar {pin} />
+{#if exporting && album}
+	<MultiExportSheet albums={[album.id]} onClose={() => (exporting = false)} />
+{/if}
 
 {#if app.loaded && !album}
 	<p class="empty muted">Album not found.</p>

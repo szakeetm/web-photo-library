@@ -83,6 +83,31 @@ export interface DuplicateItem {
 	albums: number;
 }
 
+/** What to export (see the server's ExportOptions). */
+export interface ExportOptions {
+	ids?: string[];
+	albums?: number[];
+	library?: boolean;
+	content: 'original' | 'edited' | 'both';
+	editFormat: ImageFmt;
+	livePhotoVideo: boolean;
+	sidecar: 'none' | 'google' | 'xmp';
+	organize: 'flat' | 'albums' | 'months';
+}
+
+export interface ExportStatus {
+	id: string;
+	name: string;
+	state: 'ready' | 'running' | 'done' | 'failed' | 'cancelled';
+	done: number;
+	total: number;
+	error: string | null;
+	folder: string | null;
+}
+
+/** The streamed ZIP of an export (downloadable once). */
+export const exportDownloadUrl = (id: string) => `/api/exports/${id}/download`;
+
 /** The trim editor's filmstrip (frames side by side in one image). */
 export const framesUrl = (id: string, n = 12) => `/api/assets/${id}/frames?n=${n}`;
 
@@ -480,6 +505,11 @@ export const api = {
 	/** Save as New: a trimmed copy in the uploads folder, as a new video. */
 	trimCopy: (id: string, start: number, end: number) =>
 		call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim/copy`, { method: 'POST', body: JSON.stringify({ start, end }) }),
+	startExport: (options: ExportOptions, target: 'zip' | 'folder', folder?: string, name?: string) =>
+		call<ExportStatus>('/api/exports', { method: 'POST', body: JSON.stringify({ options, target, folder, name }) }),
+	exportStatus: (id: string) => call<ExportStatus>(`/api/exports/${id}`),
+	cancelExport: (id: string) => call<void>(`/api/exports/${id}`, { method: 'DELETE' }),
+	revealExport: (id: string) => call<void>(`/api/exports/${id}/reveal`, { method: 'POST' }),
 	duplicates: () => call<DuplicateGroup[]>('/api/duplicates'),
 	dismissDuplicates: (key: string) => call<void>('/api/duplicates/dismiss', { method: 'POST', body: JSON.stringify({ key }) }),
 	/** The kept photo gets the others' albums and favourite (call before removing them). */

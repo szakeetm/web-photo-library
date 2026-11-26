@@ -165,8 +165,8 @@ public final class EditService: Sendable {
 
     public enum ExportVariant: String, Sendable { case original, edited }
 
-    /// A full-resolution file to download/share: the original as is, or the current edit rendered at
-    /// full size with the original's metadata (orientation normalised). Recent exports are kept.
+    /// A full-resolution file to download/share: the current edit rendered at full size with the
+    /// original's metadata (orientation normalised) and the adjusted date, if any. Recent exports are kept.
     public func export(id: String, format: ImageFormat) throws -> (url: URL, filename: String) {
         guard let detail = try catalog.asset(id: id) else { throw EditError.notFound }
         let version = detail.asset.editVersion
@@ -174,8 +174,10 @@ public final class EditService: Sendable {
         guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
         let dir = derivatives().cacheDir.appendingPathComponent("exports", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        // "_l": exports that keep the Live Photo pairing (older cached exports lack it)
-        let target = dir.appendingPathComponent("\(id)_e\(version)_l.\(format.rawValue)")
+        let userDate = detail.asset.dateSource == "user" ? (detail.asset.takenAt, detail.asset.tzOffset) : nil
+        // "_l": exports that keep the Live Photo pairing (older cached exports lack it); "_d…": the adjusted date
+        let dated = userDate.map { "_d\(Int($0.0.timeIntervalSince1970))_\($0.1 ?? 0)" } ?? ""
+        let target = dir.appendingPathComponent("\(id)_e\(version)_l\(dated).\(format.rawValue)")
         let base = (source.lastPathComponent as NSString).deletingPathExtension
         let filename = "\(base)-edited.\(format == .heic ? "heic" : "jpg")"
         if FileManager.default.fileExists(atPath: target.path) {
@@ -183,12 +185,13 @@ public final class EditService: Sendable {
             return (target, filename)
         }
         let (image, hdr) = try renderFullHDR(id: id, version: version)
-        try Self.write(image, hdr: hdr, to: target, format: format, metadataFrom: source)
+        try Self.write(image, hdr: hdr, to: target, format: format, metadataFrom: source, date: userDate)
         Self.pruneExports(in: dir, keep: 12)
         return (target, filename)
     }
 
-    static func write(_ image: CGImage, hdr: HDRMetadata = .none, to target: URL, format: ImageFormat, metadataFrom source: URL) throws {
+    static func write(_ image: CGImage, hdr: HDRMetadata = .none, to target: URL, format: ImageFormat, metadataFrom source: URL,
+                      date: (Date, Int?)? = nil) throws {
         var props: [CFString: Any] = [:]
         if let src = CGImageSourceCreateWithURL(source as CFURL, nil),
            let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
@@ -208,6 +211,7 @@ public final class EditService: Sendable {
            let apple = p[kCGImagePropertyMakerAppleDictionary] as? [String: Any], let cid = apple["17"] {
             props[kCGImagePropertyMakerAppleDictionary] = ["17": cid]
         }
+        if let date { MetadataRewriter.dateProperties(date.0, tzOffset: date.1, into: &props) }
         for (k, v) in hdr.imageProperties { props[k] = v }
         props[kCGImagePropertyOrientation] = 1
         props[kCGImageDestinationLossyCompressionQuality] = format == .heic ? 0.85 : 0.92

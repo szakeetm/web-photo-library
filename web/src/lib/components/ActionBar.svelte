@@ -93,7 +93,7 @@
 			<button class="icon-btn danger" disabled={busy || !net.online} title="Delete uploads" aria-label="Delete uploads"
 				onclick={remove}><Icon name="trash" /></button>
 		{/if}
-		<button class="icon-btn" disabled={!selection.count || !net.online} title="Download" aria-label="Download"
+		<button class="icon-btn" disabled={!selection.count || !net.online} title="Export / download" aria-label="Export"
 			onclick={download}><Icon name="download" /></button>
 		{/if}
 	</div>

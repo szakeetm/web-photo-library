@@ -5,6 +5,7 @@
 	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type DuplicateGroup, type ObjectLabel } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
+	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 	import { pins, pinProgress, pinStatus } from '#lib/pins.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -44,6 +45,22 @@
 		{ key: 'screenshots', title: 'Screenshots', list: app.index.screenshots }
 	]);
 
+	// Selecting albums to export several at once (desktop: a phone shares one album at a time).
+	const desktop = typeof matchMedia !== 'undefined' && !matchMedia('(pointer: coarse)').matches;
+	let selecting = $state(false);
+	let picking = $state(new Set<number>());
+	let exportingAlbums = $state(false);
+	function togglePick(id: number) {
+		const next = new Set(picking);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		picking = next;
+	}
+	function stopPicking() {
+		selecting = false;
+		picking = new Set();
+	}
+
 	async function newAlbum() {
 		const title = prompt('New album name');
 		if (!title?.trim()) return;
@@ -52,9 +69,21 @@
 	}
 </script>
 
-{#snippet card(href: string, title: string, count: number, cover: string | null, icon: string, image: string | null = null, pin: PinRecord | undefined = undefined)}
+{#snippet card(href: string, title: string, count: number, cover: string | null, icon: string, image: string | null = null, pin: PinRecord | undefined = undefined, albumId: number | undefined = undefined)}
 	{@const ca = cover ? app.byId.get(cover) : undefined}
-	<a class="card" {href}>
+	{@const picked = albumId != null && picking.has(albumId)}
+	<a
+		class="card"
+		class:dimmed={selecting && albumId == null}
+		class:picked
+		{href}
+		aria-current={picked ? 'true' : undefined}
+		onclick={(e) => {
+			if (!selecting) return;
+			e.preventDefault();
+			if (albumId != null) togglePick(albumId);
+		}}
+	>
 		<div class="cover">
 			{#if image}<img src={image} alt="" loading="lazy" />{:else if ca}<img src={thumbUrl(ca.id, ca.ev, app.fmt)} alt="" loading="lazy" />{:else}<Icon name={icon} size={40} />{/if}
 		</div>
@@ -68,11 +97,21 @@
 	</a>
 {/snippet}
 
-<TitleBar title="Collections">
+<TitleBar title="Collections" subtitle={selecting ? `${picking.size} ${picking.size === 1 ? 'album' : 'albums'} selected` : undefined}>
 	{#snippet actions()}
-		<button class="btn" onclick={newAlbum}>New Album</button>
+		{#if desktop && albums.length && net.online}
+			<button class="btn" onclick={() => (selecting ? stopPicking() : (selecting = true))}>{selecting ? 'Cancel' : 'Select'}</button>
+		{/if}
+		{#if selecting}
+			<button class="btn primary" disabled={!picking.size} onclick={() => (exportingAlbums = true)}>Export…</button>
+		{:else}
+			<button class="btn" onclick={newAlbum}>New Album</button>
+		{/if}
 	{/snippet}
 </TitleBar>
+{#if exportingAlbums}
+	<MultiExportSheet albums={[...picking]} onClose={() => { exportingAlbums = false; stopPicking(); }} />
+{/if}
 
 <h2 class="section">Albums</h2>
 <div class="cards">
@@ -80,7 +119,7 @@
 	{@render card('/edited', 'Edited', app.index.edited.length, editedCover, 'edit')}
 	{#each albums as al (al.id)}
 		{@const p = present(al)}
-		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id])}
+		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id], al.id)}
 	{/each}
 </div>
 
@@ -149,6 +188,14 @@
 	.card {
 		color: var(--fg);
 		min-width: 0;
+	}
+	.card.dimmed {
+		opacity: 0.35;
+		pointer-events: none;
+	}
+	.card.picked .cover {
+		outline: 3px solid var(--accent);
+		outline-offset: 2px;
 	}
 	.cover {
 		aspect-ratio: 1;

@@ -88,6 +88,7 @@ private let extraTypes: [String: String] = [
     "heic": "image/heic", "heif": "image/heif", "hif": "image/heif", "avif": "image/avif", "webp": "image/webp",
     "dng": "image/x-adobe-dng", "cr2": "image/x-canon-cr2", "cr3": "image/x-canon-cr3", "nef": "image/x-nikon-nef",
     "arw": "image/x-sony-arw", "raf": "image/x-fuji-raf", "orf": "image/x-olympus-orf", "rw2": "image/x-panasonic-rw2",
+    "mov": "video/quicktime", "qt": "video/quicktime", "mp4": "video/mp4", "m4v": "video/x-m4v",
     "webmanifest": "application/manifest+json", "mjs": "text/javascript", "wasm": "application/wasm",
 ]
 

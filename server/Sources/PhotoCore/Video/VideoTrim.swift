@@ -80,7 +80,7 @@ public enum VideoCutter {
     /// Writes `[start, end]` of `source` to `output` without re-encoding (AVFoundation passthrough, or
     /// ffmpeg's stream copy for containers AVFoundation can't write). With `creationDate`, the copy
     /// carries that date (adjusted dates), in the time zone `tzOffset` when known.
-    public static func cut(source: URL, start: Double, end: Double, to output: URL, creationDate: Date? = nil,
+    public static func cut(source: URL, start: Double = 0, end: Double?, to output: URL, creationDate: Date? = nil,
                            tzOffset: Int? = nil, ffmpeg: URL?) async throws {
         let stamp = creationDate.map { d -> String in
             let f = ISO8601DateFormatter()
@@ -94,8 +94,10 @@ public enum VideoCutter {
                 throw TrimError.failed("this video can't be exported")
             }
             let timescale: CMTimeScale = 600
-            session.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: timescale),
-                                            end: CMTime(seconds: end, preferredTimescale: timescale))
+            if let end {
+                session.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: timescale),
+                                                end: CMTime(seconds: end, preferredTimescale: timescale))
+            }
             var metadata = (try? await asset.load(.metadata)) ?? []
             if let creationDate {
                 metadata.removeAll { $0.identifier == .commonIdentifierCreationDate || $0.identifier == .quickTimeMetadataCreationDate }
@@ -114,8 +116,9 @@ public enum VideoCutter {
             return
         }
         guard let ffmpeg else { throw TrimError.failed("this video format needs ffmpeg (brew install ffmpeg)") }
-        var args = ["-nostdin", "-y", "-ss", String(format: "%.3f", start), "-to", String(format: "%.3f", end),
-                    "-i", source.path, "-map", "0", "-c", "copy", "-map_metadata", "0"]
+        var args = ["-nostdin", "-y", "-ss", String(format: "%.3f", start)]
+        if let end { args += ["-to", String(format: "%.3f", end)] }
+        args += ["-i", source.path, "-map", "0", "-c", "copy", "-map_metadata", "0"]
         if let creationDate { args += ["-metadata", "creation_time=\(ISO8601DateFormatter().string(from: creationDate))"] }
         args.append(output.path)
         let p = Process()

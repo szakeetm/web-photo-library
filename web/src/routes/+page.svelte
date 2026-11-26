@@ -5,6 +5,13 @@
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 	import UploadButton from '#lib/components/UploadButton.svelte';
+	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import { net } from '#lib/net.svelte.ts';
+
+	/** Exporting the whole library (desktop only: a phone can't hold it). */
+	let exporting = $state(false);
+	const desktop = typeof matchMedia !== 'undefined' && !matchMedia('(pointer: coarse)').matches;
 
 	const selection = new Selection();
 	// Newest first: the latest month on top, newest photo first within each month.
@@ -19,6 +26,9 @@
 			<a class="local-pill" href="/settings" title="This browser runs on the Mac with the library: photos and videos come straight from its disk.">Local mode</a>
 		{/if}
 		<UploadButton />
+		{#if desktop && net.online && app.assets.length}
+			<button class="icon-btn" title="Export library…" aria-label="Export library" onclick={() => (exporting = true)}><Icon name="download" /></button>
+		{/if}
 		{#if app.assets.length}
 			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>
 				{selection.active ? 'Cancel' : 'Select'}
@@ -38,6 +48,10 @@
 	</div>
 {:else}
 	<PhotoBrowser {sections} {selection} />
+{/if}
+
+{#if exporting}
+	<MultiExportSheet library onClose={() => (exporting = false)} />
 {/if}
 
 <style>
