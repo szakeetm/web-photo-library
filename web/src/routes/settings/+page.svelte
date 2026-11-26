@@ -281,6 +281,20 @@
 	}
 
 	/** What a source is doing, or how its last scan went. */
+	/** "N photo and video files · size"; until a first scan finishes these are only what is in so far, and while it
+	 * runs the scan's remaining work gives an estimate of the whole folder. */
+	function filesLine(root: string, lastScan: SourceScan | null, files: number, bytes: number): string {
+		const counted = `${files.toLocaleString()} photo and video files · ${fmtBytes(bytes)}`;
+		if (lastScan) return counted;
+		const scanningThis =
+			current?.state === 'running' && current.kind === 'detect-changes' && !!current.phase?.endsWith(':' + root);
+		if (scanningThis && current && current.total > 0) {
+			const all = files + Math.max(0, current.total - current.progress);
+			return `${files.toLocaleString()} of about ${all.toLocaleString()} photo and video files in so far · ${fmtBytes(bytes)}`;
+		}
+		return files > 0 ? `${counted} in so far` : counted;
+	}
+
 	function sourceStatus(
 		root: string,
 		lastScan: SourceScan | null,
@@ -740,7 +754,7 @@
 				<div class="label">
 					<div>{src.title}</div>
 					<div class="muted path">{src.path}</div>
-					<div class="muted small">{src.files.toLocaleString()} photo and video files · {fmtBytes(src.bytes)}</div>
+					<div class="muted small">{filesLine(src.root, src.lastScan, src.files, src.bytes)}</div>
 					{@render status(src.root, src.lastScan, src.files)}
 				</div>
 				<div class="btns">
