@@ -283,7 +283,8 @@
 	/** What a source is doing, or how its last scan went. */
 	function sourceStatus(
 		root: string,
-		lastScan: SourceScan | null
+		lastScan: SourceScan | null,
+		files = 0
 	): { text: string; busy?: boolean; progress?: number; error?: boolean; detail?: string | null; jobId?: number } {
 		const scanning = current?.state === 'running' && (current.kind === 'detect-changes' || current.kind === 'reindex');
 		if (scanning && current?.phase?.endsWith(':' + root)) {
@@ -299,6 +300,9 @@
 		const waiting =
 			(scanning && !lastScan) || (!lastScan && recent.some((r) => r.kind === 'detect-changes' && r.state === 'queued'));
 		if (waiting) return { text: 'Waiting to be scanned…', busy: true };
+		// A first scan that was stopped (or interrupted) has no result yet, but some photos are in.
+		if (!lastScan && files > 0)
+			return { text: `First scan not finished: ${files.toLocaleString()} photos and videos are in so far. Scan to continue.` };
 		if (!lastScan) return { text: 'Not scanned yet' };
 		const when = new Date(lastScan.at).toLocaleString();
 		if (!lastScan.ok) return { text: `Last scan failed (${when}): ${lastScan.note ?? ''}`, error: true };
@@ -633,8 +637,8 @@
 	{#if !net.online}
 		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are above.</p>
 	{:else}
-	{#snippet status(root: string, lastScan: SourceScan | null)}
-		{#each [sourceStatus(root, lastScan)] as st, i (i)}
+	{#snippet status(root: string, lastScan: SourceScan | null, files = 0)}
+		{#each [sourceStatus(root, lastScan, files)] as st, i (i)}
 			<div class="small" class:muted={!st.busy} class:warn={st.error}>{st.text}</div>
 			{#if st.detail}<div class="small muted detail">{st.detail}</div>{/if}
 			{#if st.progress != null}<div class="bar srcbar"><div style:width={`${st.progress * 100}%`}></div></div>{/if}
@@ -737,11 +741,14 @@
 					<div>{src.title}</div>
 					<div class="muted path">{src.path}</div>
 					<div class="muted small">{src.files.toLocaleString()} photo and video files · {fmtBytes(src.bytes)}</div>
-					{@render status(src.root, src.lastScan)}
+					{@render status(src.root, src.lastScan, src.files)}
 				</div>
 				<div class="btns">
 					{#if scanningThis && current}
 						<button class="btn" onclick={() => stopJob(current!.id)} title="Stop this scan; what was fetched stays">Stop</button>
+					{:else}
+						<button class="btn" disabled={!!current} title={current ? busyTitle : 'Look for new and changed photos (all sources are scanned; what is in already is skipped)'}
+							onclick={() => start('detect-changes')}>Scan</button>
 					{/if}
 					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'remote', id: src.id, path: src.path })}>Locate…</button>
 					<button class="btn" disabled={!!current && !scanningThis} title={scanningThis ? 'Stop the scan and remove this folder' : busyTitle}
