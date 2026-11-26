@@ -29,8 +29,6 @@ export interface TrashItem {
 	virtual: boolean;
 }
 
-/** Days a deleted upload stays in the Trash before it is deleted for good (server UploadTrash.keepDays). */
-export const TRASH_KEEP_DAYS = 30;
 
 export interface CatalogAsset {
 	id: string;

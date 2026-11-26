@@ -1,6 +1,5 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
-	import { TRASH_KEEP_DAYS } from '#lib/api.ts';
 	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
@@ -42,11 +41,15 @@
 
 	function remove() {
 		const n = ids.length;
-		const what = n === 1 ? 'this photo' : `${n} photos`;
-		const files = allUploads
-			? ''
-			: ' Only uploads are deleted from disk; the files of the others stay where they are (folders, Photos libraries, pCloud…).';
-		if (!confirm(`Delete ${what}? ${n === 1 ? 'It stays' : 'They stay'} in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.${files}`)) return;
+		const uploads = ids.filter((i) => app.isUpload(i)).length;
+		const others = n - uploads;
+		const parts = [
+			uploads &&
+				`${uploads === 1 ? 'The upload stays' : `${uploads} uploads stay`} in the Trash until you delete ${uploads === 1 ? 'it' : 'them'} there (then ${uploads === 1 ? "it's" : "they're"} deleted from disk).`,
+			others &&
+				`${others === 1 ? 'The other photo is' : `${others} photos are`} only hidden: ${others === 1 ? 'its file stays' : 'their files stay'} where they are (local folders, Photos libraries, pCloud…) and can be restored from the Trash any time.`
+		].filter(Boolean);
+		if (!confirm(`Delete ${n === 1 ? 'this photo' : `${n} photos`}? ${parts.join(' ')}`)) return;
 		run(async () => {
 			await deletePhotos(ids);
 			selection.clear();
@@ -60,9 +63,11 @@
 		});
 	}
 
+	/** In the Trash, only uploads can be deleted for good (other photos are only hidden). */
+	const allTrashUploads = $derived(ids.length > 0 && ids.every((i) => app.trash.find((t) => t.asset.id === i)?.virtual === false));
 	function removeForever() {
 		const n = ids.length;
-		if (!confirm(`Delete ${n === 1 ? 'this photo' : `${n} photos`} permanently? The files are deleted from disk; this can't be undone.`)) return;
+		if (!confirm(`Delete ${n === 1 ? 'this upload' : `${n} uploads`} permanently? The files are deleted from disk; this can't be undone.`)) return;
 		run(async () => {
 			await deleteForever(ids);
 			selection.clear();
@@ -77,7 +82,8 @@
 	<div class="actions">
 		{#if trash}
 		<button class="btn" disabled={!selection.count || busy || !net.online} onclick={restore}>Restore</button>
-		<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Delete permanently"
+		<button class="icon-btn danger" disabled={!allTrashUploads || busy || !net.online}
+			title={allTrashUploads || !selection.count ? 'Delete permanently' : 'Only uploads can be deleted permanently; other photos can only be restored'}
 			aria-label="Delete permanently" onclick={removeForever}><Icon name="trash" /></button>
 		{:else}
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title={favNext ? 'Favourite' : 'Unfavourite'}

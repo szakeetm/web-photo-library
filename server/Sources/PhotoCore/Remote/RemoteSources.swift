@@ -96,17 +96,20 @@ public enum RemoteSources {
         Int64(try settings.get(.originalsCacheGB) ?? defaultCacheGB) * 1_000_000_000
     }
 
-    /// Removes a source: its files are forgotten (photos only there become missing), its folders and
-    /// its originals on this Mac deleted.
-    public static func remove(id: Int, db: AppDatabase, _ settings: SettingsStore, dataDir: URL?) throws {
+    /// Removes a source: its files and folders are forgotten, and the photos only there are removed for
+    /// good with everything about them (albums, edits, Trash…); its originals on this Mac are deleted.
+    /// Nothing on the remote is touched. Returns the removed photos.
+    @discardableResult
+    public static func remove(id: Int, db: AppDatabase, _ settings: SettingsStore, dataDir: URL?) throws -> [String] {
         var list = try all(settings)
-        guard let s = list.first(where: { $0.id == id }) else { return }
+        guard let s = list.first(where: { $0.id == id }) else { return [] }
         let scanner = LibraryScanner(db: db, root: dataDir.map { mirror(s.root, dataDir: $0) } ?? URL(fileURLWithPath: "/"), rootName: s.root)
-        _ = try scanner.finishBatches(present: [], videos: [], dirs: [])
+        let purged = try AssetPurge.removeRoot(s.root, scanner: scanner, db: db)
         list.removeAll { $0.id == id }
         try settings.set(.remoteSources, list)
         try settings.set(.sourceScans, try settings.get(.sourceScans).filter { $0.root != s.root })
         if let dataDir { try? FileManager.default.removeItem(at: mirror(s.root, dataDir: dataDir)) }
+        return purged
     }
 
     /// Files (and their bytes) indexed per root.

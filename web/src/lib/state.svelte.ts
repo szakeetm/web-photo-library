@@ -234,7 +234,7 @@ function applyAssets(list: CatalogAsset[]) {
 	app.reload(); // persist to the device copy
 }
 
-/** Moves uploaded photos to the Trash (restorable for TRASH_KEEP_DAYS). */
+/** The Trash: deleted uploads (deleted from disk only by hand) and hidden photos (restorable). */
 /** Puts photos in the Trash: uploads are moved there, the others only hidden (their files stay). */
 export async function deletePhotos(ids: string[]) {
 	const set = new Set(ids);
@@ -262,11 +262,12 @@ export async function restoreFromTrash(ids: string[]) {
 	await app.reload();
 }
 
-/** Deletes Trash items for good; all of them without ids. */
+/** Deletes Trash uploads for good (all of them without ids); hidden photos stay in the Trash. */
 export async function deleteForever(ids?: string[]) {
 	const set = ids && new Set(ids);
 	const before = app.trash;
-	app.trash = set ? app.trash.filter((t) => !set.has(t.asset.id)) : [];
+	// only uploads are deleted for good; hidden photos stay in the Trash
+	app.trash = app.trash.filter((t) => t.virtual || (set ? !set.has(t.asset.id) : false));
 	try {
 		await api.deleteForever(ids);
 	} catch (e) {

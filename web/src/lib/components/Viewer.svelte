@@ -8,7 +8,7 @@
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
-	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
+	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -333,8 +333,10 @@
 
 	function removeUpload() {
 		if (!asset) return;
-		const files = app.isUpload(asset.id) ? '' : ' Its file stays where it is: it is only hidden here.';
-		if (!confirm(`Delete this photo? It stays in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.${files}`)) return;
+		const msg = app.isUpload(asset.id)
+			? "Delete this uploaded photo? It stays in the Trash until you delete it there (then it's deleted from disk)."
+			: 'Hide this photo? It goes to the Trash; its file stays where it is (it is never deleted). Restore it from the Trash any time.';
+		if (!confirm(msg)) return;
 		leave((id) => deletePhotos([id]));
 	}
 
@@ -343,12 +345,8 @@
 		leave((id) => deleteForever([id]));
 	}
 
-	/** Days until a Trash item is deleted for good. */
-	const daysLeft = $derived.by(() => {
-		const t = trash && asset ? app.trash.find((x) => x.asset.id === asset.id) : undefined;
-		if (!t) return null;
-		return Math.max(0, Math.ceil(TRASH_KEEP_DAYS - (Date.now() - Date.parse(t.trashedAt)) / 86_400_000));
-	});
+	/** The open Trash item. */
+	const trashItem = $derived(trash && asset ? app.trash.find((x) => x.asset.id === asset.id) : undefined);
 
 	function resetZoom() {
 		scale = 1;
@@ -842,7 +840,7 @@
 			{#if asset}
 				<div class="date">{captureLabel(asset.t, asset.tz)}</div>
 				<div class="sub muted">
-					{index + 1} of {ids.length}{#if daysLeft != null} · {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left{/if}
+					{index + 1} of {ids.length}{#if trashItem?.virtual} · hidden (its file is untouched){:else if trashItem} · upload (can be deleted from disk){/if}
 				</div>
 			{/if}
 		</div>
@@ -856,8 +854,10 @@
 						><Icon name="finder" /></button>
 				{/if}
 				<button class="btn" onclick={() => leave((id) => restoreFromTrash([id]))}>Restore</button>
-				<button class="icon-btn danger" onclick={deletePermanently} title="Delete permanently" aria-label="Delete permanently"
-					><Icon name="trash" /></button>
+				{#if trashItem && !trashItem.virtual}
+					<button class="icon-btn danger" onclick={deletePermanently} title="Delete permanently" aria-label="Delete permanently"
+						><Icon name="trash" /></button>
+				{/if}
 			{/if}
 		{:else}
 		<button class="icon-btn heart" class:filled={asset?.fav} onclick={toggleFavorite} disabled={!net.online}

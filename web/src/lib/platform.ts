@@ -15,6 +15,15 @@ export const isFirefox = !!nav && /Firefox\//.test(nav.userAgent);
 /** Chrome or Edge (and other Chromium browsers): Install app, folder export. */
 export const isChromium = !!nav && /Chrome\//.test(nav.userAgent) && !isFirefox;
 
+/** The browser's name, for telling the user what it can and can't do. */
+export const browserName =
+	!nav ? 'this browser'
+	: isFirefox ? 'Firefox'
+	: /Edg\//.test(nav.userAgent) ? 'Edge'
+	: isChromium ? 'Chrome'
+	: /Safari\//.test(nav.userAgent) ? 'Safari'
+	: 'this browser';
+
 /** A keyboard shortcut as this computer writes it: shortcut('Z') → "⌘Z" on a Mac, "Ctrl+Z" elsewhere;
  *  shortcut('Z', true) → "⇧⌘Z" / "Ctrl+Shift+Z". */
 export function shortcut(key: string, shift = false): string {

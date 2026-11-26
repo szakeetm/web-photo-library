@@ -33,7 +33,13 @@ import Testing
         #expect(scans.first { $0.root == f.root }?.added == 2)
         #expect(scans.first { $0.root == Roots.library }?.added == 1)
 
-        try LocalFolders.remove(id: f.id, db: db, settings)
+        // a photo only in that folder, in the Trash: removing the folder removes it for good
+        let only = try #require(try db.writer.read { try String.fetchOne($0, sql: "SELECT assetId FROM file WHERE root = ? AND relPath = 'Roll 1/b.jpg'", arguments: [f.root]) })
+        _ = try PhotoTrash.trash(ids: [only], db: db, uploadsRoot: nil)
+        let purged = try LocalFolders.remove(id: f.id, db: db, settings)
+        #expect(purged == [only])
+        #expect(try db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM asset") } == 1)
+        #expect(try db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM trash") } == 0)
         #expect(try db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM file") } == 1)
         #expect(try db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM asset WHERE missingSince IS NULL") } == 1)
         #expect(try settings.get(.sourceScans).allSatisfy { $0.root != f.root })

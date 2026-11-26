@@ -51,24 +51,16 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: e.uploads.appendingPathComponent("phone-uploads/b.jpg").path))
     }
 
-    @Test func deletedForGoodStaysHiddenAndLeavesTheTrash() throws {
+    @Test func onlyUploadsAreDeletedForGoodHiddenPhotosStayInTheTrash() throws {
         let e = try env()
-        _ = try PhotoTrash.trash(ids: [e.libId], db: e.db, uploadsRoot: e.uploads)
+        _ = try PhotoTrash.trash(ids: [e.libId, e.upId], db: e.db, uploadsRoot: e.uploads)
         let gone = try PhotoTrash.deleteForever(ids: nil, db: e.db, uploadsRoot: e.uploads)
-        #expect(gone == [e.libId])
-        #expect(try PhotoTrash.list(db: e.db).isEmpty)
-        try e.rescan()
-        #expect(try e.visible() == [e.upId])
+        #expect(gone == [e.upId])
+        #expect(try PhotoTrash.list(db: e.db).map(\.asset.id) == [e.libId])
+        // still in the Trash, still restorable, its file untouched
+        #expect(try PhotoTrash.list(db: e.db).map(\.asset.id) == [e.libId])
         #expect(FileManager.default.fileExists(atPath: e.library.appendingPathComponent("Trip/a.jpg").path))
-        // it can't be restored from the Trash any more
-        #expect(try PhotoTrash.restore(ids: [e.libId], db: e.db, uploadsRoot: e.uploads).isEmpty)
-    }
-
-    @Test func hiddenPhotosExpireToHiddenForGood() throws {
-        let e = try env()
-        _ = try PhotoTrash.trash(ids: [e.libId], db: e.db, uploadsRoot: nil)   // no uploads folder: hidden still works
-        #expect(try PhotoTrash.expire(db: e.db, uploadsRoot: nil, now: Date().addingTimeInterval(86_400 * 10)).isEmpty)
-        #expect(try PhotoTrash.expire(db: e.db, uploadsRoot: nil, now: Date().addingTimeInterval(86_400 * 31)) == [e.libId])
-        #expect(try PhotoTrash.list(db: e.db).isEmpty && !(try e.visible().contains(e.libId)))
+        _ = try PhotoTrash.restore(ids: [e.libId], db: e.db, uploadsRoot: e.uploads)
+        #expect(try e.visible() == [e.libId])
     }
 }

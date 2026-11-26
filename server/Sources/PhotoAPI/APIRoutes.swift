@@ -509,11 +509,8 @@ struct APIRoutes {
                 return try await trashCall { try PhotoTrash.trash(ids: body.ids, db: db, uploadsRoot: root) }
             }
         }
+        // Nothing leaves the Trash on its own: uploads are deleted only by hand
         api.get("trash") { _, _ in
-            let root = try uploadsRoot()
-            let gone = (try? await blocking { try PhotoTrash.expire(db: db, uploadsRoot: root) }) ?? []
-            let store = services.derivatives()
-            for id in gone { store.remove(id: id); services.videos.remove(id: id) }
             let items = try await blocking { try PhotoTrash.list(db: db) }
             var res = try json(items)
             res.headers[.cacheControl] = "no-store"

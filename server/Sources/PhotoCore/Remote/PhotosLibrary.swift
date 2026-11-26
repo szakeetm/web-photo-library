@@ -78,16 +78,19 @@ public enum PhotosLibraries {
         return s
     }
 
-    /// Removes a library: its files are forgotten (photos only there become missing), its folders
-    /// deleted. Its albums here stay. Nothing in the library is touched.
-    public static func remove(id: Int, db: AppDatabase, _ settings: SettingsStore) throws {
+    /// Removes a library: its files and folders are forgotten, and the photos only there are removed for
+    /// good with everything about them (album memberships, edits, Trash…); its albums here stay. Nothing
+    /// in the library is touched. Returns the removed photos.
+    @discardableResult
+    public static func remove(id: Int, db: AppDatabase, _ settings: SettingsStore) throws -> [String] {
         var list = try all(settings)
-        guard let s = list.first(where: { $0.id == id }) else { return }
-        _ = try LibraryScanner(db: db, root: s.url, rootName: s.root).finishBatches(present: [], videos: [], dirs: [])
+        guard let s = list.first(where: { $0.id == id }) else { return [] }
+        let purged = try AssetPurge.removeRoot(s.root, scanner: LibraryScanner(db: db, root: s.url, rootName: s.root), db: db)
         list.removeAll { $0.id == id }
         try settings.set(.photosLibraries, list)
         try settings.set(.photosLibraryStats, try settings.get(.photosLibraryStats).filter { $0.root != s.root })
         try settings.set(.sourceScans, try settings.get(.sourceScans).filter { $0.root != s.root })
+        return purged
     }
 
     /// The file standing for an item: its rendered version when edited in Photos, else its original;

@@ -134,6 +134,16 @@
 	// ---- library sources on rclone remotes
 
 	let pickingSource = $state(false);
+	/** What removing a source does, said plainly. */
+	function removeWarning(name: string, untouched: string) {
+		return (
+			`Remove ${name}?\n\n` +
+			'Its photos and videos (those not also in another source) are removed from the library permanently, ' +
+			'with everything done to them here: edits, adjusted dates, video trims, favourites, descriptions, album memberships, ' +
+			'people and faces, and deletions (they leave the Trash). Adding the source again later starts from scratch.\n\n' +
+			untouched
+		);
+	}
 	const hasSources = $derived(
 		!!settings?.libraryPath || (settings?.remoteSources.length ?? 0) > 0 || (settings?.photosLibraries.length ?? 0) > 0
 	);
@@ -148,7 +158,7 @@
 		}
 	}
 	async function removeLocalFolder(id: number, path: string) {
-		if (!confirm(`Remove ${path} from the library? Its photos disappear from here unless they're also in another folder. Nothing in the folder is touched.`)) return;
+		if (!confirm(removeWarning(path, 'Nothing in the folder is touched.'))) return;
 		try {
 			settings = await api.removeLocalFolder(id);
 			await app.reload();
@@ -168,7 +178,7 @@
 		}
 	}
 	async function removePhotosLibrary(id: number, title: string) {
-		if (!confirm(`Remove ${title} from the library? Its photos disappear from here unless they're also elsewhere; its albums stay. Nothing in the Photos library is touched.`)) return;
+		if (!confirm(removeWarning(title, 'Albums imported from it stay (without its photos). Nothing in the Photos library is touched.'))) return;
 		try {
 			settings = await api.removePhotosLibrary(id);
 			await app.reload();
@@ -188,7 +198,7 @@
 		}
 	}
 	async function removeSource(id: number, path: string) {
-		if (!confirm(`Remove ${path} from the library? Its photos disappear from here (albums, edits and people are kept if they come back). Nothing on the remote is touched.`)) return;
+		if (!confirm(removeWarning(path, 'Its originals kept on the Mac are deleted. Nothing on the remote is touched.'))) return;
 		try {
 			settings = await api.removeSource(id);
 			await app.reload();

@@ -269,18 +269,7 @@ public final class JobRunner: @unchecked Sendable {
         case .purgeMissing:
             let ids = try db.writer.write { d -> [String] in
                 let ids = try String.fetchAll(d, sql: "SELECT id FROM asset WHERE missingSince IS NOT NULL")
-                for a in ids { try ChangeLog.record(d, entity: "asset", id: a, op: "delete") }
-                try ChangeLog.recordAlbums(d, containing: ids)
-                try d.execute(sql: "DELETE FROM album_asset WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM face WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM motion WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM asset_object WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM asset_text WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM asset_print WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM video_trim WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM meta_edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
-                try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
+                try AssetPurge.purge(ids, d)
                 return ids
             }
             let store = derivatives()

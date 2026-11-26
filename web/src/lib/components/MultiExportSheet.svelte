@@ -28,6 +28,7 @@
 	import { sortByLocalTime } from '#lib/dates.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import { canWriteFolders, pickFolder, writeExport, type FolderProgress } from '#lib/folderExport.ts';
+	import { browserName } from '#lib/platform.ts';
 	import FolderPicker from './FolderPicker.svelte';
 
 	let {
@@ -368,18 +369,31 @@
 					{#if canWriteFolders}
 						<label><input type="radio" bind:group={target} value="files" /> A folder on this computer</label>
 					{/if}
-					{#if !zipAllowed && estimate}
+					{@const limit = estimate
+						? `${count(estimate.zipLimitItems)} photos and videos or ${size(estimate.zipLimitBytes)}`
+						: '1,000 photos and videos or 5 GB'}
+					{#if !canWriteFolders}
+						<!-- Safari and Firefox can't write into a folder: say what they can do, and what can -->
+						<p class="note" class:warn={!zipAllowed}>
+							In {browserName}, exports are ZIP downloads, up to {limit} (a ZIP is made in one go, and a dropped connection means
+							starting over).{#if !zipAllowed}
+								This export is bigger: choose fewer, or{/if}
+							For direct export into a folder on this computer, open this page in Chrome or Edge. On the Mac that hosts the library,
+							exports can also go straight into a folder there.
+						</p>
+					{:else if !zipAllowed}
 						<p class="note muted">
-							A ZIP is limited to {count(estimate.zipLimitItems)} photos and videos or {size(estimate.zipLimitBytes)} from another device:
-							it's made in one go, and a dropped connection means starting over.
-							{canWriteFolders
-								? 'A folder gets the files one by one, and an interrupted export picks up where it stopped.'
-								: 'Open this page in Chrome or Edge to save into a folder, export on the Mac that hosts the library, or choose fewer.'}
+							A ZIP is limited to {limit} from another device: it's made in one go, and a dropped connection means starting over. A
+							folder gets the files one by one, and an interrupted export picks up where it stopped.
 						</p>
 					{:else if target === 'files'}
 						<p class="note muted">
-							You choose a folder; the files go into “{name ?? 'Photos …'}” inside it. Exporting again into the same folder continues
-							where it stopped.
+							You choose a folder; the files go into “{name ?? 'Photos …'}” inside it, one by one. Exporting again into the same
+							folder continues where it stopped.
+						</p>
+					{:else}
+						<p class="note muted">
+							A ZIP (up to {limit}) is made in one go; a folder on this computer gets the files one by one and can resume.
 						</p>
 					{/if}
 					{#if isIOS && target === 'zip' && estimate && estimate.bytes > GB}

@@ -144,7 +144,9 @@ extension APIRoutes {
         api.delete("sources/:id") { _, ctx in
             guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
             if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
-            try await blocking { try RemoteSources.remove(id: id, db: services.db, services.settings, dataDir: services.paths.dataDir) }
+            let purged = try await blocking { try RemoteSources.remove(id: id, db: services.db, services.settings, dataDir: services.paths.dataDir) }
+            let store = services.derivatives()
+            for a in purged { store.remove(id: a); services.videos.remove(id: a) }
             return try settingsResponse()
         }
 
@@ -160,7 +162,9 @@ extension APIRoutes {
         api.delete("local-folders/:id") { _, ctx in
             guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
             if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
-            try await blocking { try LocalFolders.remove(id: id, db: services.db, services.settings) }
+            let purged = try await blocking { try LocalFolders.remove(id: id, db: services.db, services.settings) }
+            let store = services.derivatives()
+            for a in purged { store.remove(id: a); services.videos.remove(id: a) }
             return try settingsResponse()
         }
 
@@ -179,7 +183,9 @@ extension APIRoutes {
         api.delete("photos-libraries/:id") { _, ctx in
             guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
             if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
-            try await blocking { try PhotosLibraries.remove(id: id, db: services.db, services.settings) }
+            let purged = try await blocking { try PhotosLibraries.remove(id: id, db: services.db, services.settings) }
+            let store = services.derivatives()
+            for a in purged { store.remove(id: a); services.videos.remove(id: a) }
             return try settingsResponse()
         }
 

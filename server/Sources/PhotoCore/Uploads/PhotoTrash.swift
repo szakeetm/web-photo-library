@@ -3,8 +3,9 @@ import GRDB
 
 /// The Trash for any photo. Uploads are moved there for real (`UploadTrash`: their files go to the
 /// uploads folder's .trash). Every other photo — in local folders, a Photos library, an rclone folder —
-/// is only hidden ("virtual"): its files are never touched. Restoring shows it again; deleting it for good
-/// keeps it hidden for good (rescans don't bring it back). Deleting the source files too may come later.
+/// is only hidden ("virtual"): its files are never touched, and it stays in the Trash until it's restored
+/// (rescans don't bring it back meanwhile). Nothing leaves the Trash on its own: uploads are deleted for
+/// good only by hand, and other photos can't be (deleting their files may come later).
 public enum PhotoTrash {
     /// Whether every file of these photos is an upload (and so can really be moved).
     static func isUpload(_ id: String, _ d: Database) throws -> Bool {
@@ -57,35 +58,9 @@ public enum PhotoTrash {
         return Array(shown) + moved
     }
 
-    /// Deletes Trash photos for good (all of them when `ids` is nil): uploads from disk, hidden ones stay
-    /// hidden for good. Returns the photos whose cached images can go.
+    /// Deletes Trash uploads for good (all of them when `ids` is nil); hidden photos stay in the Trash.
     public static func deleteForever(ids: [String]?, db: AppDatabase, uploadsRoot: URL?) throws -> [String] {
-        let hidden = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash WHERE virtual = 1 AND forever = 0") })
-        let chosen = ids.map { Set($0).intersection(hidden) } ?? hidden
-        try hideForever(Array(chosen), db: db)
-        let removed = try uploadsRoot.map { try UploadTrash.deleteForever(ids: ids.map { Array(Set($0).subtracting(hidden)) }, db: db, uploadsRoot: $0) } ?? []
-        return Array(chosen) + removed
-    }
-
-    /// What has been in the Trash longer than `UploadTrash.keepDays` is deleted for good.
-    public static func expire(db: AppDatabase, uploadsRoot: URL?, now: Date = Date()) throws -> [String] {
-        let cutoff = now.addingTimeInterval(-Double(UploadTrash.keepDays) * 86_400)
-        let old = try db.writer.read {
-            try String.fetchAll($0, sql: "SELECT assetId FROM trash WHERE virtual = 1 AND forever = 0 AND trashedAt < ?", arguments: [cutoff])
-        }
-        try hideForever(old, db: db)
-        let removed = try uploadsRoot.map { try UploadTrash.expire(db: db, uploadsRoot: $0, now: now) } ?? []
-        return old + removed
-    }
-
-    static func hideForever(_ ids: [String], db: AppDatabase) throws {
-        guard !ids.isEmpty else { return }
-        try db.writer.write { d in
-            for id in ids {
-                try d.execute(sql: "UPDATE trash SET forever = 1 WHERE assetId = ?", arguments: [id])
-                try ChangeLog.record(d, entity: "asset", id: id, op: "update")
-            }
-        }
+        try uploadsRoot.map { try UploadTrash.deleteForever(ids: ids, db: db, uploadsRoot: $0) } ?? []
     }
 
     public static func list(db: AppDatabase) throws -> [TrashItem] { try UploadTrash.list(db: db) }
