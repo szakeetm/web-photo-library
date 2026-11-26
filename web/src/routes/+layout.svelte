@@ -15,6 +15,7 @@
 	import DeleteFlow from '#lib/components/DeleteFlow.svelte';
 	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
 	import ShortcutsSheet from '#lib/components/ShortcutsSheet.svelte';
+	import Hint from '#lib/components/Hint.svelte';
 	import type { LayoutProps } from './$types';
 	import type { FolderNode } from '#lib/api.ts';
 	import { isFlat, kindIcon, sources } from '#lib/sources.ts';
@@ -164,6 +165,7 @@
 <DropZone />
 <UploadSheet />
 <DeleteFlow />
+<Hint />
 <LibraryDownload />
 
 <div class="shell" class:with-subtabs={collectionTab != null}>

@@ -20,7 +20,7 @@
 				[['Click'], 'Select a photo (double-click opens it)'],
 				[[`${mod}click`], 'Add or remove a photo (the action bar shows from two on)'],
 				[[`${shift}click`], 'Select every photo up to this one'],
-				[[shortcut('A')], 'Select all'],
+				[[shortcut('A')], 'Select all (up to 500 photos)'],
 				[['L', 'R'], 'Rotate the selected photos left / right'],
 				[['←', '→', '↑', '↓'], 'Select the photo next to it'],
 				[[`${shift}←`, `${shift}→`, `${shift}↑`, `${shift}↓`], 'Select a range (grow or shrink it)'],

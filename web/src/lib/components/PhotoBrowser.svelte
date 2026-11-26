@@ -5,7 +5,8 @@
 	import type { Section } from '#lib/gridLayout.ts';
 	import { applyView, FILTERS, gridView, naturalOrder, SORTS } from '#lib/gridView.svelte.ts';
 	import { app } from '#lib/state.svelte.ts';
-	import { Selection } from '#lib/selection.svelte.ts';
+	import { Selection, SELECT_ALL_MAX, selectAllRefused } from '#lib/selection.svelte.ts';
+	import { hint } from '#lib/hint.svelte.ts';
 	import ActionBar from './ActionBar.svelte';
 	import Grid from './Grid.svelte';
 	import Viewer from './Viewer.svelte';
@@ -99,8 +100,9 @@
 		const onKey = (e: KeyboardEvent) => {
 			if (open || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 			if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
-				e.preventDefault();
-				selection.selectAll(ids);
+				e.preventDefault(); // not the page's text either
+				if (ids.length <= SELECT_ALL_MAX) selection.selectAll(ids);
+				else hint.show(selectAllRefused(ids.length));
 			} else if (e.key === 'Escape' && (selection.count || selection.explicit)) selection.clear();
 			else if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('[role=dialog], [role=alertdialog]')) {
 				// one selected photo opens; several: nothing; none: Space scrolls the page

@@ -3,7 +3,8 @@
 	import { app, setFavorite, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow, deleteKey, deleteQuestion } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
-	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
+	import { nextFavoriteValue, SELECT_ALL_MAX, selectAllRefused, type Selection } from '#lib/selection.svelte.ts';
+	import { hint } from '#lib/hint.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
 	import MultiExportSheet from './MultiExportSheet.svelte';
 	import AdjustDateSheet from './AdjustDateSheet.svelte';
@@ -126,7 +127,9 @@
 	<button class="btn" onclick={() => selection.clear()}>Done</button>
 	<!-- on a phone only the number shows, so every action fits -->
 	<span class="count">{#if selection.count}{selection.count}<span class="long">{' '}selected</span>{:else}Select<span class="long">{' '}photos</span>{/if}</span>
-	<button class="link" onclick={() => selection.selectAll(order)}>All</button>
+	<!-- dimmed (not disabled) in big views: a click says why it doesn't select -->
+	<button class="link" class:dim={order.length > SELECT_ALL_MAX} title="Select all"
+		onclick={() => (order.length > SELECT_ALL_MAX ? hint.show(selectAllRefused(order.length)) : selection.selectAll(order))}>All</button>
 	<div class="actions">
 		{#if trash}
 		<button class="btn" disabled={!selection.count || busy || !net.online} onclick={restore}>Restore</button>
@@ -202,6 +205,9 @@
 	.count {
 		font-weight: 600;
 		font-size: 14px;
+	}
+	.link.dim {
+		opacity: 0.35;
 	}
 	.link {
 		border: none;

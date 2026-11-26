@@ -33,6 +33,13 @@ export function nextFavoriteValue(current: boolean[]): boolean {
  * selected. On a desktop a click selects just that photo (the blue frame, Photos on the Mac): one
  * selected photo is not selecting yet; it is opened (Space, double-click) to do something with it.
  */
+/** Views with more photos than this can't be selected all at once (⌘A, the All button). */
+export const SELECT_ALL_MAX = 500;
+
+/** Why select all did nothing in a view of `n` photos. */
+export const selectAllRefused = (n: number) =>
+	`Select all works in views of up to ${SELECT_ALL_MAX} photos (this one has ${n.toLocaleString()}). Select them by hand, or narrow the view down.`;
+
 export class Selection {
 	/** Select was pressed (or a long press, select all, a drag) */
 	explicit = $state(false);
