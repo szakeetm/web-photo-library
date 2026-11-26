@@ -4,13 +4,13 @@
 #   scripts/deploy.sh              # latest origin/main
 #   scripts/deploy.sh <ref>        # a branch, tag or commit (e.g. main, db99023)
 #
-# The live server runs from its own checkout (a git worktree, default ~/Repos/photo-server-deploy),
+# The live server runs from its own checkout (a git worktree in deployed/ inside this repo, git-ignored),
 # so work in progress in the main checkout is never served. Everything is built first; the running
 # server is only stopped once both builds succeeded. Settings: DEPLOY_DIR, PORT (8787), LOG.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-DEPLOY_DIR=${DEPLOY_DIR:-$HOME/Repos/photo-server-deploy}
+DEPLOY_DIR=${DEPLOY_DIR:-$REPO/deployed}
 PORT=${PORT:-8787}
 LOG=${LOG:-$HOME/Library/Logs/PhotoServer.log}
 REF=${1:-origin/main}
