@@ -35,6 +35,11 @@
 	const videoCover = $derived(app.index.videos.at(-1)?.id ?? null);
 	const liveCount = $derived(app.index.live.length);
 	const liveCover = $derived(app.index.live.at(-1)?.id ?? null);
+	const mediaKinds = $derived([
+		{ key: 'selfies', title: 'Selfies', list: app.index.selfies },
+		{ key: 'portraits', title: 'Portraits', list: app.index.portraits },
+		{ key: 'screenshots', title: 'Screenshots', list: app.index.screenshots }
+	]);
 
 	async function newAlbum() {
 		const title = prompt('New album name');
@@ -76,11 +81,14 @@
 	{/each}
 </div>
 
-{#if videoCount || liveCount}
+{#if videoCount || liveCount || mediaKinds.some((k) => k.list.length)}
 	<h2 class="section">Media Types</h2>
 	<div class="cards">
 		{#if videoCount}{@render card('/videos', 'Videos', videoCount, videoCover, 'video')}{/if}
 		{#if liveCount}{@render card('/live', 'Live Photos', liveCount, liveCover, 'live')}{/if}
+		{#each mediaKinds as k (k.key)}
+			{#if k.list.length}{@render card(`/media/${k.key}`, k.title, k.list.length, k.list.at(-1)?.id ?? null, 'photos')}{/if}
+		{/each}
 	</div>
 {/if}
 

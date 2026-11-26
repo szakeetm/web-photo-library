@@ -253,6 +253,16 @@ public final class AppDatabase: Sendable {
                     createdAt DATETIME NOT NULL);
                 """)
         }
+        m.registerMigration("v11-media-flags") { db in
+            // Screenshots, selfies, portraits (filled by re-probing: probeVersion 2) and date added
+            // (existing photos: their oldest file's modification date, the best guess available).
+            try db.execute(sql: """
+                ALTER TABLE asset ADD COLUMN mediaFlags INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE asset ADD COLUMN addedAt DATETIME;
+                UPDATE asset SET addedAt = (SELECT datetime(MIN(f.mtime), 'unixepoch') FROM file f WHERE f.assetId = asset.id);
+                UPDATE asset SET addedAt = takenAt WHERE addedAt IS NULL;
+                """)
+        }
         return m
     }
 }

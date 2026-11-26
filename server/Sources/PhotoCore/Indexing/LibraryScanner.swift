@@ -389,6 +389,7 @@ public final class LibraryScanner: @unchecked Sendable {
             return
         }
         var a = Asset.placeholder(id: id)
+        a.addedAt = Date()
         a.favorite = meta.favorited ?? false
         a.description = meta.description
         try a.insert(d)
@@ -405,6 +406,7 @@ public final class LibraryScanner: @unchecked Sendable {
             a.cameraMake = p.make; a.cameraModel = p.model; a.lens = p.lens
             a.iso = p.iso; a.aperture = p.aperture; a.shutter = p.shutter; a.focal = p.focal
             a.contentId = p.contentId
+            a.mediaFlags = p.mediaFlags
         case .video(let v, let ext):
             a.kind = "video"
             a.width = v.width; a.height = v.height

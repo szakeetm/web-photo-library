@@ -26,10 +26,14 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var live: Bool? = nil
     /// True when the user changed the date (kept in the database only, applied on export).
     public var md: Bool? = nil
+    /// MediaFlags (1 screenshot, 2 selfie, 4 portrait); absent when 0.
+    public var mf: Int? = nil
+    /// Date added (seconds since 1970).
+    public var ad: Int? = nil
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 7
+public let catalogFormat = 8
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -135,7 +139,7 @@ public final class CatalogService: Sendable {
             args = [String(decoding: try JSONEncoder().encode(ids), as: UTF8.self)]
         }
         let rows = try Row.fetchAll(d, sql: """
-            SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
+            SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion, a.mediaFlags, a.addedAt,
                    a.lat, a.lon, a.placeId, a.kind, a.duration,
                    EXISTS (SELECT 1 FROM motion m WHERE m.assetId = a.id) AS live,
                    EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id) AS md,
@@ -160,7 +164,9 @@ public final class CatalogService: Sendable {
                                     loc: (lat != nil && lon != nil && !(lat == 0 && lon == 0)) ? [round5(lat!), round5(lon!)] : nil,
                                     pl: r["placeId"], pp: people.isEmpty ? nil : people,
                                     dur: duration.map { ($0 * 10).rounded() / 10 }, live: (r["live"] as Bool) ? true : nil,
-                                    md: (r["md"] as Bool) ? true : nil)
+                                    md: (r["md"] as Bool) ? true : nil,
+                                    mf: (r["mediaFlags"] as Int) == 0 ? nil : r["mediaFlags"],
+                                    ad: (r["addedAt"] as Date?).map { Int($0.timeIntervalSince1970) })
         }
     }
 

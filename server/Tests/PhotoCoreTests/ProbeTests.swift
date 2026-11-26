@@ -1,6 +1,9 @@
 import Testing
 import Foundation
 @testable import PhotoCore
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 
 @Suite struct ProbeTests {
     @Test func hashKnownBytes() throws {
@@ -50,5 +53,39 @@ import Foundation
         try Data("not an image".utf8).write(to: dir.appendingPathComponent("y.jpg"))
         #expect(ImageProbe.probe(url: dir.appendingPathComponent("x.jpg")) == nil)
         #expect(ImageProbe.probe(url: dir.appendingPathComponent("y.jpg")) == nil)
+    }
+}
+
+@Suite struct MediaFlagTests {
+    func flags(_ name: String, make: String? = nil, lens: String? = nil, comment: String? = nil) throws -> Int {
+        let url = Fixtures.tempDir().appendingPathComponent(name)
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        let type = name.hasSuffix(".png") ? UTType.png : UTType.jpeg
+        let dest = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil)!
+        var exif: [CFString: Any] = [:]
+        if let lens { exif[kCGImagePropertyExifLensModel] = lens }
+        if let comment { exif[kCGImagePropertyExifUserComment] = comment }
+        var props: [CFString: Any] = [kCGImagePropertyExifDictionary: exif]
+        if let make { props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFMake: make] }
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, props as CFDictionary)
+        #expect(CGImageDestinationFinalize(dest))
+        return try #require(ImageProbe.probe(url: url)).mediaFlags
+    }
+
+    @Test func screenshots() throws {
+        #expect(try flags("IMG_0001.png", comment: "Screenshot") == MediaFlags.screenshot)
+        #expect(try flags("Screenshot_20230101-101010.png") == MediaFlags.screenshot)
+        #expect(try flags("Screen Shot 2020-01-01 at 10.00.00.png") == MediaFlags.screenshot)
+        #expect(try flags("Képernyőkép 2024-01-01.png") == MediaFlags.screenshot)
+        // a camera photo named like a screenshot isn't one
+        #expect(try flags("screenshot.jpg", make: "Canon") == 0)
+        #expect(try flags("IMG_0001.jpg") == 0)
+    }
+
+    @Test func selfies() throws {
+        #expect(try flags("IMG_1.jpg", make: "Apple", lens: "iPhone 12 front camera 2.71mm f/2.2") == MediaFlags.selfie)
+        #expect(try flags("IMG_2.jpg", make: "Apple", lens: "iPhone 12 back dual wide camera 4.2mm f/1.6") == 0)
     }
 }

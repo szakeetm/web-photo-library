@@ -3,9 +3,9 @@
 export type ImageFmt = 'heic' | 'jpeg';
 
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
-export const CLIENT_API_VERSION = 6;
+export const CLIENT_API_VERSION = 7;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 7;
+export const CATALOG_FORMAT = 8;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
@@ -52,6 +52,10 @@ export interface CatalogAsset {
 	live?: boolean;
 	/** the user changed the date (kept on the server, applied on export) */
 	md?: boolean;
+	/** media flags: 1 screenshot, 2 selfie, 4 portrait */
+	mf?: number;
+	/** date added (seconds since 1970) */
+	ad?: number;
 }
 
 /** A date change for several photos: the instant moves by `shift` seconds; with `tzOffset` they get

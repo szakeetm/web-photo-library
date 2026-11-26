@@ -220,7 +220,7 @@ import GRDB
         #expect(r.updated == 1 && r.added == 0)
         #expect(c.n == 1)  // no rehash
         let a = try #require(try assets(db).first)
-        #expect(a.probeVersion == 1)
+        #expect(a.probeVersion == Asset.currentProbeVersion)
         #expect(a.favorite && a.favoriteUserSet && a.description == "mine")
     }
 

@@ -19,6 +19,45 @@ public struct ProbeResult: Sendable, Equatable {
     public var focal: Double?
     public var orientation: Int
     public var contentId: String? = nil   // Apple Live Photo id (MakerNote key 17)
+    public var mediaFlags: Int = 0        // MediaFlags
+}
+
+/// Kinds of photos shown as their own collections (bitmask, as `asset.mediaFlags` / catalog `mf`).
+public enum MediaFlags {
+    public static let screenshot = 1
+    public static let selfie = 2
+    public static let portrait = 4
+
+    /// Screenshot file names: iOS/macOS, Android, Windows and some localised macOS names.
+    static let screenshotName = try! NSRegularExpression(
+        pattern: #"(screen ?shot|screenshot|képernyőkép|képernyőfotó|bildschirmfoto|capture d.écran|schermata|captura de pantalla)"#,
+        options: [.caseInsensitive])
+
+    static func detect(name: String, props: [CFString: Any], exif: [CFString: Any], tiff: [CFString: Any],
+                       source: CGImageSource) -> Int {
+        var flags = 0
+        let make = tiff[kCGImagePropertyTIFFMake] as? String
+        let model = tiff[kCGImagePropertyTIFFModel] as? String
+        let comment = exif[kCGImagePropertyExifUserComment] as? String
+        let nfc = name.precomposedStringWithCanonicalMapping
+        if comment?.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare("Screenshot") == .orderedSame
+            || (make == nil && model == nil
+                && screenshotName.firstMatch(in: nfc, range: NSRange(nfc.startIndex..., in: nfc)) != nil) {
+            flags |= screenshot
+        }
+        if let lens = exif[kCGImagePropertyExifLensModel] as? String, lens.range(of: "front", options: .caseInsensitive) != nil {
+            flags |= selfie
+        }
+        // Depth or a portrait matte: iPhone Portrait mode (and photos it captured depth for).
+        if make == "Apple" {
+            for type in [kCGImageAuxiliaryDataTypeDisparity, kCGImageAuxiliaryDataTypeDepth, kCGImageAuxiliaryDataTypePortraitEffectsMatte]
+            where CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, type) != nil {
+                flags |= portrait
+                break
+            }
+        }
+        return flags
+    }
 }
 
 public enum ImageProbe {
@@ -72,7 +111,8 @@ public enum ImageProbe {
             lens: exif[kCGImagePropertyExifLensModel] as? String,
             iso: num(exif[kCGImagePropertyExifISOSpeedRatings]), aperture: num(exif[kCGImagePropertyExifFNumber]),
             shutter: num(exif[kCGImagePropertyExifExposureTime]), focal: num(exif[kCGImagePropertyExifFocalLength]),
-            orientation: orientation, contentId: appleContentId(props))
+            orientation: orientation, contentId: appleContentId(props),
+            mediaFlags: MediaFlags.detect(name: url.lastPathComponent, props: props, exif: exif, tiff: tiff, source: src))
     }
 
     /// Live Photo content id: `kCGImagePropertyMakerAppleDictionary["17"]`.

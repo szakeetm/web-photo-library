@@ -41,8 +41,12 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
     public var fileTakenAt: Date? = nil
     public var fileTzOffset: Int? = nil
     public var fileDateSource: String? = nil
+    public var mediaFlags: Int = 0
+    /// When the file was first indexed (date added).
+    public var addedAt: Date? = nil
 
-    public static let currentProbeVersion = 1
+    /// 2: media flags (screenshot, selfie, portrait).
+    public static let currentProbeVersion = 2
 
     public static func placeholder(id: String) -> Asset {
         Asset(id: id, width: 0, height: 0, mime: "", takenAt: Date(timeIntervalSince1970: 0), tzOffset: nil,

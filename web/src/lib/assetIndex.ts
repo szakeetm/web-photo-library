@@ -7,6 +7,9 @@ export interface AssetIndex {
 	edited: CatalogAsset[];
 	videos: CatalogAsset[];
 	live: CatalogAsset[];
+	screenshots: CatalogAsset[];
+	selfies: CatalogAsset[];
+	portraits: CatalogAsset[];
 	located: CatalogAsset[];
 	/** Photos of each place, folder and person (in library order). */
 	byPlace: Map<number, CatalogAsset[]>;
@@ -28,6 +31,9 @@ export function buildIndex(assets: CatalogAsset[]): AssetIndex {
 		edited: [],
 		videos: [],
 		live: [],
+		screenshots: [],
+		selfies: [],
+		portraits: [],
 		located: [],
 		byPlace: new Map(),
 		byFolder: new Map(),
@@ -37,7 +43,12 @@ export function buildIndex(assets: CatalogAsset[]): AssetIndex {
 	for (const a of assets) {
 		ix.pos.set(a.id, ix.pos.size);
 		if (a.fav) ix.favorites.push(a);
-		if (a.ev > 0) ix.edited.push(a);
+		if (a.ev > 0 || a.md) ix.edited.push(a);
+		if (a.mf) {
+			if (a.mf & 1) ix.screenshots.push(a);
+			if (a.mf & 2) ix.selfies.push(a);
+			if (a.mf & 4) ix.portraits.push(a);
+		}
 		if (a.dur != null) ix.videos.push(a);
 		if (a.live === true) ix.live.push(a);
 		if (a.loc) ix.located.push(a);

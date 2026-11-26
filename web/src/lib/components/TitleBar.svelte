@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
+	import FilterMenu from './FilterMenu.svelte';
+	import { gridView } from '#lib/gridView.svelte.ts';
 
 	let { title, subtitle, back, crumbs, actions }: {
 		title: string;
@@ -17,7 +19,12 @@
 		{#if crumbs}<nav class="crumbs muted">{@render crumbs()}</nav>{/if}
 		<h1><span class="t">{title}</span> {#if subtitle}<span class="sub muted">{subtitle}</span>{/if}</h1>
 	</div>
-	{#if actions}<div class="actions">{@render actions()}</div>{/if}
+	{#if actions || gridView.enabled}
+		<div class="actions">
+			{#if gridView.enabled}<FilterMenu />{/if}
+			{#if actions}{@render actions()}{/if}
+		</div>
+	{/if}
 </header>
 
 <style>
