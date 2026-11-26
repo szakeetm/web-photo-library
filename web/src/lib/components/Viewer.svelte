@@ -482,7 +482,8 @@
 			} else if (e.key === 'i') infoOpen = !infoOpen;
 			else if (e.key === 'f' && !trash) toggleFavorite();
 			else if (e.key === 'e' && !trash) openEditor();
-			else if ((e.key === '[' || e.key === ']') && !trash && !e.metaKey && !e.ctrlKey) rotate(e.key === ']');
+			else if (['[', ']', 'l', 'L', 'r', 'R'].includes(e.key) && !trash && !e.metaKey && !e.ctrlKey && !e.altKey)
+				rotate(e.key === ']' || e.key.toLowerCase() === 'r');
 		};
 		// Leaving the app or window mid-hold (or mid-hover) may never deliver pointerup/leave: stop there.
 		const onLeave = () => {
@@ -899,9 +900,9 @@
 					aria-label="Trim"><Icon name="trim" /></button>
 			{/if}
 			{#if !isVideo}
-				<button class="icon-btn rot" class:busy={rotations > 0} onclick={() => rotate(false)} title="Rotate left ([)"
+				<button class="icon-btn rot" class:busy={rotations > 0} onclick={() => rotate(false)} title="Rotate left (L)"
 					aria-label="Rotate left"><Icon name="rotate" /></button>
-				<button class="icon-btn rot right" class:busy={rotations > 0} onclick={() => rotate(true)} title="Rotate right (])"
+				<button class="icon-btn rot right" class:busy={rotations > 0} onclick={() => rotate(true)} title="Rotate right (R)"
 					aria-label="Rotate right"><span class="mirror"><Icon name="rotate" /></span></button>
 				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
 					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}

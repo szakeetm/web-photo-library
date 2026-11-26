@@ -14,6 +14,7 @@
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
 	import DeleteFlow from '#lib/components/DeleteFlow.svelte';
 	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
+	import ShortcutsSheet from '#lib/components/ShortcutsSheet.svelte';
 	import type { LayoutProps } from './$types';
 	import type { FolderNode } from '#lib/api.ts';
 	import { isFlat, kindIcon, sources } from '#lib/sources.ts';
@@ -80,6 +81,13 @@
 	const sidebarAlbums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 
 	let updating = $state(false);
+	/** The keyboard shortcuts list is open (sidebar info button, or ?). */
+	let shortcuts = $state(false);
+	function onShortcutKey(e: KeyboardEvent) {
+		if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey) return;
+		if ((e.target as HTMLElement).closest?.('input, select, textarea, [contenteditable]')) return;
+		shortcuts = !shortcuts;
+	}
 
 	onMount(async () => {
 		registerServiceWorker();
@@ -148,6 +156,11 @@
 	</div>
 {/if}
 
+<svelte:window onkeydown={onShortcutKey} />
+{#if shortcuts}
+	<ShortcutsSheet onClose={() => (shortcuts = false)} />
+{/if}
+
 <DropZone />
 <UploadSheet />
 <DeleteFlow />
@@ -157,9 +170,14 @@
 	<nav class="sidebar" aria-label="Sections">
 		<div class="brand">
 			<span class="name"><img class="logo" src="/icons/icon-192.png" alt="" width="28" height="28" />Photos</span>
-			<a class="cog" href="/settings" class:active={exact('/settings')} aria-label="Settings" title="Settings"
-				><Icon name="settings" size={20} /></a
-			>
+			<span class="brand-actions">
+				<button class="cog" onclick={() => (shortcuts = true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"
+					><Icon name="info" size={20} /></button
+				>
+				<a class="cog" href="/settings" class:active={exact('/settings')} aria-label="Settings" title="Settings"
+					><Icon name="settings" size={20} /></a
+				>
+			</span>
 		</div>
 		<a href="/" class:active={onLibrary && libraryFilter === 'all'} onclick={(e) => showLibrary('all', e)}
 			><Icon name="photos" size={20} /> Library</a
@@ -419,6 +437,18 @@
 		.sidebar .brand .cog {
 			padding: 5px;
 			border-radius: 8px;
+		}
+		.brand-actions {
+			display: flex;
+			align-items: center;
+			gap: 2px;
+		}
+		.sidebar .brand button.cog {
+			display: flex;
+			border: none;
+			background: none;
+			color: var(--accent);
+			cursor: pointer;
 		}
 		.sidebar a {
 			display: flex;

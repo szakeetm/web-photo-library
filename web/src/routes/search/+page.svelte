@@ -30,6 +30,9 @@
 			try {
 				const r = await api.search(query, c.signal);
 				ids = r.ids.filter((i) => app.byId.has(i));
+				// a new search keeps only the selected photos it still shows
+				const shown = new Set(ids);
+				if ([...selection.ids].some((i) => !shown.has(i))) selection.ids = new Set([...selection.ids].filter((i) => shown.has(i)));
 				searched = true;
 				const url = new URL(location.href);
 				url.searchParams.set('q', query);
@@ -97,7 +100,15 @@
 	}
 </script>
 
-<TitleBar title="Search" subtitle={searched ? `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'}` : undefined} />
+<TitleBar title="Search" subtitle={searched ? `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'}` : undefined}>
+	{#snippet actions()}
+		{#if ids.length}
+			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>
+				{selection.active ? 'Cancel' : 'Select'}
+			</button>
+		{/if}
+	{/snippet}
+</TitleBar>
 <div class="box">
 	<!-- svelte-ignore a11y_autofocus -->
 	<input type="search" placeholder="People, places, things, albums, folders, text in photos" bind:value={q} bind:this={input} autofocus

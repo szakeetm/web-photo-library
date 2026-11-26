@@ -8,6 +8,7 @@
 	import MultiExportSheet from './MultiExportSheet.svelte';
 	import AdjustDateSheet from './AdjustDateSheet.svelte';
 	import Icon from './Icon.svelte';
+	import { page } from '$app/state';
 
 	let {
 		selection,
@@ -35,6 +36,20 @@
 			busy = false;
 		}
 	}
+
+	// L / R rotate the selected photos (not while the viewer, a sheet or a text field has the keys).
+	$effect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			const k = e.key.toLowerCase();
+			if ((k !== 'l' && k !== 'r') || e.metaKey || e.ctrlKey || e.altKey || trash) return;
+			if ((e.target as HTMLElement).closest?.('input, select, textarea') || document.querySelector('[role=dialog]')) return;
+			if (page.state.viewer || picking || dating || downloading || busy || !hasPhotos || !net.online) return;
+			e.preventDefault();
+			run(() => rotatePhotos(ids, k === 'r'));
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
 
 	/** The download sheet (originals or edits, Live Photo videos) is open. */
 	let downloading = $state(false);
@@ -81,7 +96,7 @@
 <div class="bar" role="toolbar" aria-label="Selection">
 	<button class="btn" onclick={() => selection.clear()}>Done</button>
 	<!-- on a phone only the number shows, so every action fits -->
-	<span class="count">{#if selection.count}{selection.count}<span class="long"> selected</span>{:else}Select<span class="long"> photos</span>{/if}</span>
+	<span class="count">{#if selection.count}{selection.count}<span class="long">{' '}selected</span>{:else}Select<span class="long">{' '}photos</span>{/if}</span>
 	<button class="link" onclick={() => selection.selectAll(order)}>All</button>
 	<div class="actions">
 		{#if trash}
@@ -97,9 +112,9 @@
 		</button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Add to album" aria-label="Add to album"
 			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
-		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate left" aria-label="Rotate left"
+		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate left (L)" aria-label="Rotate left"
 			onclick={() => run(() => rotatePhotos(ids, false))}><Icon name="rotate" /></button>
-		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate right" aria-label="Rotate right"
+		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate right (R)" aria-label="Rotate right"
 			onclick={() => run(() => rotatePhotos(ids, true))}><span class="mirror"><Icon name="rotate" /></span></button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Adjust date & time"
 			aria-label="Adjust date and time" onclick={() => (dating = true)}><Icon name="clock" /></button>
