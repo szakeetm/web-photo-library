@@ -599,7 +599,7 @@
 				</div>
 				<label class="switch">
 					<input type="checkbox" checked={!app.forceRemote} onchange={(e) => app.setForceRemote(!(e.currentTarget as HTMLInputElement).checked)} />
-					<span>{app.local ? 'On' : 'Off'}</span>
+					<span>On</span>
 				</label>
 			</div>
 		</section>
@@ -617,7 +617,7 @@
 			</div>
 			<label class="switch">
 				<input type="checkbox" checked={!deleteFlow.skip} onchange={(e) => deleteFlow.setSkip(!(e.target as HTMLInputElement).checked)} />
-				<span>{deleteFlow.skip ? 'Off' : 'On'}</span>
+				<span>On</span>
 			</label>
 		</div>
 	</section>
@@ -953,7 +953,7 @@
 					disabled={!backup?.rclone}
 					onchange={(e) => backupAction(() => api.setBackup({ enabled: (e.target as HTMLInputElement).checked }))}
 				/>
-				<span>{backup?.enabled ? 'On' : 'Off'}</span>
+				<span>On</span>
 			</label>
 		</div>
 		{#if backupError && !backup}
@@ -1059,7 +1059,7 @@
 			</div>
 			<label class="switch">
 				<input type="checkbox" checked={settings?.facesEnabled ?? true} onchange={(e) => setAnalysis({ facesEnabled: (e.target as HTMLInputElement).checked })} />
-				<span>{settings?.facesEnabled ?? true ? 'On' : 'Off'}</span>
+				<span>On</span>
 			</label>
 		</div>
 		<div class="row actions">
@@ -1077,7 +1077,7 @@
 			</div>
 			<label class="switch">
 				<input type="checkbox" checked={settings?.objectsEnabled ?? true} onchange={(e) => setAnalysis({ objectsEnabled: (e.target as HTMLInputElement).checked })} />
-				<span>{settings?.objectsEnabled ?? true ? 'On' : 'Off'}</span>
+				<span>On</span>
 			</label>
 		</div>
 		<div class="row actions">
