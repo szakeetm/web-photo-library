@@ -6,7 +6,7 @@
 	import TitleBar from '#lib/components/TitleBar.svelte';
 
 	const selection = new Selection();
-	const favs = $derived(app.assets.filter((a) => a.fav));
+	const favs = $derived(app.index.favorites);
 	const sections = $derived(
 		groupByMonth(favs).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);

@@ -1,3 +1,4 @@
+import { buildIndex } from './assetIndex';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('$app/env', () => ({ version: 'test' }));
 import { albumImageUrls, confirmDownload, folderAssetIds, folderSubtree, LARGE_DOWNLOAD, pinStatus } from './pins.svelte';
@@ -31,8 +32,8 @@ describe('folder downloads', () => {
 	it('covers the folder and every folder below it', () => {
 		expect([...folderSubtree(folders[1], folders)].sort()).toEqual([2, 3, 4]);
 		expect([...folderSubtree(folders[3], folders)]).toEqual([4]);
-		expect(folderAssetIds(folders[1], folders, assets)).toEqual(['a', 'b', 'c', 'e']);
-		expect(folderAssetIds(folders[0], folders, assets)).toHaveLength(5);
+		expect(folderAssetIds(folders[1], folders, buildIndex(assets))).toEqual(['a', 'b', 'c', 'e']);
+		expect(folderAssetIds(folders[0], folders, buildIndex(assets))).toHaveLength(5);
 	});
 
 	it(`asks before downloading more than ${LARGE_DOWNLOAD} photos`, () => {

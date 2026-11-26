@@ -35,19 +35,19 @@ export interface PinRecord {
 	updatedAt: number;
 }
 
-interface PhotosDB extends DBSchema {
+export interface PhotosSchema extends DBSchema {
 	meta: { key: string; value: unknown };
 	assets: { key: string; value: CatalogAsset };
 	images: { key: string; value: ImageEntry; indexes: { lastAccess: number } };
 	pins: { key: number; value: PinRecord };
 }
 
-export type DB = IDBPDatabase<PhotosDB>;
+export type DB = IDBPDatabase<PhotosSchema>;
 
 let dbPromise: Promise<DB> | undefined;
 
 export function db(): Promise<DB> {
-	dbPromise ??= openDB<PhotosDB>('photos', 1, {
+	dbPromise ??= openDB<PhotosSchema>('photos', 1, {
 		upgrade(d) {
 			d.createObjectStore('meta');
 			d.createObjectStore('assets', { keyPath: 'id' });

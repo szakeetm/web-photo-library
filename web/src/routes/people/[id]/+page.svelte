@@ -14,7 +14,7 @@
 	const selection = new Selection();
 	const id = $derived(Number(page.params.id));
 	const person = $derived(app.personById.get(id));
-	const photos = $derived(app.assets.filter((a) => a.pp?.includes(id)));
+	const photos = $derived(app.index.byPerson.get(id) ?? []);
 	const sections = $derived(
 		groupByMonth(photos).map((g) => ({ key: `${id}-${g.key}`, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);

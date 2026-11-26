@@ -7,7 +7,7 @@
 // to the network. A new worker waits until the app's "Update now" activates it.
 import { immutable, assets } from '$app/manifest';
 import { version } from '$app/env';
-import { IMAGE_CACHE, imageKey, isCacheableImage, recordImage, touchImages } from '#lib/imageCache.ts';
+import { IMAGE_CACHE, imageKey, isCacheableImage, recordImage, touchImages, evictToLimit, getLimit } from '#lib/imageCache.ts';
 import { isStreamedMedia } from '#lib/video.ts';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
@@ -52,6 +52,17 @@ function touch(key: string) {
 	}, 2000);
 }
 
+// Browsing fills the cache: trim it to the limit a few seconds after images stop arriving.
+let trimTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleTrim() {
+	clearTimeout(trimTimer);
+	trimTimer = setTimeout(() => {
+		getLimit()
+			.then(evictToLimit)
+			.catch(() => {});
+	}, 5000);
+}
+
 async function image(request: Request): Promise<Response> {
 	const key = imageKey(request.url);
 	const cache = await caches.open(IMAGE_CACHE);
@@ -66,6 +77,7 @@ async function image(request: Request): Promise<Response> {
 			const blob = await res.clone().blob();
 			await cache.put(request.url, res.clone());
 			await recordImage(key, blob.size);
+			scheduleTrim();
 		}
 		return res;
 	} catch {

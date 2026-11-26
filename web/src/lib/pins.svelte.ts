@@ -2,6 +2,7 @@
 // format) are pinned in the image cache so they work offline. A folder download covers its subfolders.
 // Downloads continue only while the app is open and resume on the next launch; a re-edited photo gets
 // its new images pinned and the old ones released. Pin ids: an album's id, −id for a folder.
+import { inFolders, type AssetIndex } from './assetIndex';
 import { previewUrl, thumbUrl, type CatalogAlbum, type CatalogAsset, type FolderNode, type ImageFmt } from './api';
 import { db, type PinRecord } from './db';
 import { cacheAndPin, evictToLimit, getLimit, NetworkError, releasePins } from './imageCache';
@@ -39,9 +40,8 @@ export function folderSubtree(folder: FolderNode, folders: FolderNode[]): Set<nu
 }
 
 /** Ids of the photos in `folder` and its subfolders. */
-export function folderAssetIds(folder: FolderNode, folders: FolderNode[], assets: CatalogAsset[]): string[] {
-	const ids = folderSubtree(folder, folders);
-	return assets.filter((a) => a.folders.some((f) => ids.has(f))).map((a) => a.id);
+export function folderAssetIds(folder: FolderNode, folders: FolderNode[], ix: AssetIndex): string[] {
+	return inFolders(ix, folderSubtree(folder, folders)).map((a) => a.id);
 }
 
 /** Downloads above this many photos ask first. */
@@ -236,7 +236,7 @@ class Pins {
 				app.folders.find((f) => -f.id === rec.albumId && f.root === root && f.relPath === relPath) ??
 				app.folders.find((f) => f.root === root && f.relPath === relPath);
 			if (!folder) return null;
-			return { pinId: folderPinId(folder), title: rec.title, urls: imageUrls(folderAssetIds(folder, app.folders, app.assets), app.byId, app.fmt) };
+			return { pinId: folderPinId(folder), title: rec.title, urls: imageUrls(folderAssetIds(folder, app.folders, app.index), app.byId, app.fmt) };
 		}
 		const album = app.albums.find((a) => a.id === rec.albumId);
 		return album ? { pinId: album.id, title: album.title, urls: albumImageUrls(album, app.byId, app.fmt) } : null;

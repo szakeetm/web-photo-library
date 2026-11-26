@@ -14,7 +14,7 @@
 			/* private mode */
 		}
 	});
-	const located = $derived(app.assets.filter((a) => a.loc));
+	const located = $derived(app.index.located);
 	const groups = $derived(groupPlaces(app.assets, app.places));
 
 	function open(ids: string[]) {

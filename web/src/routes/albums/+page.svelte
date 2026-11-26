@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { inFolders } from '#lib/assetIndex.ts';
 	import { goto } from '$app/navigation';
 	import { faceThumbUrl, thumbUrl, type CatalogAlbum } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
@@ -16,16 +17,16 @@
 		app.folders.find((f) => f.root === root && f.coverId)?.coverId ?? null;
 	const rootCount = (root: 'library' | 'uploads') => {
 		const ids = new Set(app.folders.filter((f) => f.root === root).map((f) => f.id));
-		return app.assets.filter((a) => a.folders.some((f) => ids.has(f))).length;
+		return inFolders(app.index, ids).length;
 	};
 	/** Face of the person with the most photos, as the People cover. */
 	const topFace = $derived(app.people.find((p) => !p.hidden && p.name && p.coverFaceId != null)?.coverFaceId);
-	const favCover = $derived(app.assets.findLast((a) => a.fav)?.id ?? null);
-	const editedCover = $derived(app.assets.findLast((a) => a.ev > 0)?.id ?? null);
-	const videoCount = $derived(app.assets.filter((a) => a.dur != null).length);
-	const videoCover = $derived(app.assets.findLast((a) => a.dur != null)?.id ?? null);
-	const liveCount = $derived(app.assets.filter((a) => a.live === true).length);
-	const liveCover = $derived(app.assets.findLast((a) => a.live === true)?.id ?? null);
+	const favCover = $derived(app.index.favorites.at(-1)?.id ?? null);
+	const editedCover = $derived(app.index.edited.at(-1)?.id ?? null);
+	const videoCount = $derived(app.index.videos.length);
+	const videoCover = $derived(app.index.videos.at(-1)?.id ?? null);
+	const liveCount = $derived(app.index.live.length);
+	const liveCover = $derived(app.index.live.at(-1)?.id ?? null);
 
 	async function newAlbum() {
 		const title = prompt('New album name');
@@ -59,8 +60,8 @@
 
 <h2 class="section">Albums</h2>
 <div class="cards">
-	{@render card('/favorites', 'Favourites', app.assets.filter((a) => a.fav).length, favCover, 'heart')}
-	{@render card('/edited', 'Edited', app.assets.filter((a) => a.ev > 0).length, editedCover, 'edit')}
+	{@render card('/favorites', 'Favourites', app.index.favorites.length, favCover, 'heart')}
+	{@render card('/edited', 'Edited', app.index.edited.length, editedCover, 'edit')}
 	{#each albums as al (al.id)}
 		{@const p = present(al)}
 		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id])}
@@ -78,7 +79,7 @@
 <h2 class="section">People & Places</h2>
 <div class="cards">
 	{@render card('/people', 'People', app.people.filter((p) => !p.hidden && p.name).length, null, 'people', topFace != null ? faceThumbUrl(topFace) : null)}
-	{@render card('/places', 'Places', app.places.length, app.assets.findLast((a) => a.pl != null)?.id ?? null, 'map')}
+	{@render card('/places', 'Places', app.places.length, app.index.located.at(-1)?.id ?? null, 'map')}
 </div>
 
 <h2 class="section">Folders</h2>

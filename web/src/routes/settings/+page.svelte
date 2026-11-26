@@ -71,7 +71,7 @@
 	}
 
 	let vid = $state<ConvertAllState | null>(null);
-	const videoTotal = $derived(app.assets.filter((a) => a.dur != null).length);
+	const videoTotal = $derived(app.index.videos.length);
 	async function loadVideos() {
 		if (!net.online) return;
 		try {

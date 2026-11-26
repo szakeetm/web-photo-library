@@ -10,7 +10,7 @@
 	const cc = $derived(page.params.cc ?? '');
 	const ids = $derived(new Set(app.places.filter((p) => p.cc === cc).map((p) => p.id)));
 	const country = $derived(app.places.find((p) => p.cc === cc)?.country ?? cc);
-	const photos = $derived(app.assets.filter((a) => a.pl != null && ids.has(a.pl)));
+	const photos = $derived([...ids].flatMap((p) => app.index.byPlace.get(p) ?? []).sort((x, y) => app.index.pos.get(x.id)! - app.index.pos.get(y.id)!));
 	const sections = $derived(
 		groupByMonth(photos).map((g) => ({ key: `${cc}-${g.key}`, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);

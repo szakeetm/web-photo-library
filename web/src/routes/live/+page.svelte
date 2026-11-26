@@ -6,7 +6,7 @@
 	import TitleBar from '#lib/components/TitleBar.svelte';
 
 	const selection = new Selection();
-	const live = $derived(app.assets.filter((a) => a.live === true));
+	const live = $derived(app.index.live);
 	const sections = $derived(
 		groupByMonth(live).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);

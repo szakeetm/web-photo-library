@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogAsset, CatalogSnapshot } from './api';
 import { db, resetDbForTests } from './db';
-import { chooseEvictions, imageKey, isCacheableImage, recordImage, releasePins, summarize } from './imageCache';
+import { cacheTotals, chooseEvictions, imageKey, isCacheableImage, recordImage, releasePins, summarize } from './imageCache';
 import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 
 const asset = (id: string, ev = 0, fav = false): CatalogAsset => ({
@@ -111,5 +111,32 @@ describe('image cache bookkeeping', () => {
 		const all = await (await db()).getAll('images');
 		const pinsOf = Object.fromEntries(all.map((e) => [e.url, e.pins]));
 		expect(pinsOf).toEqual({ '/api/thumb/a?e=0': [2], '/api/thumb/b?e=0': [1], '/api/thumb/c?e=0': [] });
+	});
+});
+
+describe('cache budgets', () => {
+	const e = (url: string, bytes: number, lastAccess: number) => ({ url, bytes, lastAccess, pins: [] as number[] });
+	it('caps Live Photo clips and protects thumbnails', () => {
+		const entries = [
+			e('/api/assets/a/motion', 30, 1),
+			e('/api/thumb/t1', 40, 0),
+			e('/api/preview/p1', 20, 2),
+			e('/api/assets/b/motion', 10, 3)
+		];
+		// limit 100: total 100 fits, but clips (40) exceed 15 → oldest clips go first
+		expect(chooseEvictions(entries, 100)).toEqual(['/api/assets/a/motion']);
+		// the oldest entry is a thumbnail, but within half the limit it is kept: a newer preview goes
+		const mixed = [e('/api/thumb/t', 30, 0), e('/api/preview/p', 30, 1), e('/api/preview/q', 30, 2)];
+		expect(chooseEvictions(mixed, 80)).toEqual(['/api/preview/p']);
+		// limit 20: nothing else left, so thumbnails go too
+		expect(chooseEvictions(entries, 20)).toContain('/api/thumb/t1');
+	});
+
+	it('keeps running totals in step with records and deletions', async () => {
+		await recordImage('/api/thumb/a', 5);
+		await recordImage('/api/preview/a', 50);
+		await recordImage('/api/preview/a', 40); // re-recorded smaller
+		await recordImage('/api/assets/x/motion', 30);
+		expect(await cacheTotals()).toEqual({ thumb: 5, preview: 40, clip: 30 });
 	});
 });

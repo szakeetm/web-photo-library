@@ -36,7 +36,7 @@
 		return null;
 	}
 
-	const photos = $derived(folder ? app.assets.filter((a) => a.folders.includes(folder.id)) : []);
+	const photos = $derived(folder ? (app.index.byFolder.get(folder.id) ?? []) : []);
 	const sections = $derived([{ key: relPath || 'root', label: null, items: photos.map((a) => a.id) }]);
 	const trail = $derived(
 		relPath ? relPath.split('/').map((name, i, all) => ({ name, path: all.slice(0, i + 1).join('/') })) : []
@@ -69,7 +69,7 @@
 			await pins.remove(folderPinId(folder));
 			return;
 		}
-		const count = folderAssetIds(folder, app.folders, app.assets).length;
+		const count = folderAssetIds(folder, app.folders, app.index).length;
 		if (confirmDownload(title, count, children.length > 0)) await pins.downloadFolder(folder, title);
 	}
 </script>
