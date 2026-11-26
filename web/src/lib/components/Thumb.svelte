@@ -2,7 +2,7 @@
 	import { thumbUrl } from '#lib/api.ts';
 	import { blurhashUrl } from '#lib/blurhash.ts';
 	import { formatDuration } from '#lib/video.ts';
-	import { app } from '#lib/state.svelte.ts';
+	import { app, pendingTurns } from '#lib/state.svelte.ts';
 
 	let {
 		id,
@@ -11,6 +11,7 @@
 		size,
 		selected = false,
 		selecting = false,
+		focused = false,
 		onActivate,
 		onLongPress,
 		defer = false
@@ -21,6 +22,8 @@
 		size: number;
 		selected?: boolean;
 		selecting?: boolean;
+		/** the photo last open in the viewer (desktop): Space opens it again */
+		focused?: boolean;
 		onActivate: (id: string, e: MouseEvent) => void;
 		onLongPress?: (id: string) => void;
 		/** Show only the placeholder for now (the grid is flying past); once loaded, an image stays. */
@@ -43,6 +46,8 @@
 	});
 	const asset = $derived(app.lookup(id));
 	let loaded = $state(false);
+	/** quarter turns shown ahead of the server's new rendition (rotate) */
+	const turn = $derived(pendingTurns.get(id) ?? 0);
 	const placeholder = $derived(blurhashUrl(asset?.bh ?? null));
 
 	// Long-press (touch) starts selection; a long press must not also "click".
@@ -78,6 +83,7 @@
 <button
 	class="thumb"
 	class:selected
+	class:focused={focused && !selected}
 	data-asset-id={id}
 	style="transform: translate({x}px, {y}px); width: {size}px; height: {size}px; {placeholder
 		? `background-image: url(${placeholder})`
@@ -99,14 +105,13 @@
 			draggable="false"
 			use:releaseOnRemove
 			class:loaded
+			class:turned={turn !== 0}
+			style:transform={turn ? `rotate(${turn * 90}deg)` : undefined}
 			onload={() => (loaded = true)}
 		/>
 	{/if}
 	{#if asset?.fav}<span class="fav">♥</span>{/if}
-	{#if asset?.dur != null && !selecting}<span class="dur">{formatDuration(asset.tr ? asset.tr[1] - asset.tr[0] : asset.dur)}</span>{/if}
-	{#if selecting}
-		<span class="check" class:on={selected} aria-hidden="true">{selected ? '✓' : ''}</span>
-	{/if}
+	{#if asset?.dur != null}<span class="dur">{formatDuration(asset.tr ? asset.tr[1] - asset.tr[0] : asset.dur)}</span>{/if}
 </button>
 
 <style>
@@ -131,16 +136,25 @@
 		object-fit: cover;
 		display: block;
 		opacity: 0;
+		transition: opacity 0.2s;
+	}
+	/* turning ahead of the server; the new rendition replaces it without animating back */
+	img.turned {
 		transition:
 			opacity 0.2s,
-			transform 0.15s;
+			transform 0.2s ease-out;
 	}
 	img.loaded {
 		opacity: 1;
 	}
-	.selected img {
-		transform: scale(0.9);
-		opacity: 0.75;
+	/* selected (and the photo last open, on desktop): a blue frame, like Photos on the Mac */
+	.selected::after,
+	.focused::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border: 3px solid var(--accent);
+		pointer-events: none;
 	}
 	.fav {
 		position: absolute;
@@ -164,25 +178,5 @@
 		font-variant-numeric: tabular-nums;
 		text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
 		pointer-events: none;
-	}
-	.check {
-		position: absolute;
-		right: 5px;
-		bottom: 5px;
-		width: 22px;
-		height: 22px;
-		border-radius: 50%;
-		border: 1.5px solid white;
-		background: rgba(0, 0, 0, 0.15);
-		box-shadow: 0 0 3px rgba(0, 0, 0, 0.4);
-		color: white;
-		font-size: 13px;
-		font-weight: 700;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.check.on {
-		background: var(--accent);
 	}
 </style>

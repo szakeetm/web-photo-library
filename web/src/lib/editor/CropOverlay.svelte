@@ -140,9 +140,17 @@
 	}
 	.box {
 		position: absolute;
-		outline: 1px solid rgba(255, 255, 255, 0.9);
 		cursor: move;
 		touch-action: none;
+	}
+	/* drawn inside the box: a crop of the whole photo (box on the overlay's clipped edges) keeps it */
+	.box::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border: 1.5px solid rgba(255, 255, 255, 0.95);
+		box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+		pointer-events: none;
 	}
 	.grid {
 		position: absolute;
@@ -186,10 +194,10 @@
 	.handle.sw {
 		border: 0 solid white;
 	}
-	.handle.nw { left: -4px; top: -4px; border-left-width: 4px; border-top-width: 4px; cursor: nwse-resize; }
-	.handle.ne { right: -4px; top: -4px; border-right-width: 4px; border-top-width: 4px; cursor: nesw-resize; }
-	.handle.se { right: -4px; bottom: -4px; border-right-width: 4px; border-bottom-width: 4px; cursor: nwse-resize; }
-	.handle.sw { left: -4px; bottom: -4px; border-left-width: 4px; border-bottom-width: 4px; cursor: nesw-resize; }
+	.handle.nw { left: 0; top: 0; border-left-width: 4px; border-top-width: 4px; cursor: nwse-resize; }
+	.handle.ne { right: 0; top: 0; border-right-width: 4px; border-top-width: 4px; cursor: nesw-resize; }
+	.handle.se { right: 0; bottom: 0; border-right-width: 4px; border-bottom-width: 4px; cursor: nwse-resize; }
+	.handle.sw { left: 0; bottom: 0; border-left-width: 4px; border-bottom-width: 4px; cursor: nesw-resize; }
 	/* edge grips (invisible, wide hit areas) */
 	.handle.n, .handle.s { left: 28px; right: 28px; width: auto; height: 22px; cursor: ns-resize; }
 	.handle.n { top: -11px; }

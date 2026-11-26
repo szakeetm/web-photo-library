@@ -1,5 +1,6 @@
 import { version } from '$app/env';
-import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type DateChange, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem, type DownloadProgress } from './api';
+import { SvelteMap } from 'svelte/reactivity';
+import { api, thumbUrl, previewUrl, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type DateChange, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem, type DownloadProgress } from './api';
 import { supportsHeic } from './heic';
 import { isFirefox } from './platform';
 import { sortByLocalTime } from './dates';
@@ -240,11 +241,33 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 /** Rotations of one photo run one after another (a second click waits for the first save). */
 const rotating = new Map<string, Promise<unknown>>();
 
+/** Quarter turns (clockwise +) shown on screen ahead of the server: the thumbnail and the viewer
+ *  turn the picture they have at once, and the turn is dropped when the new rendition is loaded. */
+export const pendingTurns = new SvelteMap<string, number>();
+const addTurn = (id: string, d: number) => {
+	const n = (pendingTurns.get(id) ?? 0) + d;
+	if (n) pendingTurns.set(id, n);
+	else pendingTurns.delete(id);
+};
+
+/** Loads an image into the browser's cache (errors ignored). */
+function preload(url: string) {
+	return new Promise<void>((resolve) => {
+		const img = new Image();
+		img.onload = () => img.decode().catch(() => {}).finally(resolve);
+		img.onerror = () => resolve();
+		img.src = url;
+	});
+}
+
 /** Turns photos a quarter turn without opening the editor: the current edit (crop included) turns
  * with the image and is saved as a new edit version. Videos are skipped. A few photos are saved at
- * once; the first error is thrown after the rest are done. */
-export async function rotatePhotos(ids: string[], clockwise: boolean) {
+ * once; the first error is thrown after the rest are done. The picture turns on screen at once;
+ * `preview`: also load the viewer's rendition before showing the saved one. */
+export async function rotatePhotos(ids: string[], clockwise: boolean, { preview = false } = {}) {
 	const photos = ids.filter((i) => app.byId.get(i)?.dur == null);
+	const d = clockwise ? 1 : -1;
+	for (const id of photos) addTurn(id, d);
 	let failed: unknown = null;
 	const one = (id: string) => {
 		const prev = rotating.get(id) ?? Promise.resolve();
@@ -255,8 +278,14 @@ export async function rotatePhotos(ids: string[], clockwise: boolean) {
 				const current = h.versions.find((v) => v.version === h.current)?.recipe ?? emptyRecipe();
 				const turned = normalize(clockwise ? rotateClockwise(current) : rotateCounterClockwise(current));
 				const { asset } = isIdentity(turned) ? await api.revertEdit(id) : await api.saveEdit(id, turned);
+				// swap in the new rendition only once it is loaded, together with dropping this turn
+				await Promise.all([
+					preload(thumbUrl(asset.id, asset.ev, app.fmt)),
+					preview ? preload(previewUrl(asset.id, asset.ev, app.fmt)) : null
+				]);
 				app.patchAsset(asset);
-			});
+			})
+			.finally(() => addTurn(id, -d));
 		rotating.set(id, next);
 		next.finally(() => rotating.get(id) === next && rotating.delete(id)).catch(() => {});
 		return next.catch((e) => (failed ??= e));

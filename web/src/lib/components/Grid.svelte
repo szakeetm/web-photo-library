@@ -15,13 +15,16 @@
 		startAtEnd = false,
 		selection,
 		onActivate,
-		onLongPress
+		onLongPress,
+		focused = null
 	}: {
 		sections: Section[];
 		startAtEnd?: boolean;
 		selection?: Selection;
 		onActivate: (id: string, e: MouseEvent) => void;
 		onLongPress?: (id: string) => void;
+		/** the photo last open in the viewer (desktop), framed like a selection */
+		focused?: string | null;
 	} = $props();
 
 	const targets = [64, 96, 136, 200, 300];
@@ -161,18 +164,12 @@
 			if (gestureScale > 1.15) setDensity(density + 1);
 			else if (gestureScale < 0.87) setDensity(density - 1);
 		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || viewerOpen() || document.querySelector('[role=dialog]')) return;
-			if (e.key === '+' || e.key === '=') setDensity(density + 1);
-			if (e.key === '-') setDensity(density - 1);
-		};
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', measure);
 		window.addEventListener('wheel', onWheel, { passive: false });
 		document.addEventListener('gesturestart', onGestureStart, { passive: false });
 		document.addEventListener('gesturechange', onGestureChange, { passive: false });
 		document.addEventListener('gestureend', onGestureEnd, { passive: false });
-		window.addEventListener('keydown', onKey);
 		return () => {
 			window.removeEventListener('scroll', onScroll);
 			clearTimeout(settleTimer);
@@ -181,7 +178,6 @@
 			document.removeEventListener('gesturestart', onGestureStart);
 			document.removeEventListener('gesturechange', onGestureChange);
 			document.removeEventListener('gestureend', onGestureEnd);
-			window.removeEventListener('keydown', onKey);
 		};
 	});
 
@@ -328,6 +324,7 @@
 					size={layout.tile}
 					selecting={selection?.active ?? false}
 					selected={selection?.ids.has(id) ?? false}
+					focused={id === focused}
 					onActivate={activate}
 					{onLongPress}
 					defer={flinging}

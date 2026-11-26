@@ -57,6 +57,8 @@
 		} else if (e.metaKey || e.ctrlKey) {
 			selection.start();
 			selection.toggle(id);
+			// unselecting the last one ends selecting
+			if (selection.count === 0) selection.clear();
 		} else if (selection.active) {
 			selection.toggle(id);
 		} else {
@@ -64,13 +66,37 @@
 		}
 	}
 
+	// Desktop: the photo last open in the viewer stays framed in the grid, and Space opens it again
+	// (Photos on the Mac). Phones don't frame it.
+	const desktop = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+	let focused = $state<string | null>(null);
+	let lastOpen: string | null = null;
+	$effect(() => {
+		if (open) lastOpen = open;
+		else if (lastOpen) {
+			if (desktop && ids.includes(lastOpen)) focused = lastOpen;
+			lastOpen = null;
+		}
+	});
+	$effect(() => {
+		if (focused && !ids.includes(focused)) focused = null;
+	});
+
 	$effect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (open || e.target instanceof HTMLInputElement) return;
+			if (open || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 			if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
 				e.preventDefault();
 				selection.selectAll(ids);
 			} else if (e.key === 'Escape' && selection.active) selection.clear();
+			else if (e.key === 'Escape') focused = null;
+			else if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('[role=dialog]')) {
+				// one selected photo, or the framed one; several selected: nothing
+				const target = selection.active ? (selection.count === 1 ? [...selection.ids][0] : null) : focused;
+				if (!target && !(selection.active && selection.count > 1)) return; // nothing framed: Space scrolls
+				e.preventDefault();
+				if (target && ids.includes(target)) pushState('', { viewer: target });
+			}
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
@@ -86,7 +112,7 @@
 		<p class="nomatch muted">Nothing here matches “{filterLabel}”.</p>
 	{/if}
 {/if}
-<Grid sections={filtered} {startAtEnd} {selection} onActivate={activate} onLongPress={(id) => selection.start(id)} />
+<Grid sections={filtered} {startAtEnd} {selection} {focused} onActivate={activate} onLongPress={(id) => selection.start(id)} />
 {#if selection.active}
 	<ActionBar {selection} order={ids} {albumId} {trash} />
 {/if}

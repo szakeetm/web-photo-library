@@ -10,7 +10,7 @@
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
-	import { app, setFavorite, rotatePhotos, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
@@ -332,7 +332,7 @@
 		if (!asset || !net.online || isVideo) return;
 		resetZoom();
 		rotations++;
-		rotatePhotos([asset.id], clockwise)
+		rotatePhotos([asset.id], clockwise, { preview: true })
 			.catch((e) => alert(`Couldn't rotate the photo: ${(e as Error).message}`))
 			.finally(() => rotations--);
 	}
@@ -410,6 +410,18 @@
 		return r.bottom > 0 && r.top < vh ? r : null;
 	}
 
+	/** The picture turned ahead of the server's new rendition (rotate), shrunk to fit when on its side. */
+	function turnTransform(a: { id: string; ev: number; w: number; h: number }) {
+		const n = pendingTurns.get(a.id) ?? 0;
+		if (!n) return '';
+		const d = dims.get(`${a.id}/${a.ev}`) ?? { w: a.w, h: a.h };
+		const fit = Math.min(vw / d.w, vh / d.h);
+		const w = d.w * fit;
+		const h = d.h * fit;
+		const k = n % 2 ? Math.min(vw / h, vh / w) : 1;
+		return ` rotate(${n * 90}deg) scale(${k})`;
+	}
+
 	/** Rect the image occupies when fitted into the viewport. */
 	function fittedRect(): { x: number; y: number; w: number; h: number } {
 		const a = asset;
@@ -481,7 +493,7 @@
 				close();
 			} else if (e.key === 'i') infoOpen = !infoOpen;
 			else if (e.key === 'f' && !trash) toggleFavorite();
-			else if (e.key === 'e' && !trash) openEditor();
+			else if ((e.key === 'e' || e.key === 'Enter') && !trash && !(e.target as HTMLElement).closest?.('button')) openEditor();
 			else if (['[', ']', 'l', 'L', 'r', 'R'].includes(e.key) && !trash && !e.metaKey && !e.ctrlKey && !e.altKey)
 				rotate(e.key === ']' || e.key.toLowerCase() === 'r');
 		};
@@ -802,8 +814,9 @@
 				>
 					<div
 						class="frame"
-						style={s.o === 0 ? `transform: translate(${tx}px, ${ty}px) scale(${scale})` : ''}
+						style={s.o === 0 ? `transform: translate(${tx}px, ${ty}px) scale(${scale})${turnTransform(a)}` : ''}
 						class:animating
+						class:turning={s.o === 0 && (pendingTurns.get(a.id) ?? 0) !== 0}
 					>
 						{#if !ready.has(a.id)}
 							<img class="low" src={thumbUrl(a.id, a.ev, app.fmt)} alt="" draggable="false" />
@@ -1233,6 +1246,10 @@
 	.mirror {
 		display: inline-flex;
 		transform: scaleX(-1);
+	}
+	/* turning ahead of the server; the new rendition replaces it without animating back */
+	.frame.turning {
+		transition: transform 0.22s ease-out;
 	}
 	.rot.busy {
 		opacity: 0.5;

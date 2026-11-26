@@ -18,8 +18,8 @@
 				[[`${shift}click`], 'Select every photo up to this one'],
 				[[shortcut('A')], 'Select all'],
 				[['L', 'R'], 'Rotate the selected photos left / right'],
-				[['Esc'], 'Stop selecting'],
-				[['+', '−'], 'Larger / smaller thumbnails']
+				[['Space'], 'Open the framed photo (one selected, or the last one open)'],
+				[['Esc'], 'Stop selecting']
 			]
 		},
 		{
@@ -30,7 +30,7 @@
 				[['[', ']'], 'Rotate left / right'],
 				[['F'], 'Favourite'],
 				[['I'], 'Info'],
-				[['E'], 'Edit'],
+				[['E', 'Return'], 'Edit'],
 				[['Space'], 'Play or pause a video; close a photo'],
 				[['Esc'], 'Close the info, then the viewer']
 			]
