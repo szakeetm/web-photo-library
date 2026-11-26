@@ -6,7 +6,8 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 
 > Status: **all 6 milestones** of the [spec](docs/superpowers/specs/2026-11-25-photo-server-design.md) —
 > indexing, timeline, folders, viewer, albums, favourites, search, uploads, installable app,
-> offline mode, non-destructive editing, people (face recognition) and places (map).
+> offline mode, non-destructive editing, people (face recognition) and places (map); since then
+> object recognition, a Trash for uploads, local mode on the Mac and big-library tuning.
 
 ## Screenshots
 
@@ -21,6 +22,9 @@ iPhone Home Screen app, reached privately over [Tailscale](https://tailscale.com
 | ![People on desktop](docs/screenshots/desktop-people.jpg) | ![People on iPhone](docs/screenshots/mobile-people.jpg) |
 | ![The people in a photo, in the info panel](docs/screenshots/desktop-viewer-people.jpg) | ![Places by country and city on iPhone](docs/screenshots/mobile-places-list.jpg) |
 | ![Photos on a map on desktop](docs/screenshots/desktop-places.jpg) | ![Photos on a map on iPhone](docs/screenshots/mobile-places.jpg) |
+| ![Recognised objects on desktop](docs/screenshots/desktop-objects.jpg) | ![The info sheet, swiped up on iPhone](docs/screenshots/mobile-info.jpg) |
+| ![A photo's recognised objects at the bottom of the info panel](docs/screenshots/desktop-viewer-objects.jpg) | |
+| ![Downloading a selection with edits and Live Photo videos](docs/screenshots/desktop-download.jpg) | |
 | ![Folders on desktop](docs/screenshots/desktop-folders.jpg) | |
 | ![Settings on desktop](docs/screenshots/desktop-settings.jpg) | |
 
@@ -43,19 +47,50 @@ regenerate them with `demo/take-screenshots.sh`.
 - **Photos-like UI.** Month-grouped timeline (local time where each photo was taken), pinch or
   ⌘-scroll to change density, a timeline scrubber on the right edge (drag to jump through the years)
   and a jump-to-month panel (tap the month label: years with photo counts, then months), folders with covers, a full-screen viewer with swipe, swipe-down to
-  close, pinch/double-tap zoom, info panel and original download.
+  close, pinch/double-tap zoom (and a −/+ zoom slider on desktop), info panel and original download.
+  On the iPhone, swipe up on a photo for its info sheet and swipe it down again. Zooming in loads the
+  full-resolution original in the background (progress in the corner) and swaps it in once decoded,
+  so zooming never stalls.
 - **Albums and favourites.** Create albums from a multi-selection (Select button, long-press on
   iPhone, ⌘/shift-click on desktop), reorder-safe membership by content hash, ♥ in the viewer
   (or press F). Google Takeout album folders become albums with one click.
-- **Search** across file names, folders, descriptions and album titles.
+- **Search** across file names, folders, descriptions, album titles, people, places and
+  recognised objects.
+- **Objects.** Things in photos and videos (dogs, beaches, food, mountains…) are recognised on the
+  Mac with the classifier built into macOS (Apple Vision on the Neural Engine: nothing to download,
+  nothing leaves the Mac); only confident labels are kept. They show discreetly at the bottom of the
+  info panel — click one for every photo and video showing it — and in Collections → Objects, most
+  common first. New photos are done after each scan; Settings → Objects → Find objects runs it by hand.
+- **Downloads.** Export one photo as the original or with its edits (JPEG/HEIC, full resolution),
+  or select several and download them: edited photos with or without edits, plus each Live
+  Photo's video (.MOV named like the still) if wanted. Edited stills keep the Live Photo's content
+  identifier, so importing the photo and its .MOV together into Photos on a Mac gives the Live Photo
+  back. On the iPhone files go through the share sheet (a web app can't save Live Photos, so they
+  arrive as a photo and a video).
 - **Uploads.** Upload from the iPhone photo picker or drag files/folders onto the desktop window.
   Uploads go to a separate uploads folder (`phone-uploads/`, `desktop-uploads/`), are de-duplicated
   by content hash, and keep their albums and favourites if you later move them into the library.
+- **Trash for uploads.** Uploaded photos (only those — the library is never changed) can be
+  deleted: they move to a hidden `.trash` folder inside the uploads folder and wait in Trash (in
+  Collections and under Uploads in the sidebar) for 30 days. Restore puts them back with their
+  albums, favourites and edits; Delete permanently or Empty Trash removes the files from disk.
+  Uploading a photo that is in the Trash restores it.
 - **Works offline.** The catalog is kept on the device and updated with small deltas; photos you
-  look at are cached (size limit and Clear in Settings → This device). **Download** an album or a
-  folder (with its subfolders) from its ⋯ menu to keep its thumbnails and previews, with progress
-  shown under the title (and a confirmation above 500 photos); offline the app opens without a
-  network and is view-only.
+  look at are cached (size limit, Clear cache and Remove offline downloads in Settings → This
+  device). **Download** an album or a folder (with its subfolders) from its ⋯ menu to keep its
+  thumbnails and previews, with progress shown under the title (and a confirmation above 500
+  photos); offline the app opens without a network and is view-only.
+- **Big libraries.** Built for ~100k photos: the first install shows a "Downloading library"
+  progress card, then updates carry only what changed (changed albums; folders, people and places
+  only when they differ). Views share one index built per sync, the grid draws only what is on
+  screen, and the device cache keeps running totals and evicts least-recently-used images in batches
+  (Live Photo clips capped, thumbnails protected). On the Mac, scans resume after a restart and
+  background work pauses while you browse; face grouping scales past 100k faces.
+- **Local mode.** A browser on the Mac running the server is recognised (directly or through
+  Tailscale) and shows *Local mode*: nothing is cached or downloaded for offline use, videos play
+  from the original whenever the browser can, zoom loads full resolution at once, and photos,
+  videos, folders, uploads and the Trash have a **Reveal in Finder** button. Settings → This device
+  can switch it off to test the app as a phone would see it.
 - **Non-destructive editor.** Light (exposure, brilliance, highlights, shadows, brightness,
   contrast, black point), colour (saturation, vibrance, warmth, tint), tone curve, sharpness,
   vignette, crop with aspect presets, straighten, rotate, flip, Auto, undo/redo, hold to compare,
@@ -83,6 +118,8 @@ regenerate them with `demo/take-screenshots.sh`.
 - **Installable** to the iPhone Home Screen (Share → Add to Home Screen) or the Dock / app list.
 - **Everything configured in the browser:** library folder (server-side folder picker), refresh
   jobs (Detect changes, Re-index, Rebuild caches, Purge missing), data location with “Move…”.
+  Settings is split into About, This device (only this browser) and Server (shared by every
+  device).
 - **Versioned API.** Every response carries the API version; if the app and server don't match,
   the app asks you to update (a reload — the server serves the app).
 

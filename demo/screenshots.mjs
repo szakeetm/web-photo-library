@@ -104,6 +104,33 @@ if (want('desktop-viewer-people')) {
 	await settle(d, 2000);
 	await shot(d, 'desktop-viewer-people');
 }
+if (want('desktop-objects')) {
+	await d.goto(BASE + '/objects');
+	await settle(d, 2500);
+	await shot(d, 'desktop-objects');
+}
+if (want('desktop-viewer-objects')) {
+	// info open: the recognised objects at the bottom (the zoom slider shows top left)
+	await d.goto(BASE + '/albums/2');
+	await settle(d);
+	await d.locator('.thumb').nth(3).click();
+	await settle(d, 2500);
+	await d.getByRole('button', { name: 'Info' }).click();
+	await settle(d, 1500);
+	await d.locator('aside.info').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+	await settle(d, 800);
+	await shot(d, 'desktop-viewer-objects');
+}
+if (want('desktop-download')) {
+	await d.goto(BASE + '/albums/3');
+	await settle(d);
+	await d.getByRole('button', { name: 'Select' }).click();
+	for (const i of [0, 1, 2, 4]) await d.locator('.thumb').nth(i).click();
+	await d.getByRole('button', { name: 'Download' }).click();
+	await settle(d, 800);
+	await shot(d, 'desktop-download');
+	await d.keyboard.press('Escape');
+}
 if (want('desktop-upload')) {
 	await d.goto(BASE + '/');
 	await settle(d, 2000);
@@ -114,7 +141,9 @@ if (want('desktop-upload')) {
 
 // Phone editor: Chromium with iPhone emulation (Playwright's WebKit has no WebGPU).
 if (want('mobile-editor')) {
-	const m = await (await cb.newContext(iPhone)).newPage();
+	const mctx = await cb.newContext(iPhone);
+	await mctx.addInitScript(() => localStorage.setItem('photos.forceRemote', '1'));
+	const m = await mctx.newPage();
 	await openEditor(m, 2, 12);
 	await m.getByRole('button', { name: 'Auto' }).click();
 	await settle(m, 2000);
@@ -126,7 +155,9 @@ await cb.close();
 
 // Phone: WebKit (iPhone Safari).
 const wb = await webkit.launch();
-const m = await wb.newPage(iPhone);
+const wctx = await wb.newContext(iPhone);
+await wctx.addInitScript(() => localStorage.setItem('photos.forceRemote', '1'));
+const m = await wctx.newPage();
 if (want('mobile-library')) {
 	await m.goto(BASE + '/');
 	await settle(m, 2500);
@@ -138,6 +169,16 @@ if (want('mobile-viewer')) {
 	await m.locator('.thumb').nth(4).click();
 	await settle(m, 2500);
 	await shot(m, 'mobile-viewer');
+}
+if (want('mobile-info')) {
+	// swipe up on a photo: the info sheet
+	await m.goto(BASE + '/albums/3');
+	await settle(m);
+	await m.locator('.thumb').nth(4).click();
+	await settle(m, 2500);
+	await m.getByRole('button', { name: 'Info' }).click();
+	await settle(m, 1500);
+	await shot(m, 'mobile-info');
 }
 if (want('mobile-albums')) {
 	await m.goto(BASE + '/albums');

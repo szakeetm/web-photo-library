@@ -36,6 +36,7 @@ idle() { until ! curl -sf $BASE/api/jobs | grep -q '"state":"\(queued\|running\)
 api PUT settings "{\"libraryPath\":\"$DEMO/Library\",\"uploadsPath\":\"$DEMO/Uploads\"}"
 api POST jobs/detect-changes; sleep 1; idle
 api POST jobs/import-takeout-albums; sleep 1; idle
+api POST jobs/objects; sleep 1; idle
 # faces (if the model is installed in the demo data dir) run after the scan
 if [[ -n ${FACE_MODEL:-} ]]; then
 	mkdir -p $DEMO/Data/models && cp -R $FACE_MODEL $DEMO/Data/models/FaceNet.mlpackage
