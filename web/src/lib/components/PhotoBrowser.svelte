@@ -49,9 +49,11 @@
 	const open = $derived(page.state.viewer && ids.includes(page.state.viewer) ? page.state.viewer : null);
 
 	function activate(id: string, e: MouseEvent) {
-		if (e.shiftKey && (selection.active || selection.anchor)) {
+		if (e.shiftKey) {
+			// a range from the last clicked photo; the first shift-click starts selecting
 			selection.start();
-			selection.extendTo(ids, id);
+			if (selection.anchor && selection.ids.size) selection.extendTo(ids, id);
+			else selection.toggle(id);
 		} else if (e.metaKey || e.ctrlKey) {
 			selection.start();
 			selection.toggle(id);

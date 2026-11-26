@@ -1,13 +1,13 @@
 <script lang="ts">
 	// Virtualised photo grid using window scrolling. Pinch (touch/trackpad), ctrl+wheel and +/- change density.
 	import { onMount, tick } from 'svelte';
-	import { layoutGrid, visibleRange, columnsFor, type Section } from '#lib/gridLayout.ts';
+	import { layoutGrid, visibleRange, columnsFor, idAt, type Section } from '#lib/gridLayout.ts';
 	import Thumb from './Thumb.svelte';
 	import TimelineScrubber from './TimelineScrubber.svelte';
 	import MonthJump from './MonthJump.svelte';
 	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
 
-	import type { Selection } from '#lib/selection.svelte.ts';
+	import { dragSelect, type Selection } from '#lib/selection.svelte.ts';
 
 	let {
 		sections,
@@ -164,6 +164,97 @@
 		};
 	});
 
+	// Drag-select while selecting (Photos on iPhone; with a mouse too): a drag that starts sideways on a photo selects
+	// everything between it and the photo under the finger (or unselects, if the first one was
+	// selected); up/down drags still scroll. Near the top or bottom edge the grid scrolls by itself.
+	const order = $derived(sections.flatMap((s) => s.items));
+	let drag: {
+		pointer: number;
+		x: number;
+		y: number;
+		from: string;
+		base: Set<string>;
+		active: boolean;
+		lastX: number;
+		lastY: number;
+	} | null = null;
+	let suppressClick = false;
+	let autoRaf = 0;
+
+	function pointAt(clientX: number, clientY: number) {
+		const r = container.getBoundingClientRect();
+		return idAt(layout, clientX - r.left, clientY - r.top);
+	}
+
+	function dragDown(e: PointerEvent) {
+		if (!selection?.active || e.button !== 0) return;
+		const id = pointAt(e.clientX, e.clientY);
+		if (!id) return;
+		drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: id, base: new Set(selection.ids), active: false, lastX: e.clientX, lastY: e.clientY };
+	}
+
+	function update() {
+		if (!drag || !selection) return;
+		const id = pointAt(drag.lastX, drag.lastY);
+		if (id) selection.set(dragSelect(drag.base, order, drag.from, id), id);
+	}
+
+	function autoScroll() {
+		autoRaf = 0;
+		if (!drag?.active) return;
+		const edge = 80;
+		const top = Math.max(edge, containerTop - window.scrollY + edge);
+		let v = 0;
+		if (drag.lastY < top) v = -Math.min(20, (top - drag.lastY) / 3);
+		else if (drag.lastY > window.innerHeight - edge) v = Math.min(20, (drag.lastY - (window.innerHeight - edge)) / 3);
+		if (v) {
+			window.scrollBy(0, v);
+			update();
+			autoRaf = requestAnimationFrame(autoScroll);
+		}
+	}
+
+	function dragMove(e: PointerEvent) {
+		if (!drag || e.pointerId !== drag.pointer) return;
+		drag.lastX = e.clientX;
+		drag.lastY = e.clientY;
+		if (!drag.active) {
+			const dx = Math.abs(e.clientX - drag.x);
+			const dy = Math.abs(e.clientY - drag.y);
+			if (dx < 8 && dy < 8) return;
+			if (dy > dx) return void (drag = null); // a scroll
+			drag.active = true;
+			try {
+				container.setPointerCapture(e.pointerId);
+			} catch {
+				/* already released */
+			}
+		}
+		e.preventDefault();
+		update();
+		if (!autoRaf) autoRaf = requestAnimationFrame(autoScroll);
+	}
+
+	function dragUp(e: PointerEvent) {
+		if (!drag || e.pointerId !== drag.pointer) return;
+		if (drag.active) {
+			// a click that may follow the drag isn't a tap (and none may come: forget it soon)
+			suppressClick = true;
+			setTimeout(() => (suppressClick = false), 300);
+		}
+		drag = null;
+		cancelAnimationFrame(autoRaf);
+		autoRaf = 0;
+	}
+
+	function activate(id: string, e: MouseEvent) {
+		if (suppressClick) {
+			suppressClick = false;
+			return;
+		}
+		onActivate(id, e);
+	}
+
 	// Photos-style: open scrolled to the newest photos at the bottom.
 	let scrolledToEnd = false;
 	$effect(() => {
@@ -177,7 +268,20 @@
 	});
 </script>
 
-<div class="grid" bind:this={container} bind:clientWidth={width} style="height: {layout.height}px">
+<div
+	class="grid"
+	role="group"
+	aria-label="Photos"
+	class:selecting={selection?.active}
+	bind:this={container}
+	bind:clientWidth={width}
+	style="height: {layout.height}px"
+	onpointerdown={dragDown}
+	onpointermove={dragMove}
+	onpointerup={dragUp}
+	onpointercancel={dragUp}
+	ondragstart={(e) => selection?.active && e.preventDefault()}
+>
 	{#each visible as b (b.key)}
 		{#if b.kind === 'header'}
 			<h2 class="header" style="transform: translateY({b.y}px); height: {b.h}px">{b.label}</h2>
@@ -190,7 +294,7 @@
 					size={layout.tile}
 					selecting={selection?.active ?? false}
 					selected={selection?.ids.has(id) ?? false}
-					{onActivate}
+					onActivate={activate}
 					{onLongPress}
 				/>
 			{/each}
@@ -217,6 +321,13 @@
 	.grid {
 		position: relative;
 		width: 100%;
+	}
+	/* sideways drags select instead of doing anything else */
+	.grid.selecting {
+		touch-action: pan-y;
+	}
+	.grid.selecting :global(.thumb) {
+		touch-action: pan-y;
 	}
 	.header {
 		position: absolute;

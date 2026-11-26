@@ -9,6 +9,19 @@ export function selectRange(ids: string[], anchor: string, target: string): stri
 	return ids.slice(lo, hi + 1);
 }
 
+/** Drag-select (Photos on iPhone): everything between the first photo and the one under the
+ * finger is selected — or unselected, when the first photo was already selected. */
+export function dragSelect(base: Set<string>, order: string[], from: string, to: string): Set<string> {
+	const range = selectRange(order, from, to);
+	const next = new Set(base);
+	const adding = !base.has(from);
+	for (const id of range) {
+		if (adding) next.add(id);
+		else next.delete(id);
+	}
+	return next;
+}
+
 /** Favourite the selection unless all of it already is (then unfavourite). */
 export function nextFavoriteValue(current: boolean[]): boolean {
 	return current.length === 0 || !current.every(Boolean);
@@ -37,6 +50,13 @@ export class Selection {
 		const range = selectRange(order, this.anchor ?? id, id);
 		this.ids = new Set([...this.ids, ...range]);
 		this.anchor = id;
+	}
+
+	/** Replaces the selection (drag-select). */
+	set(ids: Set<string>, anchor?: string) {
+		this.active = true;
+		this.ids = ids;
+		if (anchor) this.anchor = anchor;
 	}
 
 	selectAll(order: string[]) {

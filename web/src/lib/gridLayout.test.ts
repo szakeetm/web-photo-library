@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutGrid, visibleRange, columnsFor } from './gridLayout.ts';
+import { layoutGrid, visibleRange, columnsFor, idAt } from './gridLayout.ts';
 
 const sections = [
 	{ key: 'a', label: 'A', items: ['1', '2', '3', '4', '5'] },
@@ -42,5 +42,24 @@ describe('columnsFor', () => {
 		expect(columnsFor(390, 120)).toBe(3);
 		expect(columnsFor(1200, 160)).toBe(8);
 		expect(columnsFor(100, 300)).toBe(1);
+	});
+});
+
+describe('idAt', () => {
+	const layout = layoutGrid(
+		[
+			{ key: 's1', label: 'One', items: ['a', 'b', 'c', 'd', 'e'] },
+			{ key: 's2', label: 'Two', items: ['f'] }
+		],
+		{ width: 300, columns: 3, gap: 2, headerHeight: 40 }
+	);
+	it('finds tiles by position', () => {
+		const t = layout.tile;
+		expect(idAt(layout, 1, 41)).toBe('a');
+		expect(idAt(layout, t + 3, 41)).toBe('b');
+		expect(idAt(layout, 1, 40 + t + 3)).toBe('d');
+		expect(idAt(layout, 2 * (t + 2) + 1, 40 + t + 3)).toBeNull(); // past the last tile of the row
+		expect(idAt(layout, 1, 5)).toBeNull(); // header
+		expect(idAt(layout, 1, layout.height + 50)).toBeNull();
 	});
 });

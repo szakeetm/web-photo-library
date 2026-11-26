@@ -68,3 +68,23 @@ export function visibleRange(blocks: Block[], top: number, viewport: number, ove
 	while (last + 1 < blocks.length && blocks[last + 1].y < hi) last++;
 	return [first, last];
 }
+
+/** The photo at grid-local (x, y), or null (headers, past the end); a gap counts as the row above it. */
+export function idAt(layout: GridLayout, x: number, y: number): string | null {
+	const { blocks, tile, gap } = layout;
+	// last block starting at or above y
+	let lo = 0;
+	let hi = blocks.length - 1;
+	let found = -1;
+	while (lo <= hi) {
+		const mid = (lo + hi) >> 1;
+		if (blocks[mid].y <= y) {
+			found = mid;
+			lo = mid + 1;
+		} else hi = mid - 1;
+	}
+	const b = blocks[found];
+	if (!b || b.kind !== 'row' || y >= b.y + b.h + gap) return null;
+	const col = Math.floor(x / (tile + gap));
+	return col >= 0 && col < b.items.length ? b.items[col] : null;
+}
