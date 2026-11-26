@@ -5,7 +5,7 @@ export type ImageFmt = 'heic' | 'jpeg';
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
 export const CLIENT_API_VERSION = 5;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 5;
+export const CATALOG_FORMAT = 6;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
@@ -120,6 +120,7 @@ export interface CatalogSnapshot {
 	albums: CatalogAlbum[];
 	people: CatalogPerson[];
 	places: CatalogPlace[];
+	hashes: ListHashes;
 }
 
 export interface CatalogDelta {
@@ -130,10 +131,26 @@ export interface CatalogDelta {
 	reset: boolean;
 	assets: CatalogAsset[];
 	deleted: string[];
+	/** Left out when unchanged (the client's hashes match). */
 	folders?: FolderNode[];
+	/** Albums created or changed since `since`. */
 	albums?: CatalogAlbum[];
+	deletedAlbums?: number[];
 	people?: CatalogPerson[];
 	places?: CatalogPlace[];
+	hashes?: ListHashes;
+}
+
+export interface ListHashes {
+	folders: string;
+	people: string;
+	places: string;
+}
+
+/** Bytes of a download so far (total from Content-Length, 0 when unknown). */
+export interface DownloadProgress {
+	received: number;
+	total: number;
 }
 
 export interface AlbumSummary {
@@ -315,9 +332,41 @@ export interface ConvertAllState {
 export const api = {
 	health: (signal?: AbortSignal) =>
 		call<ServerInfo>('/api/health', { signal }),
-	catalog: () => call<CatalogSnapshot>('/api/catalog'),
-	changes: (since: number, catalogId: string) =>
-		call<CatalogDelta>(`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}`),
+	/** The whole catalog (tens of MB for a big library), reporting download progress. */
+	catalog: async (onProgress?: (p: DownloadProgress) => void) => {
+		let res: Response;
+		try {
+			res = await send('/api/catalog');
+		} catch (e) {
+			networkListener?.();
+			throw e;
+		}
+		if (!res.ok || !res.body || !onProgress) return handle<CatalogSnapshot>(res);
+		const total = Number(res.headers.get('content-length')) || 0;
+		const reader = res.body.getReader();
+		const chunks: Uint8Array[] = [];
+		let received = 0;
+		onProgress({ received, total });
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(value);
+			received += value.length;
+			onProgress({ received, total });
+		}
+		const body = new Uint8Array(received);
+		let at = 0;
+		for (const c of chunks) {
+			body.set(c, at);
+			at += c.length;
+		}
+		return handle<CatalogSnapshot>(new Response(body, { status: res.status, headers: res.headers }));
+	},
+	changes: (since: number, catalogId: string, have?: ListHashes) =>
+		call<CatalogDelta>(
+			`/api/catalog/changes?since=${since}&catalog=${encodeURIComponent(catalogId)}` +
+				(have ? `&have=${have.folders},${have.people},${have.places}` : '')
+		),
 	videoStatus: (id: string) => call<{ status: VideoStatus }>(videoStatusUrl(id)).then((r) => r.status),
 	/** Whether a converted copy of the video exists (to download beside the original). */
 	videoConverted: (id: string) => call<{ converted?: boolean }>(videoStatusUrl(id)).then((r) => r.converted === true),

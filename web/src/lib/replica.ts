@@ -37,11 +37,12 @@ export async function saveSnapshot(snap: CatalogSnapshot) {
 	meta.put(snap.albums, 'albums');
 	meta.put(snap.people, 'people');
 	meta.put(snap.places, 'places');
-	meta.put({ format: snap.format, catalogId: snap.catalogId, seq: snap.seq } satisfies CatalogMeta, 'catalog');
+	meta.put({ format: snap.format, catalogId: snap.catalogId, seq: snap.seq, hashes: snap.hashes } satisfies CatalogMeta, 'catalog');
 	await tx.done;
 }
 
-export async function saveDelta(delta: CatalogDelta) {
+/** Stores a delta; `albums` is the merged album list (deltas only carry the changed albums). */
+export async function saveDelta(delta: CatalogDelta, albums: CatalogAlbum[]) {
 	const d = await db();
 	const tx = d.transaction(['meta', 'assets'], 'readwrite');
 	const assets = tx.objectStore('assets');
@@ -49,10 +50,10 @@ export async function saveDelta(delta: CatalogDelta) {
 	for (const id of delta.deleted) assets.delete(id);
 	const meta = tx.objectStore('meta');
 	if (delta.folders) meta.put(delta.folders, 'folders');
-	if (delta.albums) meta.put(delta.albums, 'albums');
+	if (delta.albums?.length || delta.deletedAlbums?.length) meta.put(albums, 'albums');
 	if (delta.people) meta.put(delta.people, 'people');
 	if (delta.places) meta.put(delta.places, 'places');
-	meta.put({ format: delta.format, catalogId: delta.catalogId, seq: delta.seq } satisfies CatalogMeta, 'catalog');
+	meta.put({ format: delta.format, catalogId: delta.catalogId, seq: delta.seq, hashes: delta.hashes } satisfies CatalogMeta, 'catalog');
 	await tx.done;
 }
 
@@ -64,6 +65,17 @@ export function mergeAssets(current: CatalogAsset[], delta: Pick<CatalogDelta, '
 	for (const id of gone) byId.delete(id);
 	for (const a of delta.assets) byId.set(a.id, a);
 	return [...byId.values()];
+}
+
+/** Applies a delta's changed and deleted albums to the album list (order: as listed by the server). */
+export function mergeAlbums(current: CatalogAlbum[], delta: Pick<CatalogDelta, 'albums' | 'deletedAlbums'>): CatalogAlbum[] {
+	if (!delta.albums?.length && !delta.deletedAlbums?.length) return current;
+	const gone = new Set(delta.deletedAlbums ?? []);
+	const changed = new Map((delta.albums ?? []).map((a) => [a.id, a]));
+	const out = current.filter((a) => !gone.has(a.id)).map((a) => changed.get(a.id) ?? a);
+	const known = new Set(current.map((a) => a.id));
+	for (const a of delta.albums ?? []) if (!known.has(a.id)) out.push(a);
+	return out;
 }
 
 export async function clearReplica() {

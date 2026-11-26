@@ -1,9 +1,9 @@
 import { version } from '$app/env';
-import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem } from './api';
+import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem, type DownloadProgress } from './api';
 import { supportsHeic } from './heic';
 import { sortByLocalTime } from './dates';
 import { net } from './net.svelte';
-import { loadReplica, mergeAssets, saveDelta, saveSnapshot } from './replica';
+import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 import type { CatalogMeta } from './db';
 
 /** Listeners run after every successful sync (e.g. downloaded albums re-check their photos). */
@@ -51,6 +51,8 @@ class AppState {
 	}
 	fmt = $state<ImageFmt>('jpeg');
 	loaded = $state(false);
+	/** The full catalog download in progress (first install, or after a reset), else null. */
+	download = $state<DownloadProgress | null>(null);
 	error = $state<string | null>(null);
 	libraryConfigured = $state(true);
 	server = $state<ServerInfo | null>(null);
@@ -122,7 +124,7 @@ class AppState {
 				this.updateRequired = true;
 				return;
 			}
-			const delta = this.meta ? await api.changes(this.meta.seq, this.meta.catalogId) : null;
+			const delta = this.meta ? await api.changes(this.meta.seq, this.meta.catalogId, this.meta.hashes) : null;
 			if (delta && !delta.reset) {
 				if (delta.format !== CATALOG_FORMAT) {
 					this.updateRequired = true;
@@ -131,14 +133,21 @@ class AppState {
 				if (delta.seq !== this.meta!.seq || delta.assets.length || delta.deleted.length) {
 					if (delta.assets.length || delta.deleted.length) this.assets = sortByLocalTime(mergeAssets(this.assets, delta));
 					if (delta.folders) this.folders = delta.folders;
-					if (delta.albums) this.albums = delta.albums;
+					const albums = mergeAlbums(this.albums, delta);
+					this.albums = albums;
 					if (delta.people) this.people = delta.people;
 					if (delta.places) this.places = delta.places;
-					this.meta = { format: delta.format, catalogId: delta.catalogId, seq: delta.seq };
-					await saveDelta(delta).catch(() => {});
+					this.meta = { format: delta.format, catalogId: delta.catalogId, seq: delta.seq, hashes: delta.hashes ?? this.meta!.hashes };
+					await saveDelta(delta, albums).catch(() => {});
 				}
 			} else {
-				const snap = await api.catalog();
+				this.download = { received: 0, total: 0 };
+				let snap;
+				try {
+					snap = await api.catalog((p) => (this.download = p));
+				} finally {
+					this.download = null;
+				}
 				if (snap.format !== CATALOG_FORMAT) {
 					this.updateRequired = true;
 					return;
@@ -148,7 +157,7 @@ class AppState {
 				this.albums = snap.albums;
 				this.people = snap.people;
 				this.places = snap.places;
-				this.meta = { format: snap.format, catalogId: snap.catalogId, seq: snap.seq };
+				this.meta = { format: snap.format, catalogId: snap.catalogId, seq: snap.seq, hashes: snap.hashes };
 				await saveSnapshot(snap).catch(() => {});
 			}
 			this.error = null;

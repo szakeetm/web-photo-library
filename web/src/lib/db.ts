@@ -1,4 +1,5 @@
 // On-device database (IndexedDB), shared by the page and the service worker.
+import type { ListHashes } from './api';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { CatalogAsset, CatalogAlbum, FolderNode } from './api';
 
@@ -6,6 +7,8 @@ export interface CatalogMeta {
 	format: number;
 	catalogId: string;
 	seq: number;
+	/** Digests of the stored folder/people/place lists (sent back so unchanged lists aren't resent). */
+	hashes?: ListHashes;
 }
 
 /** One cached image (thumbnail or preview) in Cache Storage. */

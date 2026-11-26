@@ -49,6 +49,7 @@ public final class Services: @unchecked Sendable {
         jobs.onPurge = { [videos] ids in ids.forEach(videos.remove(id:)) }
         jobs.onClearCaches = { [videos] in try videos.clear() }
         if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }
+        _ = try? catalog.compactChangeLog()
     }
 
     public func derivatives() -> DerivativeStore {

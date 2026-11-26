@@ -104,4 +104,21 @@ public enum ChangeLog {
     public static func record(_ db: Database, entity: String, id: String, op: String) throws {
         try db.execute(sql: "INSERT INTO change_log (entity, entityId, op) VALUES (?, ?, ?)", arguments: [entity, id, op])
     }
+
+    /// Drops all but the latest change of each item (see CatalogService.compactChangeLog).
+    @discardableResult
+    public static func compact(_ db: Database) throws -> Int {
+        try db.execute(sql: "DELETE FROM change_log WHERE seq NOT IN (SELECT MAX(seq) FROM change_log GROUP BY entity, entityId)")
+        return db.changesCount
+    }
+
+    /// Records a change of every album holding one of these photos (call before changing memberships).
+    public static func recordAlbums(_ db: Database, containing assetIds: [String]) throws {
+        guard !assetIds.isEmpty else { return }
+        let json = String(decoding: try JSONEncoder().encode(assetIds), as: UTF8.self)
+        for album in try Int64.fetchAll(db, sql: "SELECT DISTINCT albumId FROM album_asset WHERE assetId IN (SELECT value FROM json_each(?))",
+                                        arguments: [json]) {
+            try record(db, entity: "album", id: String(album), op: "upsert")
+        }
+    }
 }

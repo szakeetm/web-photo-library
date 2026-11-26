@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogAsset, CatalogSnapshot } from './api';
 import { db, resetDbForTests } from './db';
 import { chooseEvictions, imageKey, isCacheableImage, recordImage, releasePins, summarize } from './imageCache';
-import { loadReplica, mergeAssets, saveDelta, saveSnapshot } from './replica';
+import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 
 const asset = (id: string, ev = 0, fav = false): CatalogAsset => ({
 	id,
@@ -35,13 +35,14 @@ describe('replica', () => {
 		folders: [],
 		albums: [{ id: 1, title: 'Trip', coverId: null, source: 'user', assetIds: ['a'] }],
 		people: [{ id: 5, name: 'Anna', coverFaceId: 9, count: 1, hidden: false }],
-		places: []
+		places: [],
+		hashes: { folders: 'f', people: 'p', places: 'pl' }
 	};
 
 	it('round-trips a snapshot and ignores other formats', async () => {
 		await saveSnapshot(snap);
 		const r = await loadReplica(3);
-		expect(r?.meta).toEqual({ format: 3, catalogId: 'c1', seq: 10 });
+		expect(r?.meta).toEqual({ format: 3, catalogId: 'c1', seq: 10, hashes: { folders: 'f', people: 'p', places: 'pl' } });
 		expect(r?.assets.map((a) => a.id).sort()).toEqual(['a', 'b']);
 		expect(r?.albums[0].title).toBe('Trip');
 		expect(r?.people[0].name).toBe('Anna');
@@ -50,11 +51,21 @@ describe('replica', () => {
 
 	it('applies deltas: upserts, deletes, lists, seq', async () => {
 		await saveSnapshot(snap);
-		await saveDelta({ format: 3, catalogId: 'c1', seq: 12, reset: false, assets: [asset('a', 1), asset('c')], deleted: ['b'], albums: [] });
+		const delta = { format: 3, catalogId: 'c1', seq: 12, reset: false, assets: [asset('a', 1), asset('c')], deleted: ['b'], albums: [], deletedAlbums: [1] };
+		await saveDelta(delta, mergeAlbums(snap.albums, delta));
 		const r = await loadReplica(3);
 		expect(r?.meta.seq).toBe(12);
 		expect(r?.assets.map((a) => [a.id, a.ev]).sort()).toEqual([['a', 1], ['c', 0]]);
 		expect(r?.albums).toEqual([]);
+		expect(r?.people[0].name).toBe('Anna'); // lists left out of a delta are kept
+	});
+
+	it('merges changed and deleted albums', () => {
+		const al = (id: number, title: string) => ({ id, title, coverId: null, source: 'user' as const, assetIds: [] });
+		const cur = [al(1, 'A'), al(2, 'B'), al(3, 'C')];
+		const out = mergeAlbums(cur, { albums: [al(2, 'B2'), al(4, 'D')], deletedAlbums: [1] });
+		expect(out.map((a) => a.title)).toEqual(['B2', 'C', 'D']);
+		expect(mergeAlbums(cur, { albums: [], deletedAlbums: [] })).toBe(cur);
 	});
 
 	it('merges deltas in memory', () => {

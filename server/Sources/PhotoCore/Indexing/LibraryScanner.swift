@@ -434,12 +434,12 @@ public final class LibraryScanner: @unchecked Sendable {
         try new.update(d)
         try EditService.relink(d, from: oldId, to: newId, sizeChanged: old.width != new.width || old.height != new.height)
         // Albums follow the photo to its new content.
+        try ChangeLog.recordAlbums(d, containing: [oldId])
         try d.execute(sql: """
             INSERT OR IGNORE INTO album_asset (albumId, assetId, position)
             SELECT albumId, ?, position FROM album_asset WHERE assetId = ?
             """, arguments: [newId, oldId])
         try d.execute(sql: "DELETE FROM album_asset WHERE assetId = ?", arguments: [oldId])
-        try ChangeLog.record(d, entity: "album", id: "*", op: "upsert")
         try markMissingIfOrphaned(d, assetId: oldId)
     }
 

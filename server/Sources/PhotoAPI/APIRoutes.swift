@@ -228,7 +228,8 @@ struct APIRoutes {
         api.get("catalog/changes") { req, _ in
             let since = req.uri.queryParameters.get("since", as: Int64.self) ?? -1
             let catalogId = req.uri.queryParameters.get("catalog")
-            let delta = try await blocking { try services.catalog.changes(since: since, catalogId: catalogId) }
+            let have = ListHashes(query: req.uri.queryParameters.get("have"))
+            let delta = try await blocking { try services.catalog.changes(since: since, catalogId: catalogId, have: have) }
             return try json(delta)
         }
         api.get("folders") { _, _ in try json(try services.catalog.folderTree()) }

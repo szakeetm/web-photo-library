@@ -11,6 +11,7 @@
 	import { uploads } from '#lib/uploadsInstance.svelte.ts';
 	import DropZone from '#lib/components/DropZone.svelte';
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
+	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -57,6 +58,7 @@
 
 <DropZone />
 <UploadSheet />
+<LibraryDownload />
 
 <div class="shell">
 	<nav class="sidebar" aria-label="Sections">

@@ -174,6 +174,7 @@ public final class JobRunner: @unchecked Sendable {
             if kind == .detectChanges, let pending = try? AlbumService(db: db, settings: settings).pendingTakeoutAlbums(), pending > 0 {
                 notes.append("\(pending) Google Takeout album\(pending == 1 ? "" : "s") can be imported (Settings → Import Takeout albums).")
             }
+            _ = try? db.writer.write { try ChangeLog.compact($0) }
             return ([summary(total, renderFailures: failures)] + notes).joined(separator: "\n")
         case .rebuildCaches:
             try derivatives().clear()
@@ -185,6 +186,7 @@ public final class JobRunner: @unchecked Sendable {
             let ids = try db.writer.write { d -> [String] in
                 let ids = try String.fetchAll(d, sql: "SELECT id FROM asset WHERE missingSince IS NOT NULL")
                 for a in ids { try ChangeLog.record(d, entity: "asset", id: a, op: "delete") }
+                try ChangeLog.recordAlbums(d, containing: ids)
                 try d.execute(sql: "DELETE FROM album_asset WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM face WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")

@@ -60,11 +60,18 @@ public final class AlbumService: Sendable {
             }
     }
 
-    public func catalogAlbums(_ d: Database) throws -> [CatalogAlbum] {
-        let members = try Row.fetchAll(d, sql: "SELECT albumId, assetId FROM album_asset ORDER BY albumId, position")
+    /// All albums, or only those in `ids`.
+    public func catalogAlbums(_ d: Database, ids: Set<Int64>? = nil) throws -> [CatalogAlbum] {
+        var sql = "SELECT albumId, assetId FROM album_asset"
+        var args: StatementArguments = []
+        if let ids {
+            sql += " WHERE albumId IN (SELECT value FROM json_each(?))"
+            args = [String(decoding: try JSONEncoder().encode(Array(ids)), as: UTF8.self)]
+        }
+        let members = try Row.fetchAll(d, sql: sql + " ORDER BY albumId, position", arguments: args)
         var byAlbum: [Int64: [String]] = [:]
         for m in members { byAlbum[m["albumId"], default: []].append(m["assetId"]) }
-        return try Self.list(d).map { CatalogAlbum(id: $0.id, title: $0.title, coverId: $0.coverId, source: $0.source, assetIds: byAlbum[$0.id] ?? []) }
+        return try Self.list(d).filter { ids?.contains($0.id) ?? true }.map { CatalogAlbum(id: $0.id, title: $0.title, coverId: $0.coverId, source: $0.source, assetIds: byAlbum[$0.id] ?? []) }
     }
 
     @discardableResult

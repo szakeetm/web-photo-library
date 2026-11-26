@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import CryptoKit
 
 /// Compact per-asset record sent to clients (kept small: it is replicated to devices).
 public struct CatalogAsset: Codable, Sendable, Equatable {
@@ -26,7 +27,7 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 5
+public let catalogFormat = 6
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -38,6 +39,32 @@ public struct CatalogSnapshot: Codable, Sendable {
     public var albums: [CatalogAlbum]
     public var people: [CatalogPerson]
     public var places: [CatalogPlace]
+    public var hashes: ListHashes
+}
+
+/// Digests of the folder, people and place lists: a delta leaves out the lists the client already has.
+public struct ListHashes: Codable, Sendable, Equatable {
+    public var folders: String
+    public var people: String
+    public var places: String
+
+    static func of<T: Encodable>(_ value: T) -> String {
+        let enc = JSONEncoder()
+        enc.outputFormatting = .sortedKeys
+        let data = (try? enc.encode(value)) ?? Data()
+        return SHA256.hash(data: data).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// `"<folders>,<people>,<places>"` as a client sends it back.
+    public init?(query: String?) {
+        let parts = (query ?? "").split(separator: ",").map(String.init)
+        guard parts.count == 3 else { return nil }
+        folders = parts[0]; people = parts[1]; places = parts[2]
+    }
+
+    init(folders: String, people: String, places: String) {
+        self.folders = folders; self.people = people; self.places = places
+    }
 }
 
 public struct FolderNode: Codable, Sendable, Equatable {
@@ -50,8 +77,9 @@ public struct FolderNode: Codable, Sendable, Equatable {
     public var coverId: String?
 }
 
-/// Changes since a sequence number: upserted and deleted assets, plus the (small) folder and album lists
-/// whenever anything changed. `reset` means the client must download the full snapshot instead.
+/// Changes since a sequence number: upserted and deleted assets and albums; the folder, people and
+/// place lists only when they differ from what the client has (`hashes`). `reset` means the client
+/// must download the full snapshot instead.
 public struct CatalogDelta: Codable, Sendable {
     public var format = catalogFormat
     public var catalogId: String
@@ -60,9 +88,12 @@ public struct CatalogDelta: Codable, Sendable {
     public var assets: [CatalogAsset]
     public var deleted: [String]
     public var folders: [FolderNode]?
+    /// Albums created or changed since `since` (complete entries).
     public var albums: [CatalogAlbum]?
+    public var deletedAlbums: [Int64]? = nil
     public var people: [CatalogPerson]?
     public var places: [CatalogPlace]?
+    public var hashes: ListHashes? = nil
 }
 
 public struct AssetDetail: Codable, Sendable {
@@ -136,10 +167,19 @@ public final class CatalogService: Sendable {
         try db.writer.read { d in
             let assets = try Self.catalogAssets(d)
             let seq = try Self.currentSeq(d)
-            return CatalogSnapshot(catalogId: try Self.catalogId(d), seq: seq, assets: assets, folders: try Self.folders(d),
+            let folders = try Self.folders(d), people = try FaceService.catalogPeople(d), places = try PlaceService.catalogPlaces(d)
+            return CatalogSnapshot(catalogId: try Self.catalogId(d), seq: seq, assets: assets, folders: folders,
                                    albums: try AlbumService(db: db, settings: settings).catalogAlbums(d),
-                                   people: try FaceService.catalogPeople(d), places: try PlaceService.catalogPlaces(d))
+                                   people: people, places: places,
+                                   hashes: ListHashes(folders: ListHashes.of(folders), people: ListHashes.of(people), places: ListHashes.of(places)))
         }
+    }
+
+    /// Keeps only the latest change of each item. Deltas only ask which items changed after a point,
+    /// so they stay the same, while the log stays as long as the catalog instead of growing forever.
+    @discardableResult
+    public func compactChangeLog() throws -> Int {
+        try db.writer.write { try ChangeLog.compact($0) }
     }
 
     static func currentSeq(_ d: Database) throws -> Int64 {
@@ -152,7 +192,7 @@ public final class CatalogService: Sendable {
     }
 
     /// Everything that changed after `since` in the database identified by `catalogId`.
-    public func changes(since: Int64, catalogId clientCatalog: String?) throws -> CatalogDelta {
+    public func changes(since: Int64, catalogId clientCatalog: String?, have: ListHashes? = nil) throws -> CatalogDelta {
         try db.writer.read { d in
             let id = try Self.catalogId(d)
             let seq = try Self.currentSeq(d)
@@ -166,11 +206,21 @@ public final class CatalogService: Sendable {
             let assetIds = Array(Set(rows.filter { $0["entity"] == "asset" }.map { $0["entityId"] as String }))
             let present = try Self.catalogAssets(d, ids: assetIds)
             let presentIds = Set(present.map(\.id))
+            let albumRows = rows.filter { $0["entity"] == "album" }.map { $0["entityId"] as String }
+            let albumIds = Set(albumRows.compactMap { Int64($0) })
+            // "*" (older databases): every album may have changed
+            let albums = albumRows.contains("*") ? try AlbumService(db: db, settings: settings).catalogAlbums(d)
+                : albumIds.isEmpty ? [] : try AlbumService(db: db, settings: settings).catalogAlbums(d, ids: albumIds)
+            let folders = try Self.folders(d), people = try FaceService.catalogPeople(d), places = try PlaceService.catalogPlaces(d)
+            let hashes = ListHashes(folders: ListHashes.of(folders), people: ListHashes.of(people), places: ListHashes.of(places))
             return CatalogDelta(catalogId: id, seq: seq, reset: false, assets: present,
                                 deleted: assetIds.filter { !presentIds.contains($0) }.sorted(),
-                                folders: try Self.folders(d),
-                                albums: try AlbumService(db: db, settings: settings).catalogAlbums(d),
-                                people: try FaceService.catalogPeople(d), places: try PlaceService.catalogPlaces(d))
+                                folders: have?.folders == hashes.folders ? nil : folders,
+                                albums: albums,
+                                deletedAlbums: albumIds.subtracting(albums.map(\.id)).sorted(),
+                                people: have?.people == hashes.people ? nil : people,
+                                places: have?.places == hashes.places ? nil : places,
+                                hashes: hashes)
         }
     }
 
