@@ -231,7 +231,7 @@ public final class AlbumService: Sendable {
                 INSERT INTO search_index (assetId, text)
                 SELECT a.id,
                        COALESCE(a.description, '') || ' ' ||
-                       COALESCE((SELECT group_concat(f.relPath, ' ') FROM file f WHERE f.assetId = a.id), '') || ' ' ||
+                       COALESCE((SELECT group_concat(COALESCE(f.name || ' ', '') || f.relPath, ' ') FROM file f WHERE f.assetId = a.id), '') || ' ' ||
                        COALESCE((SELECT group_concat(al.title, ' ') FROM album_asset aa JOIN album al ON al.id = aa.albumId
                                   WHERE aa.assetId = a.id), '') || ' ' ||
                        COALESCE((SELECT p.name || ' ' || COALESCE(p.region, '') || ' ' || p.country FROM place p WHERE p.id = a.placeId), '') || ' ' ||

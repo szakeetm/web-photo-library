@@ -287,6 +287,10 @@ public final class AppDatabase: Sendable {
                 CREATE TABLE video_trim (assetId TEXT PRIMARY KEY, start DOUBLE NOT NULL, "end" DOUBLE NOT NULL, createdAt DATETIME NOT NULL);
                 """)
         }
+        m.registerMigration("v14-file-name") { db in
+            // The original name of a file stored under another one (Apple Photos keeps IMG_1234.HEIC as <UUID>.heic).
+            try db.execute(sql: "ALTER TABLE file ADD COLUMN name TEXT")
+        }
         return m
     }
 }

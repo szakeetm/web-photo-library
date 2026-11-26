@@ -159,10 +159,11 @@ public final class JobRunner: @unchecked Sendable {
     private func roots() throws -> [(String, URL)] {
         var out: [(String, URL)] = []
         let remotes = try remoteRoots()
+        let photos = try PhotosLibraries.all(settings)
         if let lib = try settings.get(.libraryPath), !lib.isEmpty { out.append((Roots.library, URL(fileURLWithPath: lib))) }
-        else if remotes.isEmpty { throw JobError.noLibrary }
+        else if remotes.isEmpty && photos.isEmpty { throw JobError.noLibrary }
         if let up = try settings.get(.uploadsPath), !up.isEmpty { out.append((Roots.uploads, URL(fileURLWithPath: up))) }
-        return out + remotes.map { ($0.root, $1) }
+        return out + photos.map { ($0.root, $0.originals) } + remotes.map { ($0.root, $1) }
     }
 
     private func remoteRoots() throws -> [(RemoteSource, URL)] {
@@ -185,6 +186,21 @@ public final class JobRunner: @unchecked Sendable {
             var total = ScanReport()
             var notes: [String] = []
             for (name, url) in try roots() {
+                if PhotosLibraries.isPhotos(name) {
+                    // an Apple Photos library: its own photos' originals, their names and its albums
+                    guard let source = try PhotosLibraries.source(root: name, settings) else { continue }
+                    do {
+                        let (r, n) = try PhotosLibraries.scan(source, db: db, settings: settings, serverTZ: serverTZ,
+                                                              progress: progressReporter(id, phase: "photos"), isCancelled: cancelled)
+                        total.merge(r)
+                        notes += n
+                    } catch ScanError.rootUnreadable(let path) {
+                        notes.append("The Photos library isn't readable (\(path)): is its drive connected? Its photos were left untouched.")
+                    } catch let e as PhotosLibraryError {
+                        notes.append(e.description)
+                    }
+                    continue
+                }
                 if RemoteSources.isRemote(name) {
                     // remote sources are listed with rclone; Re-index reads what changed there too
                     guard let dataDir, let source = try RemoteSources.source(root: name, settings) else { continue }

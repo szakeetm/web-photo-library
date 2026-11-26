@@ -153,7 +153,7 @@ public final class CatalogService: Sendable {
                    (SELECT vt.start || ',' || vt."end" FROM video_trim vt WHERE vt.assetId = a.id) AS trim,
                    (SELECT GROUP_CONCAT(DISTINCT fc.personId) FROM face fc JOIN person p ON p.id = fc.personId
                      WHERE fc.assetId = a.id AND p.hidden = 0) AS people,
-                   GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
+                   GROUP_CONCAT(f.folderId) AS folders, MIN(COALESCE(f.name, f.relPath)) AS relPath
             FROM asset a JOIN file f ON f.assetId = a.id
             WHERE a.missingSince IS NULL AND \(trashed ? "" : "NOT ")EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id) \(filter)
             GROUP BY a.id
@@ -280,7 +280,7 @@ public final class CatalogService: Sendable {
     /// The original's file name (from the catalog: the file itself isn't read).
     public func originalName(id: String) throws -> String? {
         try db.writer.read {
-            try String.fetchOne($0, sql: "SELECT relPath FROM file WHERE assetId = ? ORDER BY root, relPath LIMIT 1", arguments: [id])
+            try String.fetchOne($0, sql: "SELECT COALESCE(name, relPath) FROM file WHERE assetId = ? ORDER BY root, relPath LIMIT 1", arguments: [id])
         }.map { ($0 as NSString).lastPathComponent }
     }
 

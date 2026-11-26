@@ -151,7 +151,7 @@ public final class ExportService: Sendable {
             }
             var out: [String: Item] = [:]
             for r in try Row.fetchAll(d, sql: """
-                SELECT a.*, (SELECT f.relPath FROM file f WHERE f.assetId = a.id ORDER BY f.root, f.relPath LIMIT 1) AS rel,
+                SELECT a.*, (SELECT COALESCE(f.name, f.relPath) FROM file f WHERE f.assetId = a.id ORDER BY f.root, f.relPath LIMIT 1) AS rel,
                        (SELECT f.size FROM file f WHERE f.assetId = a.id ORDER BY f.root, f.relPath LIMIT 1) AS size,
                        (SELECT m.relPath FROM motion m WHERE m.assetId = a.id) AS motionRel,
                        (SELECT m.size FROM motion m WHERE m.assetId = a.id) AS motionSize,

@@ -27,7 +27,9 @@
 	const uploadsRoot = $derived(app.folders.find((f) => f.root === 'uploads' && f.relPath === ''));
 	/** Top folders of library sources on rclone remotes (named after the source). */
 	const remoteRoots = $derived(
-		app.folders.filter((f) => f.relPath === '' && f.root.startsWith('remote-')).sort((a, b) => a.name.localeCompare(b.name))
+		app.folders
+			.filter((f) => f.relPath === '' && (f.root.startsWith('remote-') || f.root.startsWith('photos-')))
+			.sort((a, b) => a.name.localeCompare(b.name))
 	);
 	const firstIn = (root: RootName) =>
 		app.folders.find((f) => f.root === root && f.coverId)?.coverId ?? null;
@@ -161,7 +163,7 @@
 <div class="cards">
 	{#if libraryRoot}{@render card('/folders', 'Library folders', rootCount('library'), firstIn('library'), 'folder', null, pins.folderPin(libraryRoot))}{/if}
 	{#each remoteRoots as r (r.id)}
-		{@render card(`/sources/${r.root}`, r.name || 'Source', rootCount(r.root), firstIn(r.root), 'folder', null, pins.folderPin(r))}
+		{@render card(`/sources/${r.root}`, r.name || 'Source', rootCount(r.root), firstIn(r.root), r.root.startsWith('photos-') ? 'photos' : 'folder', null, pins.folderPin(r))}
 	{/each}
 	{#if uploadsRoot}
 		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}

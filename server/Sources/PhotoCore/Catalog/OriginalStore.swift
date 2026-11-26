@@ -92,12 +92,15 @@ public struct LocalOriginalStore: OriginalStore {
 
     static let fetching = KeyedMutex()
 
-    /// The library and uploads folders, by root name.
+    /// The folders on this Mac by root name: the library and uploads folders, and the originals of
+    /// Apple Photos libraries.
     static func rootURLs(_ settings: SettingsStore) throws -> [String: URL] {
-        [
+        var out = [
             Roots.library: try settings.get(.libraryPath).map { URL(fileURLWithPath: $0) },
             Roots.uploads: try settings.get(.uploadsPath).map { URL(fileURLWithPath: $0) },
         ].compactMapValues { $0 }
+        for p in try PhotosLibraries.all(settings) { out[p.root] = p.originals }
+        return out
     }
 
     /// The file under `base` when it is readable and its size and mtime still match the scan.

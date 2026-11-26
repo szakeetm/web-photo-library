@@ -60,6 +60,14 @@ struct APIRoutes {
         var facesEnabled: Bool?; var mapStyleURL: String?
         var originalsCacheGB: Int?
     }
+    struct PhotosLibraryInfo: Encodable {
+        let id: Int; let path: String; let root: String; let title: String
+        /// files indexed from it
+        let files: Int
+        let bytes: Int64
+        /// what the last scan found (nil before the first)
+        let stats: PhotosLibraryStats?
+    }
     struct SourceInfo: Encodable {
         let id: Int; let path: String; let root: String; let title: String
         /// photo and video files indexed from it
@@ -77,6 +85,8 @@ struct APIRoutes {
         let rclone: RcloneInfo.Info?
         /// library folders on rclone remotes
         let remoteSources: [SourceInfo]
+        /// Apple Photos libraries
+        let photosLibraries: [PhotosLibraryInfo]
         /// remote originals kept on this Mac: the limit, and what they take now
         let originalsCacheGB: Int
         let originalsCacheBytes: Int64
@@ -117,7 +127,8 @@ struct APIRoutes {
                             uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil
-                                || !((try? RemoteSources.all(services.settings)) ?? []).isEmpty,
+                                || !((try? RemoteSources.all(services.settings)) ?? []).isEmpty
+                                || !((try? PhotosLibraries.all(services.settings)) ?? []).isEmpty,
                             mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle,
                             local: LocalClient.isLocal(req),
                             commit: BuildInfo.current.commit, commitDate: BuildInfo.current.commitDate, dirty: BuildInfo.current.dirty))
@@ -558,9 +569,11 @@ struct APIRoutes {
 
         api.get("assets/:id/original") { req, ctx in
             guard let id = validId(ctx), let url = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
+            // the original's own name (a Photos library stores files under UUIDs)
+            let name = (try services.catalog.originalName(id: id)) ?? url.lastPathComponent
             return try await fileResponse(path: url.path, contentType: contentType(forExtension: url.pathExtension), request: req,
                                           context: ctx, extraHeaders: [
-                                              .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(url.lastPathComponent))",
+                                              .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(name))",
                                               .cacheControl: Self.originalCache,
                                           ])
         }
@@ -748,9 +761,18 @@ struct APIRoutes {
                                          faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,
                                          mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle,
                                          analysisPending: analysis.pending, analysisTotal: analysis.total,
-                                         rclone: RcloneInfo.current(), remoteSources: try sourceInfos(),
+                                         rclone: RcloneInfo.current(), remoteSources: try sourceInfos(), photosLibraries: try photosInfos(),
                                          originalsCacheGB: try s.get(.originalsCacheGB) ?? RemoteSources.defaultCacheGB,
                                          originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir)))
+    }
+
+    func photosInfos() throws -> [PhotosLibraryInfo] {
+        let counts = try RemoteSources.fileCounts(services.db)
+        let stats = try services.settings.get(.photosLibraryStats)
+        return try PhotosLibraries.all(services.settings).map { p in
+            PhotosLibraryInfo(id: p.id, path: p.path, root: p.root, title: p.title, files: counts[p.root]?.0 ?? 0,
+                              bytes: counts[p.root]?.1 ?? 0, stats: stats.first { $0.root == p.root })
+        }
     }
 
     func sourceInfos() throws -> [SourceInfo] {

@@ -148,6 +148,25 @@ extension APIRoutes {
             return try settingsResponse()
         }
 
+        // Apple Photos libraries on this Mac: added (then scanned), removed.
+        api.post("photos-libraries") { req, ctx in
+            let body = try await req.decode(as: PathBody.self, context: ctx)
+            if try PhotosLibraries.all(services.settings).contains(where: { $0.path == URL(fileURLWithPath: body.path).standardizedFileURL.path }) {
+                return errorResponse(.conflict, "That Photos library is already a source.")
+            }
+            do { _ = try PhotosLibraries.add(path: body.path, services.settings) } catch let e as PhotosLibraryError {
+                return errorResponse(.badRequest, e.description)
+            }
+            _ = services.jobs.enqueue(.detectChanges)
+            return try settingsResponse()
+        }
+        api.delete("photos-libraries/:id") { _, ctx in
+            guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
+            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+            try await blocking { try PhotosLibraries.remove(id: id, db: services.db, services.settings) }
+            return try settingsResponse()
+        }
+
         // What a backup holds and whether it can be restored here.
         api.get("backup/inspect") { req, _ in
             guard let location = req.uri.queryParameters.get("location"), !location.isEmpty else { throw HTTPError(.badRequest) }

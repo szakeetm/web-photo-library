@@ -77,6 +77,8 @@ public struct FileRow: Codable, Sendable, Equatable, FetchableRecord, MutablePer
     public var mtime: Double
     public var sidecarRelPath: String?
     public var root: String = Roots.library
+    /// The original name when the file is stored under another (an Apple Photos library's UUID names).
+    public var name: String? = nil
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

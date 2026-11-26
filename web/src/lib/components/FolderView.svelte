@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { reveal } from '#lib/reveal.ts';
 	// Folder tree of one root (the read-only library, the uploads folder, or a source on an rclone remote).
-	import { thumbUrl, type FolderNode, type RootName } from '#lib/api.ts';
+	import { isPhotosRoot, thumbUrl, type FolderNode, type RootName } from '#lib/api.ts';
+	import { inFolders } from '#lib/assetIndex.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import TitleBar from './TitleBar.svelte';
 	import { app } from '#lib/state.svelte.ts';
@@ -15,8 +16,10 @@
 		$props();
 	const selection = new Selection();
 	const folder = $derived(app.folders.find((f) => f.root === root && f.relPath === relPath));
+	/** One flat list of all its photos (an Apple Photos library's folders are 0…F). */
+	const flat = $derived(isPhotosRoot(root));
 	const children = $derived(
-		folder ? app.folders.filter((f) => f.parentId === folder.id).sort((a, b) => a.name.localeCompare(b.name)) : []
+		folder && !flat ? app.folders.filter((f) => f.parentId === folder.id).sort((a, b) => a.name.localeCompare(b.name)) : []
 	);
 
 	// Total photos and a cover for each subfolder, including nested folders.
@@ -37,7 +40,13 @@
 		return null;
 	}
 
-	const photos = $derived(folder ? (app.index.byFolder.get(folder.id) ?? []) : []);
+	const photos = $derived(
+		!folder
+			? []
+			: flat
+				? inFolders(app.index, app.folders.filter((f) => f.root === root).map((f) => f.id))
+				: (app.index.byFolder.get(folder.id) ?? [])
+	);
 	const sections = $derived([{ key: relPath || 'root', label: null, items: photos.map((a) => a.id) }]);
 	const trail = $derived(
 		relPath ? relPath.split('/').map((name, i, all) => ({ name, path: all.slice(0, i + 1).join('/') })) : []

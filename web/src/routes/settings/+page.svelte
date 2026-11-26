@@ -15,7 +15,7 @@
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
 	let recent = $state<Job[]>([]);
-	let picker = $state<'library' | 'data' | 'uploads' | null>(null);
+	let picker = $state<'library' | 'data' | 'uploads' | 'photos' | null>(null);
 	let message = $state<{ text: string; error?: boolean } | null>(null);
 	let owner = $state('');
 	let moving = $state(false);
@@ -123,7 +123,29 @@
 	// ---- library sources on rclone remotes
 
 	let pickingSource = $state(false);
-	const hasSources = $derived(!!settings?.libraryPath || (settings?.remoteSources.length ?? 0) > 0);
+	const hasSources = $derived(
+		!!settings?.libraryPath || (settings?.remoteSources.length ?? 0) > 0 || (settings?.photosLibraries.length ?? 0) > 0
+	);
+	async function addPhotosLibrary(path: string) {
+		picker = null;
+		try {
+			settings = await api.addPhotosLibrary(path);
+			message = { text: `${path.split('/').pop()} added. Scanning…` };
+			app.libraryConfigured = true;
+			poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	async function removePhotosLibrary(id: number, title: string) {
+		if (!confirm(`Remove ${title} from the library? Its photos disappear from here unless they're also elsewhere; its albums stay. Nothing in the Photos library is touched.`)) return;
+		try {
+			settings = await api.removePhotosLibrary(id);
+			await app.reload();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
 	async function addSource(path: string) {
 		pickingSource = false;
 		try {
@@ -455,6 +477,33 @@
 				<div class="muted path">{settings?.libraryPath ?? 'Not set'}</div>
 			</div>
 			<button class="btn" onclick={() => (picker = 'library')}>Choose…</button>
+		</div>
+		{#each settings?.photosLibraries ?? [] as lib (lib.id)}
+			<div class="row">
+				<div class="label">
+					<div>{lib.title} <span class="muted small">(Apple Photos)</span></div>
+					<div class="muted path">{lib.path}</div>
+					{#if lib.stats}
+						<div class="muted small">
+							{lib.stats.onDisk.toLocaleString()} of {lib.stats.items.toLocaleString()} photos and videos on the Mac{#if lib.stats.onDisk < lib.stats.items}
+								(the rest have no original in the library){/if} · {lib.stats.albums} albums · {fmtBytes(lib.bytes)}
+						</div>
+					{:else}
+						<div class="muted small">Not scanned yet</div>
+					{/if}
+				</div>
+				<button class="btn" disabled={!!current} onclick={() => removePhotosLibrary(lib.id, lib.title)}>Remove</button>
+			</div>
+		{/each}
+		<div class="row">
+			<div class="label">
+				<div>Apple Photos libraries</div>
+				<div class="muted small">
+					Your own photos and videos in a Photos library, read where they are (never changed), with their original names and
+					your albums. Edits made in Photos and shared albums aren't read yet. The same photo also in another folder is shown once.
+				</div>
+			</div>
+			<button class="btn" onclick={() => (picker = 'photos')}>Add Photos Library…</button>
 		</div>
 		{#each settings?.remoteSources ?? [] as src (src.id)}
 			<div class="row">
@@ -848,6 +897,8 @@
 		onPick={setLibrary}
 		onCancel={() => (picker = null)}
 	/>
+{:else if picker === 'photos'}
+	<FolderPicker title="Choose a Photos library (.photoslibrary)" start={'/Volumes'} onPick={addPhotosLibrary} onCancel={() => (picker = null)} />
 {:else if picker === 'uploads'}
 	<FolderPicker
 		title="Choose uploads folder"
