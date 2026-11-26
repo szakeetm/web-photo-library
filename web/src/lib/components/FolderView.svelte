@@ -92,14 +92,15 @@
 				{selection.active ? 'Cancel' : 'Select'}
 			</button>
 		{/if}
-		{#if folder && (totalPhotos || app.local)}
+		{#if folder && app.local}
+			<button class="icon-btn" onclick={() => reveal({ folder: folder.id })} title="Reveal in Finder" aria-label="Reveal in Finder"
+				><Icon name="finder" /></button>
+		{/if}
+		{#if folder && totalPhotos && (!app.local || pin)}
 			<div class="menuwrap">
 				<button class="icon-btn" aria-label="More" aria-expanded={menu} onclick={() => (menu = !menu)}><Icon name="more" /></button>
 				{#if menu}
 					<div class="menu" role="menu">
-						{#if app.local}
-							<button role="menuitem" onclick={() => { menu = false; reveal({ folder: folder.id }); }}>Reveal in Finder</button>
-						{/if}
 						{#if pin && !ownPin}
 							<button role="menuitem" disabled>Downloaded with “{pin.title}”</button>
 						{:else if !app.local || ownPin}

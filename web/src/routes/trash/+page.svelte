@@ -8,6 +8,7 @@
 	import { Selection } from '#lib/selection.svelte.ts';
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
+	import Icon from '#lib/components/Icon.svelte';
 
 	const selection = new Selection();
 	const sections = $derived(app.trash.length ? [{ key: 'trash', label: null, items: app.trash.map((t) => t.asset.id) }] : []);
@@ -35,7 +36,8 @@
 <TitleBar title="Trash" subtitle={String(app.trash.length)}>
 	{#snippet actions()}
 		{#if app.local}
-			<button class="btn" onclick={() => reveal({ place: 'trash' })}>Reveal in Finder</button>
+			<button class="icon-btn" onclick={() => reveal({ place: 'trash' })} title="Reveal in Finder" aria-label="Reveal in Finder"
+				><Icon name="finder" /></button>
 		{/if}
 		{#if app.trash.length}
 			<button class="btn danger" onclick={empty} disabled={busy || !net.online}>Empty Trash</button>
