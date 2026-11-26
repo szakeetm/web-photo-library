@@ -185,7 +185,16 @@ extension APIRoutes {
         }
         api.delete("sources/:id") { _, ctx in
             guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
-            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+            // A running job (e.g. this source's scan, still fetching) is stopped first.
+            if let running = services.jobs.current(), let jobId = running.id {
+                services.jobs.cancel(id: jobId)
+                let stopped = try await blocking { () -> Bool in
+                    let deadline = Date().addingTimeInterval(120)
+                    while services.jobs.current() != nil && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+                    return services.jobs.current() == nil
+                }
+                if !stopped { return errorResponse(.conflict, "The running job didn't stop in time; try again in a moment.") }
+            }
             let purged = try await blocking { try RemoteSources.remove(id: id, db: services.db, services.settings, dataDir: services.paths.dataDir) }
             let store = services.derivatives()
             for a in purged { store.remove(id: a); services.videos.remove(id: a) }

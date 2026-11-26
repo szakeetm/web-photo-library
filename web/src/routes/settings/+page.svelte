@@ -240,11 +240,23 @@
 			message = { text: (e as Error).message, error: true };
 		}
 	}
-	async function removeSource(id: number, path: string) {
-		if (!confirm(removeWarning(path, 'Its originals kept on the Mac are deleted. Nothing on the remote is touched.'))) return;
+	let removing = $state<number | null>(null);
+	async function removeSource(id: number, path: string, stopsScan = false) {
+		const what = 'Its originals kept on the Mac are deleted. Nothing on the remote is touched.';
+		if (!confirm(removeWarning(path, stopsScan ? `Its scan is stopped first. ${what}` : what))) return;
+		removing = id;
 		try {
 			settings = await api.removeSource(id);
 			await app.reload();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		} finally {
+			removing = null;
+		}
+	}
+	async function stopJob(id: number) {
+		try {
+			await api.cancelJob(id);
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
 		}
@@ -269,14 +281,19 @@
 	}
 
 	/** What a source is doing, or how its last scan went. */
-	function sourceStatus(root: string, lastScan: SourceScan | null): { text: string; busy?: boolean; progress?: number; error?: boolean } {
+	function sourceStatus(
+		root: string,
+		lastScan: SourceScan | null
+	): { text: string; busy?: boolean; progress?: number; error?: boolean; detail?: string | null; jobId?: number } {
 		const scanning = current?.state === 'running' && (current.kind === 'detect-changes' || current.kind === 'reindex');
 		if (scanning && current?.phase?.endsWith(':' + root)) {
 			const p = current.total > 0 ? ` ${current.progress.toLocaleString()} of ${current.total.toLocaleString()}` : '…';
 			return {
 				text: `${current.phase.startsWith('photos') ? 'Scanning' : 'Fetching new photos'}${p}`,
 				busy: true,
-				progress: current.total ? current.progress / current.total : undefined
+				progress: current.total ? current.progress / current.total : undefined,
+				detail: current.detail,
+				jobId: current.id
 			};
 		}
 		const waiting =
@@ -619,6 +636,7 @@
 	{#snippet status(root: string, lastScan: SourceScan | null)}
 		{#each [sourceStatus(root, lastScan)] as st, i (i)}
 			<div class="small" class:muted={!st.busy} class:warn={st.error}>{st.text}</div>
+			{#if st.detail}<div class="small muted detail">{st.detail}</div>{/if}
 			{#if st.progress != null}<div class="bar srcbar"><div style:width={`${st.progress * 100}%`}></div></div>{/if}
 		{/each}
 	{/snippet}
@@ -713,6 +731,7 @@
 	<section>
 		<h3>Folders on rclone remotes</h3>
 		{#each settings?.remoteSources ?? [] as src (src.id)}
+			{@const scanningThis = current?.state === 'running' && !!current.phase?.endsWith(':' + src.root)}
 			<div class="row">
 				<div class="label">
 					<div>{src.title}</div>
@@ -721,8 +740,12 @@
 					{@render status(src.root, src.lastScan)}
 				</div>
 				<div class="btns">
+					{#if scanningThis && current}
+						<button class="btn" onclick={() => stopJob(current!.id)} title="Stop this scan; what was fetched stays">Stop</button>
+					{/if}
 					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'remote', id: src.id, path: src.path })}>Locate…</button>
-					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => removeSource(src.id, src.path)}>Remove</button>
+					<button class="btn" disabled={!!current && !scanningThis} title={scanningThis ? 'Stop the scan and remove this folder' : busyTitle}
+						onclick={() => removeSource(src.id, src.path, scanningThis)}>{removing === src.id ? 'Removing…' : 'Remove'}</button>
 				</div>
 			</div>
 		{/each}
@@ -1254,6 +1277,9 @@
 		background: var(--separator);
 		border-radius: 3px;
 		overflow: hidden;
+	}
+	.detail {
+		overflow-wrap: anywhere;
 	}
 	.srcbar {
 		margin-top: 4px;

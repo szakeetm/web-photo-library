@@ -488,6 +488,8 @@ export interface Job {
 	error: string | null;
 	startedAt: string | null;
 	endedAt: string | null;
+	/** what it is doing right now, in words (e.g. which folder is downloading) */
+	detail?: string | null;
 }
 
 export interface DirListing {

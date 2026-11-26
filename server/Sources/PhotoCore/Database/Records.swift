@@ -106,6 +106,8 @@ public struct JobRow: Codable, Sendable, Equatable, FetchableRecord, MutablePers
     public var error: String?
     public var startedAt: Date?
     public var endedAt: Date?
+    /// what the job is doing right now, in words (e.g. which folder it is downloading)
+    public var detail: String? = nil
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

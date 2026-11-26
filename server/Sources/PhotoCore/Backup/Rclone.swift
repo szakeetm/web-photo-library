@@ -4,9 +4,13 @@ public enum RcloneError: Error, CustomStringConvertible {
     case notInstalled
     case failed(String)
     case notFound(String)
+    /// stopped because the job it was for was cancelled
+    case cancelled
 
     public var description: String {
         switch self {
+        case .cancelled: "Stopped."
+
         case .notInstalled: "rclone isn't installed (brew install rclone), or the server can't find it."
         case .failed(let m): m
         case .notFound(let p): "Not found: \(p)"
@@ -38,7 +42,9 @@ public struct Rclone: Sendable {
     /// rclone) inherits open pipe ends, and waiting for a pipe to end would then wait for that
     /// process too.
     @discardableResult
-    public func run(_ args: [String], line: (@Sendable (String) -> Void)? = nil) throws -> Data {
+    /// Runs rclone; `line` hears each line it logs. When `isCancelled` turns true, rclone is stopped
+    /// and `RcloneError.cancelled` thrown.
+    public func run(_ args: [String], line: ((String) -> Void)? = nil, isCancelled: (() -> Bool)? = nil) throws -> Data {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("rclone-\(UUID().uuidString)")
         let outURL = base.appendingPathExtension("out"), errURL = base.appendingPathExtension("err")
@@ -81,6 +87,11 @@ public struct Rclone: Sendable {
         while p.isRunning {
             Thread.sleep(forTimeInterval: line == nil ? 0.05 : 0.25)
             if line != nil { drain(final: false) }
+            if isCancelled?() == true {
+                p.terminate()
+                p.waitUntilExit()
+                throw RcloneError.cancelled
+            }
         }
         p.waitUntilExit()
         drain(final: true)
@@ -173,13 +184,25 @@ public struct Rclone: Sendable {
     }
 
     /// Copies `files` (paths relative to `from`) into `to`, keeping their paths and modification times.
-    public func copyFiles(_ files: [String], from: String, to: String, transfers: Int = 32) throws {
+    /// `copied` hears each file as it arrives (its path within `from`); a cancelled copy stops at once.
+    public func copyFiles(_ files: [String], from: String, to: String, transfers: Int = 32,
+                          isCancelled: (() -> Bool)? = nil, copied: ((String) -> Void)? = nil) throws {
         guard !files.isEmpty else { return }
         let list = FileManager.default.temporaryDirectory.appendingPathComponent("rclone-files-\(UUID().uuidString).txt")
         try files.joined(separator: "\n").write(to: list, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: list) }
-        try run(["copy", "--files-from-raw", list.path, "--transfers", String(transfers), "--checkers", String(transfers), "--no-traverse"]
-                + Self.netFlags + [from, to])
+        var onLine: ((String) -> Void)?
+        if let copied {
+            onLine = { line in
+                // "2026/11/26 13:01:02 INFO  : Library/a.jpg: Copied (new)"
+                guard line.contains(": Copied ("), let r = line.range(of: "INFO  : ") else { return }
+                let rest = line[r.upperBound...]
+                copied(rest.range(of: ": Copied (").map { String(rest[..<$0.lowerBound]) } ?? String(rest))
+            }
+        }
+        let args = ["copy", "-v", "--stats", "0", "--files-from-raw", list.path, "--transfers", String(transfers),
+                    "--checkers", String(transfers), "--no-traverse"] + Self.netFlags + [from, to]
+        _ = try run(args, line: onLine, isCancelled: isCancelled)
     }
 
     public struct Size: Decodable, Sendable {

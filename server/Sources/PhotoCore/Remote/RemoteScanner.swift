@@ -15,6 +15,8 @@ public final class RemoteScanner: @unchecked Sendable {
     let cacheBudget: Int64
     let dataDir: URL
     /// Files per batch, and bytes: whichever comes first (a folder bigger than that is split).
+    /// Hears what the scan is doing, in words (listing, downloading which folder, reading it).
+    public var status: (@Sendable (String) -> Void)?
     var batchFiles = 400
     var batchBytes: Int64 = 4_000_000_000
 
@@ -33,6 +35,7 @@ public final class RemoteScanner: @unchecked Sendable {
     public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool,
                               render: ([(id: String, url: URL)]) -> Void) throws -> ScanReport {
         let listed: [Rclone.RemoteFile]
+        status?("Listing the files in \(source.path)…")
         do { listed = try rclone.files(source.path) } catch {
             throw ScanError.rootUnreadable("\(source.path): \((error as? CustomStringConvertible)?.description ?? error.localizedDescription)")
         }
@@ -80,12 +83,35 @@ public final class RemoteScanner: @unchecked Sendable {
         for batch in batches(todo) {
             if isCancelled() { throw ScanError.cancelled }
             InteractiveWork.yield()
-            // the batch's files and its folders' sidecars (only those not here yet)
+            // the batch's files, their own sidecars and their folders' metadata.json (only those not here yet)
             let batchDirs = Set(batch.map { Self.parent($0.path) })
-            let sidecars = batchDirs.flatMap { sidecarsByDir[$0] ?? [] }.filter {
+            let sidecars = Self.sidecars(for: batch, in: sidecarsByDir).filter {
                 !FileManager.default.fileExists(atPath: mirror.appendingPathComponent($0).path)
             }
-            do { try rclone.copyFiles(batch.map(\.path) + sidecars, from: source.path, to: mirror.path) } catch {
+            let place = Self.describe(batchDirs)
+            let mb = Double(batch.reduce(Int64(0)) { $0 + $1.size }) / 1_000_000
+            let size = mb >= 1000 ? String(format: "%.1f GB", mb / 1000) : String(format: "%.0f MB", mb)
+            let media = Set(batch.map(\.path))
+            var arrived = 0, lastShown = Date.distantPast
+            func show() {
+                status?("Downloading \(place): \(arrived) of \(batch.count) photos and videos (\(size))"
+                        + (sidecars.isEmpty ? "" : " and their \(sidecars.count) sidecar files"))
+            }
+            show()
+            do {
+                try withoutActuallyEscaping(progress) { progress in
+                    try withoutActuallyEscaping(isCancelled) { isCancelled in
+                        try rclone.copyFiles(batch.map(\.path) + sidecars, from: source.path, to: mirror.path, isCancelled: isCancelled) { file in
+                            guard media.contains(file) else { return }
+                            arrived += 1
+                            progress(done + arrived, todo.count)
+                            if Date().timeIntervalSince(lastShown) > 1 { lastShown = Date(); show() }
+                        }
+                    }
+                }
+            } catch RcloneError.cancelled {
+                throw ScanError.cancelled
+            } catch {
                 report.errors.append("Could not fetch \(batchDirs.sorted().first ?? "") from \(source.path): \((error as? CustomStringConvertible)?.description ?? "")")
                 done += batch.count
                 progress(done, todo.count)
@@ -100,6 +126,7 @@ public final class RemoteScanner: @unchecked Sendable {
                 while !ancestors.contains(p) { ancestors.insert(p); p = Self.parent(p) }
             }
             let isVideo = { (f: Rclone.RemoteFile) in LibraryScanner.videoExtensions.contains((f.path as NSString).pathExtension.lowercased()) }
+            status?("Reading \(place): dates, places and thumbnails of \(batch.count) photos and videos")
             scanner.listing = (Array(ancestors), batch.filter { !isVideo($0) }.map(candidate), batch.filter(isVideo).map(candidate), [], 0)
             let base = done
             let r = try scanner.detectChanges(progress: { i, _ in progress(base + i, todo.count) }, isCancelled: isCancelled)
@@ -155,6 +182,32 @@ public final class RemoteScanner: @unchecked Sendable {
         }
         if !current.isEmpty { out.append(current) }
         return out
+    }
+
+    /// The sidecars a batch needs: each file's own (as the scan will look for it) and the
+    /// metadata.json of its folders (Google Takeout album titles). A folder's other sidecars stay
+    /// on the remote until their photos are fetched.
+    static func sidecars(for batch: [Rclone.RemoteFile], in byDir: [String: [String]]) -> [String] {
+        var out = Set<String>()
+        var names: [String: Set<String>] = [:]
+        for f in batch {
+            let dir = parent(f.path)
+            if names[dir] == nil { names[dir] = Set((byDir[dir] ?? []).map { ($0 as NSString).lastPathComponent }) }
+            let inDir = names[dir]!
+            func add(_ name: String) { out.insert(dir.isEmpty ? name : dir + "/" + name) }
+            let name = (f.path as NSString).lastPathComponent
+            if let json = SidecarLocator.sidecar(for: name, in: inDir) { add(json) }
+            let stem = (name as NSString).deletingPathExtension.lowercased()
+            for x in inDir where x.lowercased() == stem + ".xmp" || x.lowercased() == name.lowercased() + ".xmp" { add(x) }
+            if inDir.contains("metadata.json") { add("metadata.json") }
+        }
+        return out.sorted()
+    }
+
+    /// "Library/Photos from 2001", or "Library/Photos from 2001 and 2 more folders".
+    static func describe(_ dirs: Set<String>) -> String {
+        let first = dirs.sorted().first.map { $0.isEmpty ? "the top folder" : $0 } ?? ""
+        return dirs.count > 1 ? "\(first) and \(dirs.count - 1) more folder\(dirs.count == 2 ? "" : "s")" : first
     }
 
     static func parent(_ rel: String) -> String {

@@ -223,6 +223,8 @@ public final class JobRunner: @unchecked Sendable {
                     let store = derivatives()
                     let scanner = RemoteScanner(db: db, source: source, dataDir: dataDir, rclone: rclone, serverTZ: serverTZ,
                                                 cacheBudget: try RemoteSources.cacheBytes(settings))
+                    scanner.status = { [self] text in update(id) { $0.detail = text } }
+                    defer { update(id) { $0.detail = nil } }
                     do {
                         let r = try scanner.detectChanges(progress: progressReporter(id, phase: "remote:\(name)"), isCancelled: cancelled) { made in
                             parallelFor(made.count, workers: self.workerCount) { i in

@@ -84,6 +84,17 @@ struct RemoteSourceTests {
         #expect(try albums.importTakeoutAlbums(keys: [found[1].key]).created == 0)
     }
 
+    @Test func aBatchFetchesOnlyItsOwnSidecars() {
+        let dir = "Library/Photos from 2001"
+        let byDir = [dir: ["a.jpg.json", "b.jpg.supplemental-metadata.json", "c.jpg.json", "z.jpg.json", "metadata.json"].map { dir + "/" + $0 }]
+        let batch = ["a.jpg", "b.jpg", "c(1).jpg"].map { Rclone.RemoteFile(path: dir + "/" + $0, size: 1, mtime: 0) }
+        // c(1).jpg's sidecar is "c.jpg(1).json", which isn't there: none for it
+        #expect(RemoteScanner.sidecars(for: batch, in: byDir) == [
+            "Library/Photos from 2001/a.jpg.json", "Library/Photos from 2001/b.jpg.supplemental-metadata.json",
+            "Library/Photos from 2001/metadata.json",
+        ])
+    }
+
     @Test func originalsLeaveThisMacAndComeBackWhenNeeded() throws {
         let e = try env()
         _ = try e.scan(budget: 0)   // nothing kept after each batch

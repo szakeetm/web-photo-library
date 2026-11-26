@@ -299,6 +299,9 @@ public final class AppDatabase: Sendable {
                 ALTER TABLE trash ADD COLUMN forever INTEGER NOT NULL DEFAULT 0;
                 """)
         }
+        m.registerMigration("v17-job-detail") { db in
+            try db.execute(sql: "ALTER TABLE job ADD COLUMN detail TEXT")
+        }
         m.registerMigration("v16-naming-does-not-confirm-faces") { db in
             // Naming a group used to mark every face in it as the user's choice, which locked in
             // wrong matches. The faces of named people go back to automatic, so regrouping can take
