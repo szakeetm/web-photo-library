@@ -321,6 +321,12 @@ extension APIRoutes {
                 return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
             }
             let service = exporter()
+            // The browser asks for the entries in order: at the start of each batch, its originals that
+            // are only on a remote source are fetched together (one rclone run, parallel transfers).
+            if n % ExportService.prefetchBatch == 0 {
+                let batch = job.entries[n..<min(n + ExportService.prefetchBatch, job.entries.count)]
+                try await blocking { service.prefetch(batch, isCancelled: { false }) }
+            }
             let f: (url: URL, temporary: Bool)?
             do { f = try await renderLimiter.run { try await service.resolve(entry, format: job.options.format) } } catch where ExportService.isMissing(error) {
                 return errorResponse(.gone, "Not available (moved or deleted since the last scan): \(entry.path)")

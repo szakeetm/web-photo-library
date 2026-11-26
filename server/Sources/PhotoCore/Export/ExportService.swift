@@ -388,6 +388,11 @@ public final class ExportService: Sendable {
         var problems: [String] = []
         for (i, e) in entries.enumerated() {
             if isCancelled() { throw ExportError.cancelled }
+            // originals only on a remote source come in batches, ahead of being written
+            if i % Self.prefetchBatch == 0 {
+                let batch = entries[i..<min(i + Self.prefetchBatch, entries.count)].filter { !alreadyThere($0) }
+                withoutActuallyEscaping(isCancelled) { prefetch(batch, isCancelled: $0) }
+            }
             if alreadyThere(e) {
                 progress(i + 1)
                 continue
@@ -418,6 +423,24 @@ public final class ExportService: Sendable {
     }
 
     public static let problemsFile = "Export problems.txt"
+
+    /// How many entries' originals are fetched from remote sources at once: enough for parallel
+    /// transfers to pay off, few enough that a big export doesn't overflow the originals cache.
+    public static let prefetchBatch = 50
+
+    /// Gets the originals these entries are made from onto this Mac in one go (see `OriginalStore.prefetch`).
+    public func prefetch(_ entries: some Sequence<ExportEntry>, isCancelled: @escaping () -> Bool) {
+        var ids: [String] = [], motion: [String] = []
+        for e in entries {
+            switch e.source {
+            case .original(let id), .edited(let id): ids.append(id)
+            case .motion(let id, _): motion.append(id)
+            case .data: break
+            }
+        }
+        guard !ids.isEmpty || !motion.isEmpty else { return }
+        catalog.originals.prefetch(ids: ids, motionIds: motion, isCancelled: isCancelled)
+    }
 
     /// A file that's gone, as opposed to a failure that should stop the export.
     public static func isMissing(_ error: Error) -> Bool {

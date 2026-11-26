@@ -112,6 +112,23 @@ struct RemoteSourceTests {
         #expect(try FileHasher.sha256(url: url) == id)
     }
 
+    @Test func manyOriginalsArePrefetchedTogether() throws {
+        let e = try env()
+        _ = try e.scan(budget: 0)   // nothing kept
+        let ids = try e.db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM file WHERE root = ? ORDER BY relPath", arguments: [e.source.root]) }
+        #expect(ids.count == 2)
+        let originals = CatalogService(db: e.db, settings: e.settings).originals
+        #expect(try ids.allSatisfy { try originals.pendingFetch(id: $0) == e.source })
+        originals.prefetch(ids: ids, motionIds: [], isCancelled: { false })
+        #expect(try ids.allSatisfy { try originals.pendingFetch(id: $0) == nil })
+        for rel in ["2021/a.jpg", "2021/b.jpg"] {
+            #expect(FileManager.default.fileExists(atPath: e.mirror.appendingPathComponent(rel).path))
+        }
+        // here already: nothing to do (and nothing breaks without rclone work)
+        originals.prefetch(ids: ids, motionIds: [], isCancelled: { false })
+        #expect(try originals.original(id: ids[0]) == e.mirror.appendingPathComponent("2021/a.jpg"))
+    }
+
     @Test func aFileDeletedOnTheRemoteIsForgotten() throws {
         let e = try env()
         _ = try e.scan()

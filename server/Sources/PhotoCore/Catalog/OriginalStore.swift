@@ -18,10 +18,14 @@ public protocol OriginalStore: Sendable {
     /// The remote source the original would be fetched from before it can be read; nil when it is
     /// on this Mac already. Never fetches.
     func pendingFetch(id: String) throws -> RemoteSource?
+    func prefetch(ids: [String], motionIds: [String], isCancelled: @escaping () -> Bool)
 }
 
 extension OriginalStore {
     public func pendingFetch(id: String) throws -> RemoteSource? { nil }
+    /// Gets many originals (and Live Photo clips) onto this Mac ahead of reading them, in as few
+    /// transfers as the store can; afterwards `original`/`motion` find them there. Best effort.
+    public func prefetch(ids: [String], motionIds: [String], isCancelled: @escaping () -> Bool) {}
 }
 
 public enum OriginalStores {
@@ -71,6 +75,50 @@ public struct LocalOriginalStore: OriginalStore {
             if first == nil { first = try RemoteSources.source(root: row.root, settings) }
         }
         return first
+    }
+
+    /// Originals and motion clips that are only on remote sources are fetched with one batched rclone
+    /// copy per source (parallel transfers, one process) instead of one `copyto` each. What fails here
+    /// is simply fetched one by one when it's read.
+    public func prefetch(ids: [String], motionIds: [String], isCancelled: @escaping () -> Bool) {
+        guard let dataDir = db.directory, let rclone = Rclone.locate() else { return }
+        // remote root → (relPath, the file on this Mac once fetched)
+        var wanted: [String: [(rel: String, url: URL)]] = [:]
+        do {
+            let bases = try Self.rootURLs(settings)
+            let rows = try db.writer.read { d in
+                (try FileRow.filter(ids.contains(Column("assetId"))).order(Column("root"), Column("relPath")).fetchAll(d),
+                 try MotionRow.filter(keys: motionIds).fetchAll(d))
+            }
+            // an original is wanted when no copy of it is on this Mac already
+            for (_, group) in Dictionary(grouping: rows.0, by: \.assetId) {
+                if group.contains(where: { !RemoteSources.isRemote($0.root) && Self.unchanged(bases[$0.root], $0.relPath, size: $0.size, mtime: $0.mtime) != nil }) { continue }
+                let remote = group.filter { RemoteSources.isRemote($0.root) }
+                let mirrored = remote.map { (row: $0, url: RemoteSources.mirror($0.root, dataDir: dataDir).appendingPathComponent($0.relPath)) }
+                if mirrored.contains(where: { Self.matches($0.url, size: $0.row.size, mtime: $0.row.mtime) }) { continue }
+                if let first = mirrored.first { wanted[first.row.root, default: []].append((first.row.relPath, first.url)) }
+            }
+            for m in rows.1 where RemoteSources.isRemote(m.root) {
+                let url = RemoteSources.mirror(m.root, dataDir: dataDir).appendingPathComponent(m.relPath)
+                if !Self.matches(url, size: m.size, mtime: m.mtime) { wanted[m.root, default: []].append((m.relPath, url)) }
+            }
+        } catch {
+            return
+        }
+        for (root, files) in wanted where !isCancelled() {
+            guard let source = try? RemoteSources.source(root: root, settings) else { continue }
+            do {
+                try rclone.copyFiles(files.map(\.rel), from: source.path, to: RemoteSources.mirror(root, dataDir: dataDir).path,
+                                     transfers: 16, isCancelled: isCancelled)
+            } catch {
+                FileHandle.standardError.write(Data("Could not prefetch \(files.count) files from \(source.path): \(error)\n".utf8))
+            }
+            for f in files { OriginalsCache.touch(f.url) }
+        }
+        if !wanted.isEmpty {
+            let budget = (try? RemoteSources.cacheBytes(settings)) ?? Int64(RemoteSources.defaultCacheGB) * 1_000_000_000
+            OriginalsCache.evict(dataDir: dataDir, budget: budget, keep: Set(wanted.values.flatMap { $0.map(\.url.path) }))
+        }
     }
 
     public func motion(id: String) throws -> URL? {
