@@ -37,7 +37,7 @@ public final class ZipStream {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         try await add(path: path, modified: modified) {
-            try handle.read(upToCount: Self.chunk) ?? Data()
+            try handle.readChunk(upToCount: Self.chunk) ?? Data()
         }
     }
 

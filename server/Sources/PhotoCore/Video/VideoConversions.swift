@@ -306,7 +306,10 @@ public final class VideoConversions: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             Thread.sleep(forTimeInterval: 60)  // let the server settle first
             while let s = self {
-                if let days = (try? settings.get(.videoCacheDays)) ?? nil { s.cleanUp(olderThanDays: days) }
+                // a detached thread's pool never drains on its own: one per round
+                autoreleasepool {
+                    if let days = (try? settings.get(.videoCacheDays)) ?? nil { s.cleanUp(olderThanDays: days) }
+                }
                 Thread.sleep(forTimeInterval: every)
             }
         }

@@ -8,7 +8,10 @@ public func parallelFor(_ count: Int, workers: Int, _ body: (Int) -> Void) {
         while true {
             let i = next.increment() - 1
             if i >= count { break }
-            body(i)
+            // Each worker loops over many items inside one GCD block, so the thread's own pool only
+            // drains when the whole job ends. Image I/O and Core Image autorelease their buffers;
+            // without a pool per item, every decoded image stayed alive until then.
+            autoreleasepool { body(i) }
         }
     }
 }

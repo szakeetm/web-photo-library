@@ -19,9 +19,12 @@ public struct VideoProbeResult: Sendable, Equatable {
 
 public enum VideoProbe {
     /// AVFoundation first; ffprobe when AVFoundation cannot read the tracks (e.g. VP9).
+    /// Drains its own autorelease pool: scans call this once per file inside one long-running block.
     public static func probe(url: URL) -> VideoProbeResult? {
-        if let r = probeAVFoundation(url: url) { return r }
-        return probeFFprobe(url: url)
+        autoreleasepool {
+            if let r = probeAVFoundation(url: url) { return r }
+            return probeFFprobe(url: url)
+        }
     }
 
     /// "original" when the file plays natively in browsers (h264/hevc in mov/mp4/m4v, short side <= 1080), else "preview".

@@ -296,10 +296,13 @@ public final class BackupService: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             Thread.sleep(forTimeInterval: 60)  // let the server settle first
             while true {
-                do {
-                    guard let s = self else { return }
+                // a detached thread's pool never drains on its own: one per round
+                let alive = autoreleasepool { () -> Bool in
+                    guard let s = self else { return false }
                     if (try? s.isDue()) == true { _ = try? s.backup() }
+                    return true
                 }
+                guard alive else { return }
                 Thread.sleep(forTimeInterval: every)
             }
         }

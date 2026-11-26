@@ -459,7 +459,7 @@ struct APIRoutes {
                         defer { try? FileManager.default.removeItem(at: url) }
                         let handle = try FileHandle(forReadingFrom: url)
                         defer { try? handle.close() }
-                        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+                        while let chunk = try handle.readChunk(upToCount: 1 << 20), !chunk.isEmpty {
                             try await writer.write(ByteBuffer(data: chunk))
                         }
                         try await writer.finish(nil)

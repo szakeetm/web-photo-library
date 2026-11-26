@@ -61,7 +61,12 @@ public enum MediaFlags {
 }
 
 public enum ImageProbe {
+    /// Drains its own autorelease pool: scans call this once per file inside one long-running block.
     public static func probe(url: URL) -> ProbeResult? {
+        autoreleasepool { probeFile(url: url) }
+    }
+
+    private static func probeFile(url: URL) -> ProbeResult? {
         let opts = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let src = CGImageSourceCreateWithURL(url as CFURL, opts),
               let type = CGImageSourceGetType(src),
