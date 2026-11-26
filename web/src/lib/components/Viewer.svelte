@@ -35,6 +35,68 @@
 	let vh = $state(window.innerHeight);
 	let chrome = $state(true);
 	let infoOpen = $state(false);
+	// Phone layout: the info pane is a bottom sheet. Swipe up on the photo opens it, swipe down
+	// (on the photo, or on the sheet when it is scrolled to the top) puts it away.
+	/** How far the sheet is dragged down (px); 0 when resting. */
+	let sheetY = $state(0);
+	let sheetDragging = $state(false);
+	let sheetEl = $state<HTMLElement>();
+	const narrow = () => window.innerWidth < 768;
+
+	function closeSheet() {
+		if (!narrow() || !sheetEl) {
+			infoOpen = false;
+			return;
+		}
+		sheetDragging = false;
+		sheetY = sheetEl.offsetHeight;
+		setTimeout(() => {
+			infoOpen = false;
+			sheetY = 0;
+		}, 220);
+	}
+
+	$effect(() => {
+		const el = sheetEl;
+		if (!el) return;
+		let startY = 0;
+		let startT = 0;
+		let pulling = false;
+		const onStart = (e: TouchEvent) => {
+			if (!narrow() || e.touches.length !== 1) return;
+			startY = e.touches[0].clientY;
+			startT = performance.now();
+			pulling = false;
+		};
+		const onMove = (e: TouchEvent) => {
+			if (!narrow() || e.touches.length !== 1) return;
+			const d = e.touches[0].clientY - startY;
+			// only a downward pull that starts with the content at its top moves the sheet
+			if (!pulling && (d <= 4 || el.scrollTop > 0)) return;
+			pulling = true;
+			sheetDragging = true;
+			e.preventDefault();
+			sheetY = Math.max(0, d);
+		};
+		const onEnd = () => {
+			if (!pulling) return;
+			pulling = false;
+			sheetDragging = false;
+			const v = sheetY / Math.max(1, performance.now() - startT);
+			if (sheetY > 90 || v > 0.5) closeSheet();
+			else sheetY = 0;
+		};
+		el.addEventListener('touchstart', onStart, { passive: true });
+		el.addEventListener('touchmove', onMove, { passive: false });
+		el.addEventListener('touchend', onEnd);
+		el.addEventListener('touchcancel', onEnd);
+		return () => {
+			el.removeEventListener('touchstart', onStart);
+			el.removeEventListener('touchmove', onMove);
+			el.removeEventListener('touchend', onEnd);
+			el.removeEventListener('touchcancel', onEnd);
+		};
+	});
 	let detail = $state<AssetDetail | null>(null);
 	let animating = $state(false);
 	let closing = $state(false);
@@ -512,7 +574,11 @@
 			const atEdge = (index === 0 && mx > 0) || (index === ids.length - 1 && mx < 0);
 			dx = atEdge ? mx / 3 : mx;
 		} else if (axis === 'y') {
-			dy = my;
+			if (infoOpen && narrow()) {
+				// with the sheet up, a vertical drag on the photo moves the sheet, not the viewer
+				sheetDragging = true;
+				sheetY = Math.max(0, my);
+			} else dy = my;
 		}
 	}
 
@@ -545,7 +611,16 @@
 			else if (dx > vw * 0.2 || v > 0.5) go(-1, true);
 			else animateTo(() => (dx = 0));
 		} else if (axis === 'y') {
-			if (dy > 120 || dy / Math.max(1, elapsed) > 0.6) close();
+			const v = (infoOpen && narrow() ? sheetY : dy) / Math.max(1, elapsed);
+			if (infoOpen && narrow()) {
+				sheetDragging = false;
+				if (sheetY > 90 || v > 0.5) closeSheet();
+				else sheetY = 0;
+			} else if (dy < -60 || v < -0.4) {
+				// swipe up: info
+				infoOpen = true;
+				animateTo(() => (dy = 0));
+			} else if (dy > 120 || v > 0.6) close();
 			else animateTo(() => (dy = 0));
 		} else if (!axis && elapsed < 300) {
 			const now = performance.now();
@@ -567,6 +642,8 @@
 		pointers.delete(e.pointerId);
 		if (holdTimer || holding) stopLive();
 		axis = null;
+		sheetDragging = false;
+		sheetY = 0;
 		animateTo(() => {
 			dx = 0;
 			dy = 0;
@@ -656,7 +733,7 @@
 					class="slide"
 					class:current={s.o === 0}
 					class:animating
-					style="transform: translate({s.o * pitch + dx}px, {s.o === 0 ? Math.max(0, dy) : 0}px) scale({s.o === 0
+					style="transform: translate({s.o * pitch + dx}px, {s.o === 0 ? (dy < 0 ? dy * 0.35 : dy) : 0}px) scale({s.o === 0
 						? 1 - dismissProgress * 0.3
 						: 1})"
 				>
@@ -773,8 +850,14 @@
 	{/if}
 
 	{#if infoOpen && asset}
-		<aside class="info">
-			<button class="icon-btn info-close" onclick={() => (infoOpen = false)} aria-label="Close info" title="Close (Esc)"
+		<aside
+			class="info"
+			class:dragging={sheetDragging}
+			bind:this={sheetEl}
+			style:transform={sheetY ? `translateY(${sheetY}px)` : undefined}
+		>
+			<div class="grabber" aria-hidden="true"></div>
+			<button class="icon-btn info-close" onclick={closeSheet} aria-label="Close info" title="Close (Esc)"
 				><Icon name="close" /></button>
 			<h3>{asset.name}</h3>
 			<dl>
@@ -1075,9 +1158,31 @@
 		box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.2);
 		-webkit-user-select: text;
 		user-select: text;
+		transition: transform 0.22s ease-out;
+		animation: sheet-up 0.25s ease-out;
+		overscroll-behavior: contain;
+	}
+	.info.dragging {
+		transition: none;
+	}
+	.grabber {
+		width: 36px;
+		height: 5px;
+		border-radius: 3px;
+		background: var(--separator);
+		margin: -8px auto 10px;
+	}
+	@keyframes sheet-up {
+		from {
+			transform: translateY(100%);
+		}
 	}
 	@media (min-width: 768px) {
+		.grabber {
+			display: none;
+		}
 		.info {
+			animation: none;
 			left: auto;
 			top: 0;
 			width: 340px;
