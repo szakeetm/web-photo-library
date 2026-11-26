@@ -81,4 +81,22 @@ import ImageIO
         let r = try #require(VideoProbe.probe(url: url))
         #expect(r.codec == "vp9" && r.width == 320 && r.height == 240)
     }
+
+    /// A re-encoded copy (Google Photos) has no Apple creation date, only the movie header's.
+    @Test func headerCreationTimeWhenNoAppleDate() throws {
+        func probe(_ tags: String) -> VideoProbeResult? {
+            VideoProbe.parseFFprobe(Data("""
+                {"streams":[{"codec_type":"video","codec_name":"h264","width":1080,"height":1920}],
+                 "format":{"duration":"10.1","tags":{\(tags)}}}
+                """.utf8))
+        }
+        let google = try #require(probe(#""creation_time":"2024-04-07T03:30:26.000000Z""#))
+        #expect(google.takenAt == ISO8601DateFormatter().date(from: "2024-04-07T03:30:26Z") && google.tzOffset == nil)
+        // Apple's date (with its zone) wins
+        let iphone = try #require(probe(#""creation_time":"2024-04-07T03:30:27.000000Z","com.apple.quicktime.creationdate":"2024-04-07T12:30:26+0900""#))
+        #expect(iphone.takenAt == ISO8601DateFormatter().date(from: "2024-04-07T03:30:26Z") && iphone.tzOffset == 9 * 3600)
+        // an unset header date isn't a date
+        #expect(probe(#""creation_time":"1970-01-01T00:00:00.000000Z""#)?.takenAt == nil)
+    }
 }
+

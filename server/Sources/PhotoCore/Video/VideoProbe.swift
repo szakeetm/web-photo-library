@@ -62,6 +62,18 @@ public enum VideoProbe {
         return nil
     }
 
+    /// ffprobe's `creation_time` ("2024-04-07T03:30:26.000000Z"), from the movie header.
+    static func parseHeaderDate(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: s)
+    }
+
+    /// A header creation time that is a date at all: unset ones read as 1904 or 1970.
+    static func plausibleHeaderDate(_ d: Date) -> Bool { d.timeIntervalSince1970 > 315_532_800 && d < Date().addingTimeInterval(86_400) }
+
     private static func offsetSeconds(of s: String) -> Int? {
         guard let i = s.lastIndex(where: { $0 == "+" || $0 == "-" }), i > s.index(s.startIndex, offsetBy: 10) else { return nil }
         let digits = s[s.index(after: i)...].filter(\.isNumber)
@@ -113,6 +125,11 @@ public enum VideoProbe {
         r.model = await string(.quickTimeMetadataModel)
         if let s = await string(.quickTimeMetadataCreationDate), let (d, off) = parseQuickTimeDate(s) {
             r.takenAt = d; r.tzOffset = off
+        }
+        // else the movie header's creation time (UTC, no zone): all a re-encoded copy has (Google Photos)
+        if r.takenAt == nil, let item = try? await asset.load(.creationDate), let d = try? await item.load(.dateValue),
+           plausibleHeaderDate(d) {
+            r.takenAt = d
         }
         if let s = await string(.quickTimeMetadataLocationISO6709), let ll = parseISO6709(s) {
             r.lat = ll.lat; r.lon = ll.lon
@@ -176,6 +193,9 @@ public enum VideoProbe {
         r.model = tags["com.apple.quicktime.model"]
         if let s = tags["com.apple.quicktime.creationdate"], let (d, off) = parseQuickTimeDate(s) {
             r.takenAt = d; r.tzOffset = off
+        }
+        if r.takenAt == nil, let s = tags["creation_time"], let d = parseHeaderDate(s), plausibleHeaderDate(d) {
+            r.takenAt = d
         }
         if let s = tags["com.apple.quicktime.location.iso6709"] ?? tags["location"], let ll = parseISO6709(s) {
             r.lat = ll.lat; r.lon = ll.lon

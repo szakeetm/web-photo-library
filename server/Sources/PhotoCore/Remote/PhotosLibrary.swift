@@ -170,7 +170,7 @@ public enum PhotosLibraries {
             }
         }
         scanner.listing = (Array(dirs), images.sorted { $0.relPath < $1.relPath }, videos.sorted { $0.relPath < $1.relPath }, [], 0)
-        let report = try scanner.detectChanges(progress: progress, isCancelled: isCancelled)
+        var report = try scanner.detectChanges(progress: progress, isCancelled: isCancelled)
 
         // original names, albums, and the top folder named after the library
         let names = Dictionary(chosen.values.compactMap { c in c.name.map { (c.main, $0) } }, uniquingKeysWith: { a, _ in a })
@@ -189,6 +189,9 @@ public enum PhotosLibraries {
                 try ChangeLog.record(d, entity: "folder", id: String(rootId), op: "upsert")
             }
         }
+        // dates and places as Photos shows them (the files can't say: see `Item.date`)
+        let byMain = Dictionary(chosen.compactMap { uuid, c in content.items[uuid].map { (c.main, $0) } }, uniquingKeysWith: { a, _ in a })
+        report.updated += try applyPhotosMetadata(byMain, root: source.root, db: db, serverTZ: serverTZ)
         let albums = try importAlbums(content.albums, source: source, db: db, settings: settings)
 
         let stats = PhotosLibraryStats(root: source.root, items: content.items.count, onDisk: chosen.count,
@@ -202,6 +205,46 @@ public enum PhotosLibraries {
             notes.append("\(source.title): \(stats.items - stats.onDisk) of \(stats.items) photos have no original in the library (in iCloud only: Photos → Settings → iCloud → Download Originals to this Mac).")
         }
         return (report, notes)
+    }
+
+    /// Gives each photo of the library the date and place Photos shows for it, over what was read from
+    /// its file: a photo saved from WhatsApp, Signal, Messages, a browser… has no date in its file (it
+    /// would get the day it reached this Mac), an edited photo's rendered version has neither date nor
+    /// place, and Photos keeps a date or place adjusted there. A date set here stays the user's. The
+    /// time zone is Photos' when it knows it, else the file's. Returns how many photos changed.
+    static func applyPhotosMetadata(_ items: [String: PhotosLibraryReader.Item], root: String, db: AppDatabase,
+                                    serverTZ: TimeZone) throws -> Int {
+        try db.writer.write { d in
+            var changed = 0
+            var done = Set<String>()
+            for row in try FileRow.filter(Column("root") == root).fetchAll(d) {
+                guard let item = items[row.relPath], done.insert(row.assetId).inserted,
+                      var a = try Asset.fetchOne(d, key: row.assetId) else { continue }
+                let before = a
+                if let date = item.date {
+                    // the same moment as the file says (to the second): keep its source and zone
+                    let same = a.fileTakenAt.map { abs($0.timeIntervalSince(date)) < 1 } ?? false
+                    if !same {
+                        a.fileTakenAt = date
+                        a.fileDateSource = "photos"
+                        a.fileTzOffset = item.tzOffset ?? serverTZ.secondsFromGMT(for: date)
+                    } else if let tz = item.tzOffset {
+                        a.fileTzOffset = tz
+                    }
+                    try MetadataService.applyOverride(d, to: &a)
+                }
+                if let la = item.lat, let lo = item.lon,
+                   a.lat.map({ abs($0 - la) > 1e-4 }) ?? true || a.lon.map({ abs($0 - lo) > 1e-4 }) ?? true {
+                    (a.lat, a.lon, a.locationSource) = (la, lo, "photos")
+                    a.placeVersion = 0   // named again for its new place
+                }
+                guard a != before else { continue }
+                try a.update(d)
+                try ChangeLog.record(d, entity: "asset", id: a.id, op: "upsert")
+                changed += 1
+            }
+            return changed
+        }
     }
 
     /// The library's albums as albums here (matched again on the next scan by their Photos id): new
@@ -246,6 +289,14 @@ public enum PhotosLibraryReader {
         public var isVideo: Bool
         /// edited in Photos (its rendered version is shown there)
         public var edited: Bool
+        /// The date and place as Photos shows them: what the file says, adjusted there, or for a photo
+        /// without one (saved from WhatsApp, Signal, Messages…) when it was saved; an edited photo's
+        /// rendered version has neither in the file.
+        public var date: Date? = nil
+        /// seconds east of UTC, when Photos knows the time zone
+        public var tzOffset: Int? = nil
+        public var lat: Double? = nil
+        public var lon: Double? = nil
     }
     public struct Album: Sendable {
         public var uuid: String
@@ -282,18 +333,32 @@ public enum PhotosLibraryReader {
                 var items: [String: Item] = [:]
                 var byPK: [Int64: (uuid: String, date: Double)] = [:]
                 let cols = Set(try Row.fetchAll(d, sql: "PRAGMA table_info(ZASSET)").map { $0["name"] as String })
+                let xcols = Set(try Row.fetchAll(d, sql: "PRAGMA table_info(ZADDITIONALASSETATTRIBUTES)").map { $0["name"] as String })
                 let edited = cols.contains("ZADJUSTMENTSSTATE") ? "COALESCE(a.ZADJUSTMENTSSTATE, 0)" : "0"
+                let place = cols.contains("ZLATITUDE") && cols.contains("ZLONGITUDE") ? "a.ZLATITUDE AS lat, a.ZLONGITUDE AS lon" : "NULL AS lat, NULL AS lon"
+                // the offset only counts with its zone's name: without one Photos doesn't know the zone
+                let tz = xcols.contains("ZTIMEZONEOFFSET") && xcols.contains("ZTIMEZONENAME")
+                    ? "CASE WHEN x.ZTIMEZONENAME IS NOT NULL AND x.ZTIMEZONENAME != '' THEN x.ZTIMEZONEOFFSET END AS tz" : "NULL AS tz"
                 for r in try Row.fetchAll(d, sql: """
                     SELECT a.Z_PK AS pk, a.ZUUID AS uuid, a.ZDIRECTORY AS dir, a.ZFILENAME AS file, COALESCE(a.ZKIND, 0) AS kind,
-                           \(edited) AS edited, COALESCE(a.ZDATECREATED, 0) AS date, x.ZORIGINALFILENAME AS original
+                           \(edited) AS edited, a.ZDATECREATED AS date, x.ZORIGINALFILENAME AS original, \(place), \(tz)
                     FROM ZASSET a LEFT JOIN ZADDITIONALASSETATTRIBUTES x ON x.ZASSET = a.Z_PK
                     WHERE a.ZTRASHEDSTATE = 0 AND COALESCE(a.ZHIDDEN, 0) = 0 AND a.ZDIRECTORY IS NOT NULL AND a.ZFILENAME IS NOT NULL
                       AND COALESCE(a.ZVISIBILITYSTATE, 0) = 0   -- shared albums' photos are 2: reduced copies, not originals
                     """) {
                     let uuid = ((r["uuid"] as String?) ?? "").uppercased()
-                    items[uuid] = Item(uuid: uuid, directory: r["dir"], fileName: r["file"], originalName: r["original"],
-                                       isVideo: (r["kind"] as Int) == 1, edited: (r["edited"] as Int) > 0)
-                    byPK[r["pk"]] = (uuid, r["date"])
+                    let date: Double? = r["date"]
+                    var item = Item(uuid: uuid, directory: r["dir"], fileName: r["file"], originalName: r["original"],
+                                    isVideo: (r["kind"] as Int) == 1, edited: (r["edited"] as Int) > 0)
+                    item.date = date.map(Date.init(timeIntervalSinceReferenceDate:))
+                    item.tzOffset = (r["tz"] as Int?).flatMap { abs($0) <= 14 * 3600 ? $0 : nil }
+                    // no place: NULL, or -180 / 0,0 in older libraries
+                    if let la: Double = r["lat"], let lo: Double = r["lon"], (-90...90).contains(la), (-180...180).contains(lo),
+                       la != -180, lo != -180, !(la == 0 && lo == 0) {
+                        (item.lat, item.lon) = (la, lo)
+                    }
+                    items[uuid] = item
+                    byPK[r["pk"]] = (uuid, date ?? 0)
                 }
                 // albums: the album–asset join table's name depends on the Photos version (Z_26ASSETS, Z_34ASSETS…)
                 var albums: [Album] = []

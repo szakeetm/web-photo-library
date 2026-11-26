@@ -18,22 +18,29 @@ import Testing
 
     /// Photos.sqlite with the tables and columns read (Photos' own has many more).
     static func makeDatabase(_ url: URL, assets: [(pk: Int, uuid: String, dir: String, file: String, original: String, trashed: Bool, hidden: Bool, shared: Bool)],
-                             albums: [(pk: Int, uuid: String, title: String, kind: Int, members: [Int])], edited: Set<String> = []) throws {
+                             albums: [(pk: Int, uuid: String, title: String, kind: Int, members: [Int])], edited: Set<String> = [],
+                             dates: [Int: Date] = [:], places: [Int: (lat: Double, lon: Double)] = [:],
+                             zones: [Int: (offset: Int, name: String)] = [:]) throws {
         let q = try DatabaseQueue(path: url.path)
         try q.write { d in
             try d.execute(sql: """
                 CREATE TABLE ZASSET (Z_PK INTEGER PRIMARY KEY, ZUUID TEXT, ZDIRECTORY TEXT, ZFILENAME TEXT, ZDATECREATED REAL,
-                                     ZTRASHEDSTATE INTEGER, ZHIDDEN INTEGER, ZVISIBILITYSTATE INTEGER, ZKIND INTEGER, ZADJUSTMENTSSTATE INTEGER);
-                CREATE TABLE ZADDITIONALASSETATTRIBUTES (Z_PK INTEGER PRIMARY KEY, ZASSET INTEGER, ZORIGINALFILENAME TEXT);
+                                     ZTRASHEDSTATE INTEGER, ZHIDDEN INTEGER, ZVISIBILITYSTATE INTEGER, ZKIND INTEGER, ZADJUSTMENTSSTATE INTEGER,
+                                     ZLATITUDE REAL, ZLONGITUDE REAL);
+                CREATE TABLE ZADDITIONALASSETATTRIBUTES (Z_PK INTEGER PRIMARY KEY, ZASSET INTEGER, ZORIGINALFILENAME TEXT,
+                                                         ZTIMEZONEOFFSET INTEGER, ZTIMEZONENAME TEXT);
                 CREATE TABLE ZGENERICALBUM (Z_PK INTEGER PRIMARY KEY, ZUUID TEXT, ZTITLE TEXT, ZKIND INTEGER, ZTRASHEDSTATE INTEGER);
                 CREATE TABLE Z_3MEMORIESBEINGCURATEDASSETS (Z_3ASSETS INTEGER, Z_41MEMORIES INTEGER);
                 CREATE TABLE Z_34ASSETS (Z_34ALBUMS INTEGER, Z_3ASSETS INTEGER, Z_FOK_3ASSETS INTEGER);
                 """)
             for a in assets {
-                try d.execute(sql: "INSERT INTO ZASSET VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
-                              arguments: [a.pk, a.uuid, a.dir, a.file, Double(a.pk), a.trashed ? 1 : 0, a.hidden ? 1 : 0, a.shared ? 2 : 0,
-                                          edited.contains(a.uuid) ? 2 : 0])
-                try d.execute(sql: "INSERT INTO ZADDITIONALASSETATTRIBUTES (ZASSET, ZORIGINALFILENAME) VALUES (?, ?)", arguments: [a.pk, a.original])
+                // no place: -180, as Photos writes it
+                try d.execute(sql: "INSERT INTO ZASSET VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
+                              arguments: [a.pk, a.uuid, a.dir, a.file, dates[a.pk]?.timeIntervalSinceReferenceDate ?? Double(a.pk),
+                                          a.trashed ? 1 : 0, a.hidden ? 1 : 0, a.shared ? 2 : 0, edited.contains(a.uuid) ? 2 : 0,
+                                          places[a.pk]?.lat ?? -180, places[a.pk]?.lon ?? -180])
+                try d.execute(sql: "INSERT INTO ZADDITIONALASSETATTRIBUTES (ZASSET, ZORIGINALFILENAME, ZTIMEZONEOFFSET, ZTIMEZONENAME) VALUES (?, ?, ?, ?)",
+                              arguments: [a.pk, a.original, zones[a.pk]?.offset, zones[a.pk]?.name])
             }
             for al in albums {
                 try d.execute(sql: "INSERT INTO ZGENERICALBUM VALUES (?, ?, ?, ?, 0)", arguments: [al.pk, al.uuid, al.title, al.kind])
@@ -43,7 +50,11 @@ import Testing
         try q.close()
     }
 
-    func env() throws -> Env {
+    /// The moment each test photo's EXIF says (10:00 at +09:00 on its day).
+    static func exifDate(_ day: String) -> Date { ISO8601DateFormatter().date(from: "\(day)T01:00:00Z")! }
+
+    func env(dates: [Int: Date]? = nil, places: [Int: (lat: Double, lon: Double)] = [:],
+             zones: [Int: (offset: Int, name: String)] = [:]) throws -> Env {
         let library = Fixtures.tempDir().appendingPathComponent("My Photos.photoslibrary", isDirectory: true)
         let o = library.appendingPathComponent("originals")
         Fixtures.writeJPEG(to: o.appendingPathComponent("A/AAAA-1.jpeg"), dateTimeOriginal: "2024:03:30 10:00:00", offset: "+09:00", color: (1, 0, 0))
@@ -60,7 +71,9 @@ import Testing
         ], albums: [
             (10, "ALB-1", "Japan", 2, [2, 1, 3]),
             (11, "FOLDER-1", "Trips", 4000, [1]),   // a folder of albums, not an album
-        ])
+        ], dates: dates ?? [1: Self.exifDate("2024-03-30"), 2: Self.exifDate("2024-03-31"),
+                            3: Self.exifDate("2024-04-01"), 4: Self.exifDate("2024-04-02")],
+           places: places, zones: zones)
         let db = try AppDatabase.inMemory()
         let settings = SettingsStore(db: db)
         let source = try PhotosLibraries.add(path: library.path, settings)
@@ -171,5 +184,40 @@ import Testing
         let settings = SettingsStore(db: try AppDatabase.inMemory())
         #expect(throws: PhotosLibraryError.self) { try PhotosLibraries.add(path: Fixtures.tempDir().path, settings) }
         #expect(PhotosLibraryReader.uuid(of: "9/9cd3-aa_3.mov") == "9CD3-AA")
+    }
+
+    @Test func datesAndPlacesAreAsPhotosShowsThem() throws {
+        // A: Photos has the file's own date. B: adjusted in Photos (or a photo whose file has no date, like
+        // one saved from WhatsApp), with its zone and a place the file doesn't have.
+        let adjusted = ISO8601DateFormatter().date(from: "2024-04-05T12:00:00Z")!
+        let e = try env(dates: [1: Self.exifDate("2024-03-30"), 2: adjusted],
+                        places: [2: (35.6861, 139.7118)], zones: [2: (7200, "GMT+0200")])
+        _ = try e.scan()
+        func asset(_ uuid: String) throws -> Asset {
+            try e.db.writer.read { d in
+                let row = try #require(try FileRow.filter(Column("relPath").like("%\(uuid)%")).fetchOne(d))
+                return try #require(try Asset.fetchOne(d, key: row.assetId))
+            }
+        }
+        let a = try asset("AAAA-1")
+        #expect(a.takenAt == Self.exifDate("2024-03-30") && a.tzOffset == 9 * 3600 && a.dateSource == "exif")
+        #expect(a.lat == nil && a.locationSource == nil)
+        var b = try asset("BBBB-2")
+        #expect(b.takenAt == adjusted && b.tzOffset == 7200 && b.dateSource == "photos" && b.fileTakenAt == adjusted)
+        #expect(b.lat == 35.6861 && b.lon == 139.7118 && b.locationSource == "photos")
+
+        // nothing changes on the next scan
+        let (again, _) = try e.scan()
+        #expect(again.updated == 0 && again.unchanged == 2, "\(again)")
+
+        // a date set here stays the user's
+        let mine = ISO8601DateFormatter().date(from: "2020-01-01T00:00:00Z")!
+        try e.db.writer.write { d in
+            try d.execute(sql: "INSERT INTO meta_edit (assetId, takenAt, tzOffset, createdAt) VALUES (?, ?, 0, ?)", arguments: [b.id, mine, Date()])
+            try d.execute(sql: "UPDATE asset SET takenAt = ?, tzOffset = 0, dateSource = 'user' WHERE id = ?", arguments: [mine, b.id])
+        }
+        _ = try e.scan()
+        b = try asset("BBBB-2")
+        #expect(b.takenAt == mine && b.dateSource == "user" && b.fileTakenAt == adjusted)
     }
 }
