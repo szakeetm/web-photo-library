@@ -65,6 +65,7 @@
 	}
 
 	let wasRunning = false;
+	let lastFinished = -1;
 	let lastSeenJob = 0;
 	async function poll() {
 		if (!net.online) return;
@@ -73,6 +74,16 @@
 			current = j.current ?? j.recent.find((r) => r.state === 'queued') ?? null;
 			recent = j.recent;
 			const running = !!current;
+			// a job that just finished (others may follow it, like the analysis after a scan): its
+			// photos and the sources' counts are shown now, not when the whole chain is done
+			const finished = j.recent.find((r) => r.state === 'done' || r.state === 'failed' || r.state === 'cancelled');
+			if (finished && finished.id !== lastFinished) {
+				if (lastFinished !== -1 && running) {
+					if (finished.kind === 'detect-changes' || finished.kind === 'reindex') await app.reload();
+					await loadSettings();
+				}
+				lastFinished = finished.id;
+			}
 			if (wasRunning && !running) {
 				await app.reload();
 				await loadSettings();
