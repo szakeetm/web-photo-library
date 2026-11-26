@@ -105,15 +105,29 @@
 		return out;
 	});
 
-	/** The word being typed (the search matches the start of words). */
-	const last = $derived(/(\S*)$/.exec(q)?.[1].toLowerCase() ?? '');
 	const startsWord = (name: string, w: string) => name.toLowerCase().split(/[^\p{L}\p{N}]+/u).some((x) => x.startsWith(w));
 
-	/** Rows to show: examples while empty, completions of the word being typed after that. */
+	const typing = $derived(!!q.trim());
+	/** Every word typed (a name matches when each starts one of its words, like the search). */
+	const words = $derived(q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+	/** Chips shown per kind while typing, until its "+N more" is tapped. */
+	const FIRST = 8;
+	let expanded = $state<Set<Kind>>(new Set());
+	$effect(() => {
+		void q;
+		expanded = new Set();
+	});
+
+	/** Rows to show: examples while empty; while typing, the people, places, albums and folders matching
+	 *  every word, each kind a section of its own (what's searched for most: they open their pages). */
 	const rows = $derived(
 		kinds
-			.map((k) => ({ ...k, items: (last ? all[k.key].filter((n) => startsWord(n, last)) : all[k.key]).slice(0, 12) }))
-			.filter((r) => r.items.length && !(last && r.items.length === 1 && r.items[0].toLowerCase() === last))
+			.map((k) => {
+				const matching = typing ? all[k.key].filter((n) => words.every((w) => startsWord(n, w))) : all[k.key];
+				const limit = typing ? (expanded.has(k.key) ? Infinity : FIRST) : 12;
+				return { ...k, total: matching.length, items: matching.slice(0, limit) };
+			})
+			.filter((r) => r.items.length)
 	);
 
 	function pick(name: string) {
@@ -133,7 +147,7 @@
 </TitleBar>
 <div class="box">
 	<!-- svelte-ignore a11y_autofocus -->
-	<input type="search" placeholder="People, places, things, albums, folders, text in photos" bind:value={q} bind:this={input} autofocus
+	<input type="search" placeholder="People, places, albums, folders, text in photos" bind:value={q} bind:this={input} autofocus
 		autocapitalize="off" spellcheck="false" enterkeyhint="search" />
 </div>
 
@@ -143,20 +157,23 @@
 		<b>{all.people[0] ?? 'Anna'} {all.places[0] ?? 'Paris'}</b>. Text in photos and file names work too (<b>IMG_1234</b>).
 	</p>
 {/if}
-{#if rows.length && !(searched && last === '')}
-	<div class="rows" class:compact={!!q.trim()}>
+{#if rows.length}
+	<div class="rows" class:typing>
 		{#each rows as r (r.key)}
 			<div class="row">
-				{#if !q.trim()}<div class="label muted">{r.label}</div>{/if}
+				<div class="label muted">{r.label}{#if typing} · {r.total}{/if}</div>
 				<div class="chips">
 					{#each r.items as name (name)}
 						{@const to = pages[r.key]?.get(name)}
 						{#if to}
-							<a class="chip" href={to.href}><Icon name={r.icon} size={15} />{name}</a>
+							<a class="chip" href={to.href}><Icon name={r.icon} size={15} /><span class="name">{name}</span></a>
 						{:else}
-							<button class="chip" onclick={() => pick(name)}><Icon name={r.icon} size={15} />{name}</button>
+							<button class="chip" onclick={() => pick(name)}><Icon name={r.icon} size={15} /><span class="name">{name}</span></button>
 						{/if}
 					{/each}
+					{#if typing && r.items.length < r.total}
+						<button class="chip more" onclick={() => (expanded = new Set([...expanded, r.key]))}>+{r.total - r.items.length} more</button>
+					{/if}
 				</div>
 			</div>
 		{/each}
@@ -169,6 +186,7 @@
 {#if searched && ids.length === 0 && !searching}
 	<p class="empty muted">No photos match “{q.trim()}”.</p>
 {:else if ids.length}
+	{#if typing && rows.length}<div class="label muted photos">Photos · {ids.length}</div>{/if}
 	<PhotoBrowser {sections} {selection} />
 {/if}
 
@@ -201,9 +219,26 @@
 		gap: 12px;
 		margin-bottom: 14px;
 	}
-	.rows.compact {
-		gap: 6px;
-		margin-bottom: 10px;
+	/* while typing: the matches wrap onto as many lines as they need, long names cut short */
+	.rows.typing .chips {
+		flex-wrap: wrap;
+		overflow-x: visible;
+	}
+	.rows.typing .chip {
+		max-width: 100%;
+	}
+	.rows.typing .chip > :global(svg) {
+		flex: none;
+	}
+	.chip .name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.chip.more {
+		color: var(--accent);
+	}
+	.label.photos {
+		padding-top: 2px;
 	}
 	.label {
 		font-size: 12px;
