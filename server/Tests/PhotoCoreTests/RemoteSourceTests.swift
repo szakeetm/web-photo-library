@@ -102,8 +102,13 @@ struct RemoteSourceTests {
         #expect(!FileManager.default.fileExists(atPath: a.path))
         #expect(FileManager.default.fileExists(atPath: e.mirror.appendingPathComponent("2021/a.jpg.json").path))   // sidecars stay
         let id = try #require(try e.db.writer.read { try String.fetchOne($0, sql: "SELECT assetId FROM file WHERE relPath = '2021/a.jpg'") })
-        let url = try #require(try CatalogService(db: e.db, settings: e.settings).originals.original(id: id))
+        let originals = CatalogService(db: e.db, settings: e.settings).originals
+        // clients are told the original must come from the remote first, without it being fetched
+        #expect(try originals.pendingFetch(id: id) == e.source)
+        #expect(!FileManager.default.fileExists(atPath: a.path))
+        let url = try #require(try originals.original(id: id))
         #expect(url.path == a.path)
+        #expect(try originals.pendingFetch(id: id) == nil)   // here now
         #expect(try FileHasher.sha256(url: url) == id)
     }
 

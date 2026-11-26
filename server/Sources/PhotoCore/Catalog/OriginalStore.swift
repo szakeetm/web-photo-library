@@ -15,6 +15,13 @@ public protocol OriginalStore: Sendable {
     func original(id: String) throws -> URL?
     /// A Live Photo's motion clip, the same way.
     func motion(id: String) throws -> URL?
+    /// The remote source the original would be fetched from before it can be read; nil when it is
+    /// on this Mac already. Never fetches.
+    func pendingFetch(id: String) throws -> RemoteSource?
+}
+
+extension OriginalStore {
+    public func pendingFetch(id: String) throws -> RemoteSource? { nil }
 }
 
 public enum OriginalStores {
@@ -46,6 +53,24 @@ public struct LocalOriginalStore: OriginalStore {
             if let url = remote(row.root, row.relPath, size: row.size, mtime: row.mtime) { return url }
         }
         return nil
+    }
+
+    /// The remote source `original(id:)` would have to fetch the photo from first; nil when it is on
+    /// this Mac already (or can't be had at all). Never fetches: lets clients say what they wait for.
+    public func pendingFetch(id: String) throws -> RemoteSource? {
+        let bases = try Self.rootURLs(settings)
+        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("root"), Column("relPath")).fetchAll($0) }
+        for row in rows where !RemoteSources.isRemote(row.root) {
+            if Self.unchanged(bases[row.root], row.relPath, size: row.size, mtime: row.mtime) != nil { return nil }
+        }
+        guard let dataDir = db.directory else { return nil }
+        var first: RemoteSource?
+        for row in rows where RemoteSources.isRemote(row.root) {
+            let url = RemoteSources.mirror(row.root, dataDir: dataDir).appendingPathComponent(row.relPath)
+            if Self.matches(url, size: row.size, mtime: row.mtime) { return nil }
+            if first == nil { first = try RemoteSources.source(root: row.root, settings) }
+        }
+        return first
     }
 
     public func motion(id: String) throws -> URL? {

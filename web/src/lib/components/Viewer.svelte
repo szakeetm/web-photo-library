@@ -199,7 +199,9 @@
 	// put on screen once decoded, so painting it can't stall zooming (a 48 MP photo takes a while).
 	/** Blob URL of the decoded original, once ready. */
 	let fullSrc = $state<string | null>(null);
-	let fullStatus = $state<{ phase: 'loading' | 'decoding'; received: number; total: number } | null>(null);
+	/** fetching: the Mac is getting the original from an rclone remote (`remote`) before it can send it;
+	 *  loading: the original is coming from the Mac to this device. */
+	let fullStatus = $state<{ phase: 'fetching' | 'loading' | 'decoding'; received: number; total: number; remote?: string } | null>(null);
 	$effect(() => {
 		if (!fullRes) return;
 		const current = id;
@@ -208,7 +210,11 @@
 		let stopped = false;
 		fullStatus = { phase: 'loading', received: 0, total: 0 };
 		(async () => {
+			// on a remote source, the Mac first fetches the original (seconds to minutes): say so
+			const where = await api.originalWhere(current, ctl.signal);
+			if (where && !where.onMac && !stopped) fullStatus = { phase: 'fetching', received: 0, total: 0, remote: where.remote ?? undefined };
 			const res = await fetch(originalUrl(current), { signal: ctl.signal });
+			if (!stopped) fullStatus = { phase: 'loading', received: 0, total: Number(res.headers.get('content-length')) || 0 };
 			if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 			const total = Number(res.headers.get('content-length')) || 0;
 			const reader = res.body.getReader();
@@ -966,7 +972,9 @@
 	{#if fullStatus}
 		<div class="full-status" role="status" aria-live="polite">
 			<span class="spin"></span>
-			{#if fullStatus.phase === 'decoding'}
+			{#if fullStatus.phase === 'fetching'}
+				Full resolution · the Mac is getting it from {fullStatus.remote ?? 'the remote'}…
+			{:else if fullStatus.phase === 'decoding'}
 				Full resolution · decoding…
 			{:else if fullStatus.total}
 				Full resolution · {mb(fullStatus.received)} of {mb(fullStatus.total)} MB

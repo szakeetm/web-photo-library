@@ -568,6 +568,7 @@ async function handle<T>(res: Response): Promise<T> {
 const REVISION = 2;
 export const thumbUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/thumb/${id}?e=${ev}&fmt=${fmt}&r=${REVISION}`;
 export const previewUrl = (id: string, ev: number, fmt: ImageFmt) => `/api/preview/${id}?e=${ev}&fmt=${fmt}&r=${REVISION}`;
+export type OriginalWhere = { onMac: boolean; remote: string | null };
 export const originalUrl = (id: string) => `/api/assets/${id}/original`;
 /** The photo's HDR gain map for the editor (204 for SDR photos). */
 export const gainMapUrl = (id: string) => `/api/gainmap/${id}?r=${REVISION}`;
@@ -662,6 +663,15 @@ export const api = {
 		),
 	videoStatus: (id: string) => call<{ status: VideoStatus }>(videoStatusUrl(id)).then((r) => r.status),
 	/** Whether a converted copy of the video exists (to download beside the original). */
+	/** Whether a photo's original is on the Mac, or must first be fetched from an rclone remote (its
+	 *  name, e.g. "pcloud") before /original can send it. Null when the server can't say (older server). */
+	originalWhere: (id: string, signal?: AbortSignal) =>
+		fetch(`${originalUrl(id)}/where`, { signal, cache: 'no-store' })
+			.then((r) => (r.ok ? (r.json() as Promise<OriginalWhere>) : null))
+			.catch((e) => {
+				if ((e as Error).name === 'AbortError') throw e;
+				return null;
+			}),
 	videoConverted: (id: string) => call<{ converted?: boolean }>(videoStatusUrl(id)).then((r) => r.converted === true),
 	videos: () => call<ConvertAllState>('/api/videos'),
 	convertAll: () => call<ConvertAllState>('/api/videos/convert-all', { method: 'POST' }),

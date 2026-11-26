@@ -13,6 +13,8 @@
 	let phase = $state<'choose' | 'waiting' | 'downloading' | 'assembling' | 'ready' | 'error'>('choose');
 	/** The chosen file is an edit the Mac renders before sending it. */
 	let rendering = $state(false);
+	/** The Mac first gets the original from this rclone remote (e.g. "pcloud"); null when it has it. */
+	let fetchingFrom = $state<string | null>(null);
 	let file = $state<File | null>(null);
 	let error = $state('');
 	let controller: AbortController | null = null;
@@ -47,12 +49,19 @@
 		rendering = render;
 		received = 0;
 		expected = null;
+		fetchingFrom = null;
 		phase = 'waiting';
 		controller = new AbortController();
 		try {
+			// the original (or the export made from it) may first have to come from a remote source
+			if (url !== videoDownloadUrl(asset.id)) {
+				const where = await api.originalWhere(asset.id, controller.signal);
+				if (where && !where.onMac) fetchingFrom = where.remote ?? 'the remote';
+			}
 			const res = await fetch(url, { signal: controller.signal, headers: { 'X-Client-API-Version': String(CLIENT_API_VERSION) } });
 			if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
 			expected = Number(res.headers.get('content-length')) || null;
+			fetchingFrom = null;
 			phase = 'downloading';
 			const chunks: Uint8Array[] = [];
 			const reader = res.body!.getReader();
@@ -155,11 +164,13 @@
 		{/if}
 		<button class="btn cancel" onclick={cancel}>Cancel</button>
 	{:else if phase === 'waiting'}
-		<h3>{rendering ? 'Rendering…' : 'Requesting…'}</h3>
+		<h3>{fetchingFrom ? `Getting it from ${fetchingFrom}…` : rendering ? 'Rendering…' : 'Requesting…'}</h3>
 		<p class="muted">
-			{rendering
-				? 'The Mac is applying your edits to the full-resolution original. This takes a few seconds.'
-				: 'Asking the Mac for the file.'}
+			{fetchingFrom
+				? `The original isn't on the Mac yet: the Mac is downloading it from ${fetchingFrom}${rendering ? ', then applies your changes' : ''}. This can take from seconds to a few minutes; the download to this device starts after that.`
+				: rendering
+					? 'The Mac is applying your edits to the full-resolution original. This takes a few seconds.'
+					: 'Asking the Mac for the file.'}
 		</p>
 		<div class="bar indeterminate"><div></div></div>
 		<button class="btn cancel" onclick={cancel}>Cancel</button>

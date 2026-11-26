@@ -5,6 +5,8 @@ import HTTPTypes
 import PhotoCore
 
 struct ErrorBody: Encodable { let error: String; var updateRequired: Bool? = nil }
+/// GET /api/assets/:id/original/where: whether the original is on the Mac, else the rclone remote's name.
+struct OriginalWhere: Encodable { let onMac: Bool; let remote: String? }
 
 func json<T: Encodable>(_ value: T, status: HTTPResponse.Status = .ok) throws -> Response {
     let enc = JSONEncoder()
@@ -35,6 +37,11 @@ let renderLimiter = AsyncLimiter(limit: 4)
 let uploadLocks = KeyedLock()
 
 struct APIRoutes {
+    /// The rclone remote's name ("pcloud" of "pcloud:Photos/2024").
+    static func remoteName(_ path: String) -> String {
+        path.firstIndex(of: ":").map { String(path[..<$0]) } ?? path
+    }
+
     let services: Services
     let webRoot: URL?
 
@@ -600,6 +607,15 @@ struct APIRoutes {
             return Response(status: .noContent)
         }
 
+        // Where the original is: on this Mac, or still to be fetched from a remote source (rclone)
+        // before /original can send it. Fetches nothing, so clients can say what they're waiting for.
+        api.get("assets/:id/original/where") { _, ctx in
+            guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            let store = services.catalog.originals
+            let remote = try await blocking { try store.pendingFetch(id: id) }
+            return try json(OriginalWhere(onMac: remote == nil, remote: remote.map { Self.remoteName($0.path) }))
+        }
+
         api.get("assets/:id/original") { req, ctx in
             guard let id = validId(ctx), let url = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
             // the original's own name (a Photos library stores files under UUIDs)
@@ -754,7 +770,9 @@ struct APIRoutes {
                 }
                 url = kind == .thumb ? made.thumb : made.preview
             }
-        } else if ev > 0, store.exists(id: id, kind: kind, editVersion: ev, format: format) {
+        } else if store.exists(id: id, kind: kind, editVersion: ev, format: format) {
+            // Already rendered: served without the original, which for an rclone source may not be on
+            // this Mac and would otherwise be downloaded just to be ignored.
             url = store.url(id: id, kind: kind, editVersion: ev, format: format)
         } else {
             guard let source = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
