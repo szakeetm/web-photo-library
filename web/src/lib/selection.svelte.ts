@@ -37,8 +37,10 @@ export class Selection {
 	/** Select was pressed (or a long press, select all, a drag) */
 	explicit = $state(false);
 	ids = $state(new Set<string>());
-	/** the photo clicked last: ranges start here, arrow keys move from here */
+	/** the photo clicked last: ranges start here */
 	anchor = $state<string | null>(null);
+	/** the moving end of a shift+arrow range (the arrow keys move from here) */
+	lead = $state<string | null>(null);
 	count = $derived(this.ids.size);
 	active = $derived(this.explicit || this.ids.size >= 2);
 
@@ -51,10 +53,19 @@ export class Selection {
 	only(id: string) {
 		this.ids = new Set([id]);
 		this.anchor = id;
+		this.lead = id;
 	}
 
-	/** The single selected photo, else the last clicked one still selected (where the arrow keys start). */
+	/** Shift+arrows: the photos from the anchor to `to` (in `order`), replacing the selection; `to` becomes the moving end. */
+	rangeTo(order: string[], to: string) {
+		this.ids = new Set(selectRange(order, this.anchor ?? to, to));
+		this.anchor ??= to;
+		this.lead = to;
+	}
+
+	/** Where the arrow keys move from: the moving end of a range, else the last clicked photo still selected. */
 	get cursor(): string | null {
+		if (this.lead && this.ids.has(this.lead)) return this.lead;
 		if (this.anchor && this.ids.has(this.anchor)) return this.anchor;
 		return this.ids.size ? this.ids.values().next().value! : null;
 	}
@@ -65,12 +76,14 @@ export class Selection {
 		else next.add(id);
 		this.ids = next;
 		this.anchor = id;
+		this.lead = id;
 	}
 
 	extendTo(order: string[], id: string) {
 		const range = selectRange(order, this.anchor ?? id, id);
 		this.ids = new Set([...this.ids, ...range]);
 		this.anchor = id;
+		this.lead = id;
 	}
 
 	/** Replaces the selection (drag-select). */
@@ -89,5 +102,6 @@ export class Selection {
 		this.explicit = false;
 		this.ids = new Set();
 		this.anchor = null;
+		this.lead = null;
 	}
 }

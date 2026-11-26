@@ -71,13 +71,14 @@
 	}
 
 	// Arrow keys select the photo next to the selected one (desktop; not after Select was pressed),
-	// scrolling it into view. Several selected: from the one clicked last. Nothing selected: the first
-	// press selects the top-left photo on screen.
+	// scrolling it into view; with shift they select the range from the anchor to there (Photos on the
+	// Mac). Several selected: from the range's moving end, or the one clicked last. Nothing selected:
+	// the first press selects the top-left photo on screen.
 	$effect(() => {
 		if (!onFocusMove) return;
 		const onKey = (e: KeyboardEvent) => {
 			const dir = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const)[e.key as 'ArrowLeft'];
-			if (!dir || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || selection?.explicit) return;
+			if (!dir || e.metaKey || e.ctrlKey || e.altKey || selection?.explicit) return;
 			if ((e.target as HTMLElement).closest?.('input, select, textarea, [contenteditable]')) return;
 			if (document.querySelector('.viewer, [role=dialog], [role=alertdialog]')) return;
 			const from = selection?.cursor;
@@ -86,7 +87,10 @@
 				: firstOnScreen();
 			e.preventDefault();
 			if (!next) return;
-			onFocusMove(next);
+			if (e.shiftKey && from && selection) {
+				const order = layout.blocks.flatMap((b) => (b.kind === 'row' ? b.items : []));
+				selection.rangeTo(order, next);
+			} else onFocusMove(next);
 			reveal(next);
 		};
 		window.addEventListener('keydown', onKey);

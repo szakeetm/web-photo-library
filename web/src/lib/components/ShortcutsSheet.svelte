@@ -23,6 +23,7 @@
 				[[shortcut('A')], 'Select all'],
 				[['L', 'R'], 'Rotate the selected photos left / right'],
 				[['←', '→', '↑', '↓'], 'Select the photo next to it'],
+				[[`${shift}←`, `${shift}→`, `${shift}↑`, `${shift}↓`], 'Select a range (grow or shrink it)'],
 				[['Space'], 'Open the selected photo'],
 				[del, 'Delete (asks first)'],
 				[delNow, 'Delete at once (with Undo)'],
