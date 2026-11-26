@@ -98,6 +98,62 @@
 		if (scale >= 1.6 && originalShowable && asset?.ev === 0 && !isVideo) fullRes = true;
 	});
 
+	// The original is downloaded and decoded off-screen while the zoomed preview stays up; it is only
+	// put on screen once decoded, so painting it can't stall zooming (a 48 MP photo takes a while).
+	/** Blob URL of the decoded original, once ready. */
+	let fullSrc = $state<string | null>(null);
+	let fullStatus = $state<{ phase: 'loading' | 'decoding'; received: number; total: number } | null>(null);
+	$effect(() => {
+		if (!fullRes) return;
+		const current = id;
+		const ctl = new AbortController();
+		let url: string | null = null;
+		let stopped = false;
+		fullStatus = { phase: 'loading', received: 0, total: 0 };
+		(async () => {
+			const res = await fetch(originalUrl(current), { signal: ctl.signal });
+			if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+			const total = Number(res.headers.get('content-length')) || 0;
+			const reader = res.body.getReader();
+			const chunks: Uint8Array[] = [];
+			let received = 0;
+			let shown = 0;
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+				received += value.length;
+				// a few updates per MB are plenty
+				if (received - shown > 256 * 1024) {
+					shown = received;
+					fullStatus = { phase: 'loading', received, total };
+				}
+			}
+			if (stopped) return;
+			url = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: res.headers.get('content-type') ?? '' }));
+			fullStatus = { phase: 'decoding', received, total };
+			const img = new Image();
+			img.decoding = 'async';
+			img.src = url;
+			await img.decode();
+			if (stopped) return;
+			fullSrc = url;
+			fullStatus = null;
+		})().catch(() => {
+			if (!stopped) fullStatus = null; // keep the preview
+		});
+		return () => {
+			stopped = true;
+			ctl.abort();
+			fullStatus = null;
+			fullSrc = null;
+			const u = url;
+			// after the <img> using it is gone
+			if (u) setTimeout(() => URL.revokeObjectURL(u), 1000);
+		};
+	});
+	const mb = (n: number) => (n / 1024 ** 2).toFixed(1);
+
 	/** The open video's file size (the original's length, read with a one-byte range request). */
 	let fileBytes = $state<number | null>(null);
 	$effect(() => {
@@ -627,8 +683,8 @@
 									.finally(() => (ready = new Set(ready).add(a.id)));
 							}}
 						/>
-						{#if s.o === 0 && fullRes}
-							<img class="high" src={originalUrl(a.id)} alt="" draggable="false" />
+						{#if s.o === 0 && fullSrc}
+							<img class="high" src={fullSrc} alt="" draggable="false" decoding="async" />
 						{/if}
 						{#if s.o === 0 && a.dur != null}
 							<VideoPlayer bind:this={player} asset={a} active={!closing} onDownload={() => (exporting = true)} />
@@ -686,6 +742,19 @@
 		{/if}
 		{/if}
 	</header>
+
+	{#if fullStatus}
+		<div class="full-status" role="status" aria-live="polite">
+			<span class="spin"></span>
+			{#if fullStatus.phase === 'decoding'}
+				Full resolution · decoding…
+			{:else if fullStatus.total}
+				Full resolution · {mb(fullStatus.received)} of {mb(fullStatus.total)} MB
+			{:else}
+				Loading full resolution…
+			{/if}
+		</div>
+	{/if}
 
 	{#if ids.length > 1}
 		<button class="nav prev" onclick={() => go(-1)} disabled={index === 0} aria-label="Previous"
@@ -925,6 +994,42 @@
 	}
 	.nav {
 		display: none;
+	}
+	.full-status {
+		position: absolute;
+		z-index: 5;
+		left: 12px;
+		bottom: calc(env(safe-area-inset-bottom) + 12px);
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		padding: 5px 10px;
+		border-radius: 999px;
+		background: rgb(0 0 0 / 0.55);
+		color: #fff;
+		font-size: 12px;
+		pointer-events: none;
+		-webkit-backdrop-filter: blur(10px);
+		backdrop-filter: blur(10px);
+		animation: full-in 0.2s 0.3s both; /* quick loads never flash it */
+	}
+	.full-status .spin {
+		width: 10px;
+		height: 10px;
+		border: 1.5px solid rgb(255 255 255 / 0.35);
+		border-top-color: #fff;
+		border-radius: 50%;
+		animation: full-spin 0.8s linear infinite;
+	}
+	@keyframes full-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	@keyframes full-in {
+		from {
+			opacity: 0;
+		}
 	}
 	@media (hover: hover) and (min-width: 768px) {
 		.nav {
