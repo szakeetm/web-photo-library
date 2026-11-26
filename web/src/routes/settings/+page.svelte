@@ -401,6 +401,35 @@
 		}
 	}
 
+	let restartingServer = $state(false);
+	async function restartServer() {
+		if (!confirm('Restart the server?\n\nEvery device loses the connection for a few seconds. Running jobs (scans, analysis, conversions) are interrupted and pick up again afterwards; downloads from remote sources in progress stop.')) return;
+		restartingServer = true;
+		message = { text: 'Restarting the server…' };
+		try {
+			await api.restartServer();
+			// wait for the old process to go, then for the new one to answer
+			await new Promise<void>((r) => setTimeout(r, 1500));
+			let back = false;
+			for (let i = 0; i < 60 && !back; i++) {
+				try {
+					await api.health();
+					back = true;
+				} catch {
+					await new Promise<void>((r) => setTimeout(r, 1000));
+				}
+			}
+			if (!back) throw new Error("The server didn't come back within a minute. Check the Mac.");
+			await loadSettings();
+			await app.reload();
+			message = { text: 'The server restarted.' };
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		} finally {
+			restartingServer = false;
+		}
+	}
+
 	async function moveData(path: string) {
 		picker = null;
 		if (!confirm(`Move the database, caches and face model to\n${path}?\n\nThe server restarts afterwards.`)) return;
@@ -1134,6 +1163,21 @@
 			<button class="btn">Save</button>
 		</form>
 	</section>
+
+	<section>
+		<h3>Restart</h3>
+		<div class="row">
+			<div class="label">
+				<div>Restart server</div>
+				<div class="muted small">
+					Starts the server on the Mac again, e.g. when it's stuck. Running jobs carry on afterwards.
+				</div>
+			</div>
+			<button class="btn restart" disabled={restartingServer} onclick={restartServer}
+				>{restartingServer ? 'Restarting…' : 'Restart'}</button
+			>
+		</div>
+	</section>
 	{/if}
 </div>
 
@@ -1391,5 +1435,10 @@
 	.warn {
 		color: #ff9f0a;
 		margin-top: 4px;
+	}
+	.btn.restart {
+		background: var(--danger);
+		color: white;
+		flex: none;
 	}
 </style>

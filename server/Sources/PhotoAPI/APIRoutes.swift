@@ -265,6 +265,14 @@ struct APIRoutes {
             return try json(MoveResponse(dataDir: target.path, restarting: true))
         }
 
+        // Restarts the server in place (Settings → Restart server): it re-executes itself, so running
+        // jobs are interrupted and resumed, and rclone downloads in progress stop.
+        api.post("server/restart") { _, _ in
+            let restart = services.restart
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { restart() }
+            return Response(status: .accepted)
+        }
+
         api.post("data/reset") { _, _ in
             // Only used to recover when the configured data folder is gone.
             guard services.dataLocationMissing else { return errorResponse(.conflict, "The data location is available.") }
