@@ -72,7 +72,7 @@ public final class EditService: Sendable {
     public func save(id: String, recipe: EditRecipe) throws -> CatalogAsset {
         let r = try recipe.validated().normalized()
         if r.isIdentity { return try revert(id: id) }
-        guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
+        guard let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let version = try db.writer.write { d -> Int in
             guard try Asset.fetchOne(d, key: id) != nil else { throw EditError.notFound }
             let v = try Self.nextVersion(d)
@@ -140,7 +140,7 @@ public final class EditService: Sendable {
 
     func renderFullHDR(id: String, version: Int) throws -> (CGImage, HDRMetadata) {
         guard let recipe = try recipe(id: id, version: version) else { throw EditError.notFound }
-        guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
+        guard let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let full = try DerivativeStore.downscaled(source: source, maxPixel: 16384)
         return try render(full, source: source, recipe: recipe) {
             try NormalizedGainMap.make(source: source, maxPixel: min(2048, max(full.width, full.height) / 2))
@@ -171,7 +171,7 @@ public final class EditService: Sendable {
         guard let detail = try catalog.asset(id: id) else { throw EditError.notFound }
         let version = detail.asset.editVersion
         guard version > 0 else { throw EditError.notFound }
-        guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
+        guard let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let dir = derivatives().cacheDir.appendingPathComponent("exports", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let userDate = detail.asset.dateSource == "user" ? (detail.asset.takenAt, detail.asset.tzOffset) : nil
@@ -244,7 +244,7 @@ public final class EditService: Sendable {
 
     /// Core Image's analysis of the photo, expressed as recipe values (not saved).
     public func autoEnhance(id: String) throws -> EditRecipe {
-        guard let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
+        guard let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let base = try DerivativeStore.downscaled(source: source, maxPixel: 1024)
         return Self.autoRecipe(for: CIImage(cgImage: base))
     }

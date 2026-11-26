@@ -314,10 +314,10 @@ import GRDB
         try settings.set(.libraryPath, root.path)
         let catalog = CatalogService(db: db, settings: settings)
         let still = try #require(try assets(db).first)
-        #expect(try catalog.motionURL(id: still.id)?.standardizedFileURL == clip.standardizedFileURL)
-        #expect(try catalog.motionURL(id: "nope") == nil)
+        #expect(try catalog.originals.motion(id: still.id)?.standardizedFileURL == clip.standardizedFileURL)
+        #expect(try catalog.originals.motion(id: "nope") == nil)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: clip.path)
-        #expect(try catalog.motionURL(id: still.id) == nil)
+        #expect(try catalog.originals.motion(id: still.id) == nil)
     }
 
     @Test func purgeDeletesMotionOfPurgedStill() async throws {

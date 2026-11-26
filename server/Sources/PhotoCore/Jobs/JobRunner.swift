@@ -310,7 +310,7 @@ public final class JobRunner: @unchecked Sendable {
                     // the preview (photos) or poster (videos)
                     var preview = store.url(id: assetId, kind: .preview, format: .heic)
                     if !FileManager.default.fileExists(atPath: preview.path) {
-                        guard let src = try catalog.sourceURL(id: assetId) else { return }
+                        guard let src = try catalog.originals.original(id: assetId) else { return }
                         if isVideo {
                             preview = try store.ensurePoster(id: assetId, source: src, format: .heic, ffmpeg: ffmpeg).preview
                         } else {
@@ -368,7 +368,7 @@ public final class JobRunner: @unchecked Sendable {
                 do {
                     var preview = store.url(id: assetId, kind: .preview, format: .heic)
                     if !FileManager.default.fileExists(atPath: preview.path) {
-                        guard let src = try catalog.sourceURL(id: assetId) else { return }
+                        guard let src = try catalog.originals.original(id: assetId) else { return }
                         preview = try store.ensure(id: assetId, source: src, kind: .preview, format: .heic)
                     }
                     let image = try DerivativeStore.downscaled(source: preview, maxPixel: DerivativeKind.preview.maxPixel)

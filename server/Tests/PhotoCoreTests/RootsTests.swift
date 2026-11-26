@@ -40,7 +40,7 @@ import GRDB
         #expect(a.favorite && a.missingSince == nil)
         let files = try e.db.writer.read { try FileRow.filter(Column("assetId") == id).fetchAll($0) }
         #expect(files.map(\.root) == ["library"] && files.map(\.relPath) == ["Trip/b.jpg"])
-        #expect(try e.catalog.sourceURL(id: id)?.path.hasSuffix("Trip/b.jpg") == true)
+        #expect(try e.catalog.originals.original(id: id)?.path.hasSuffix("Trip/b.jpg") == true)
     }
 
     @Test func sameRelPathInBothRoots() throws {

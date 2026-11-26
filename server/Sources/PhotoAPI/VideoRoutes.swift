@@ -23,12 +23,13 @@ extension APIRoutes {
             guard let id = validId(ctx),
                   let asset = try services.catalog.record(id: id), asset.kind == "video"
             else { throw HTTPError(.notFound) }
-            let original = try services.catalog.sourceURL(id: id)
+            // the original's type from the catalog: the file is only fetched when it's served
+            let ext = (try services.catalog.originalName(id: id)).map { ($0 as NSString).pathExtension }
+            let playable = ext.map { VideoProbe.safariPlayable(codec: asset.videoCodec, ext: $0) } ?? false
             // ?original=1 (local mode): the original whenever browsers can play it, whatever its size
             let wantsOriginal = req.uri.queryParameters.get("original") == "1"
-            if asset.servePlan != "preview"
-                || (wantsOriginal && original.map { VideoProbe.safariPlayable(codec: asset.videoCodec, ext: $0.pathExtension) } == true) {
-                guard let original else { throw HTTPError(.notFound) }
+            if asset.servePlan != "preview" || (wantsOriginal && playable) {
+                guard let original = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
                 return try await serveOriginal(original, req, ctx)
             }
             let preview = videos.previewURL(id: id)
@@ -40,10 +41,9 @@ extension APIRoutes {
             case .queued, .converting:
                 return try json(StatusBody(status: status), status: .accepted)
             case .unavailable, .failed:
-                guard let original else { throw HTTPError(.notFound) }
-                guard VideoProbe.safariPlayable(codec: asset.videoCodec, ext: original.pathExtension) else {
-                    return errorResponse(.conflict, "unplayable")
-                }
+                guard ext != nil else { throw HTTPError(.notFound) }
+                guard playable else { return errorResponse(.conflict, "unplayable") }
+                guard let original = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
                 return try await serveOriginal(original, req, ctx)
             }
         }
@@ -62,7 +62,7 @@ extension APIRoutes {
             else { throw HTTPError(.notFound) }
             let preview = videos.previewURL(id: id)
             guard FileManager.default.fileExists(atPath: preview.path) else { throw HTTPError(.notFound) }
-            let base = ((try services.catalog.sourceURL(id: id))?.deletingPathExtension().lastPathComponent) ?? id
+            let base = (try services.catalog.originalName(id: id)).map { ($0 as NSString).deletingPathExtension } ?? id
             return try await fileResponse(path: preview.path, contentType: "video/mp4", request: req, context: ctx, extraHeaders: [
                 .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(base + "-converted.mp4"))",
                 .cacheControl: Self.videoCache,
@@ -75,7 +75,7 @@ extension APIRoutes {
             else { throw HTTPError(.notFound) }
             // Clips Safari plays (H.264/HEVC in MOV/MP4) are served as they are and never converted.
             if VideoProbe.safariPlayable(codec: motion.codec, ext: (motion.relPath as NSString).pathExtension) {
-                guard let url = try services.catalog.motionURL(id: id) else { throw HTTPError(.notFound) }
+                guard let url = try await services.catalog.originals.motionFile(id) else { throw HTTPError(.notFound) }
                 return try await serveOriginal(url, req, ctx)
             }
             let preview = videos.motionPreviewURL(id: id)
@@ -91,10 +91,10 @@ extension APIRoutes {
         // A Live Photo's motion clip as a file: the original, named like the still (IMG_1234.HEIC →
         // IMG_1234.MOV) so the pair stays recognisable; Photos pairs them by their content identifier.
         api.get("assets/:id/motion/download") { req, ctx in
-            guard let id = validId(ctx), let url = try services.catalog.motionURL(id: id),
-                  let still = try services.catalog.fileURL(id: id)
+            guard let id = validId(ctx), let still = try services.catalog.originalName(id: id),
+                  let url = try await services.catalog.originals.motionFile(id)
             else { throw HTTPError(.notFound) }
-            let name = still.deletingPathExtension().lastPathComponent + "." + url.pathExtension.uppercased()
+            let name = (still as NSString).deletingPathExtension + "." + url.pathExtension.uppercased()
             return try await fileResponse(path: url.path, contentType: contentType(forExtension: url.pathExtension), request: req,
                                           context: ctx, extraHeaders: [
                                               .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(name))",
@@ -134,7 +134,7 @@ extension APIRoutes {
             let root = URL(fileURLWithPath: rootPath, isDirectory: true)
             return try await trimCall {
                 let (start, end) = try trims.validated(id: id, start: body.start, end: body.end)
-                guard let source = try services.catalog.sourceURL(id: id), let record = try services.catalog.record(id: id) else {
+                guard let source = try await services.catalog.originals.file(id), let record = try services.catalog.record(id: id) else {
                     throw HTTPError(.notFound)
                 }
                 let incoming = root.appendingPathComponent(".incoming", isDirectory: true)
@@ -159,12 +159,13 @@ extension APIRoutes {
         // The trim editor's filmstrip: `n` frames side by side in one JPEG (cached).
         api.get("assets/:id/frames") { req, ctx in
             guard let id = validId(ctx), let record = try services.catalog.record(id: id), record.kind == "video",
-                  let duration = record.duration, let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+                  let duration = record.duration else { throw HTTPError(.notFound) }
             let n = min(30, max(2, req.uri.queryParameters.get("n", as: Int.self) ?? 12))
             let dir = services.paths.cacheDir.appendingPathComponent("frames", isDirectory: true)
             let file = dir.appendingPathComponent("\(id)-\(n).jpg")
             if !FileManager.default.fileExists(atPath: file.path) {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                guard let source = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
                 let data: Data
                 do { data = try await VideoCutter.filmstrip(source: source, duration: duration, count: n) } catch {
                     // formats AVFoundation can't read: the converted preview, if there is one

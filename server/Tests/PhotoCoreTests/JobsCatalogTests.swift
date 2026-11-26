@@ -89,7 +89,7 @@ import GRDB
         let id = try e.catalog.catalog().assets[1].id
         let d = try #require(try e.catalog.asset(id: id))
         #expect(d.files.sorted() == ["A/x.jpg", "B/x.jpg"])
-        #expect(try e.catalog.sourceURL(id: id)?.lastPathComponent == "x.jpg")
+        #expect(try e.catalog.originals.original(id: id)?.lastPathComponent == "x.jpg")
     }
 
     @Test func noLibraryFailsWithMessage() throws {

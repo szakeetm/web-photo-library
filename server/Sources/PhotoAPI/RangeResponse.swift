@@ -1,6 +1,7 @@
 import Foundation
 import Hummingbird
 import HTTPTypes
+import PhotoCore
 
 /// What a `Range` request header asks of a file of a known size.
 enum ByteRange: Equatable {
@@ -67,4 +68,12 @@ func fileResponse(path: String, contentType: String, request: Request, context: 
         headers[.contentRange] = "bytes */\(size)"
         return Response(status: .rangeNotSatisfiable, headers: headers)
     }
+}
+
+extension OriginalStore {
+    /// The original as a local file (fetched first, for a store that keeps it elsewhere), off the
+    /// cooperative thread pool.
+    func file(_ id: String) async throws -> URL? { try await blocking { try self.original(id: id) } }
+    /// A Live Photo's motion clip as a local file, the same way.
+    func motionFile(_ id: String) async throws -> URL? { try await blocking { try self.motion(id: id) } }
 }

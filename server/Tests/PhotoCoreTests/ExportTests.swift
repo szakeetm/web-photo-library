@@ -128,7 +128,7 @@ import GRDB
         let f = try #require(try await ex.editedFile(id: id, format: .jpeg))
         let p = try #require(ImageProbe.probe(url: f.url))
         #expect(p.exifLocalDate?.hour == 9 && f.name == "b.png")
-        let srcURL = try #require(try ex.catalog.sourceURL(id: id))
+        let srcURL = try #require(try ex.catalog.originals.original(id: id))
         #expect(try ExportMetadataTests().pixels(srcURL) == ExportMetadataTests().pixels(f.url))
         // an unedited photo has no edited file
         #expect(try await ex.editedFile(id: ids["A/a.jpg"]!, format: .jpeg) == nil)
@@ -203,5 +203,45 @@ import GRDB
         #expect(written == [entries[1].path, entries[2].path])
         let files = try FileManager.default.contentsOfDirectory(atPath: out.path).sorted()
         #expect(files == entries.map(\.path).sorted(), "\(files)")
+    }
+}
+
+/// Originals come only from the catalog's store: one that keeps them elsewhere is all it takes.
+@Suite struct OriginalStoreTests {
+    final class ElsewhereStore: OriginalStore, @unchecked Sendable {
+        let files: [String: URL]
+        private let lock = NSLock()
+        private(set) var asked: [String] = []
+        init(_ files: [String: URL]) { self.files = files }
+        func original(id: String) throws -> URL? {
+            lock.lock(); asked.append(id); lock.unlock()
+            return files[id]
+        }
+        func motion(id: String) throws -> URL? { nil }
+    }
+
+    @Test func exportsReadTheStoresFiles() async throws {
+        let (db, _, ids) = try ExportPlanTests().setup()
+        let id = ids["A/a.jpg"]!
+        // the library's file is gone; the store has a copy somewhere else
+        let settings = SettingsStore(db: db)
+        let library = URL(fileURLWithPath: try #require(try settings.get(.libraryPath)))
+        let elsewhere = Fixtures.tempDir().appendingPathComponent("copy.jpg")
+        try FileManager.default.copyItem(at: library.appendingPathComponent("A/a.jpg"), to: elsewhere)
+        try FileManager.default.removeItem(at: library.appendingPathComponent("A/a.jpg"))
+
+        let store = ElsewhereStore([id: elsewhere])
+        let catalog = CatalogService(db: db, settings: settings, originals: store)
+        let cache = Fixtures.tempDir()
+        let edits = EditService(db: db, catalog: catalog, derivatives: { DerivativeStore(cacheDir: cache) })
+        let ex = ExportService(db: db, catalog: catalog, edits: edits, ffmpeg: nil, cacheDir: cache)
+        var o = ExportOptions()
+        o.ids = [id]
+        let out = Fixtures.tempDir()
+        try await ex.run(try ex.plan(o), format: .jpeg, write: ExportService.writeToFolder(out), progress: { _ in }, isCancelled: { false })
+        #expect(try Data(contentsOf: out.appendingPathComponent("a.jpg")) == Data(contentsOf: elsewhere))
+        #expect(store.asked == [id])
+        // the default store reads the library folder, where the file no longer is
+        #expect(try CatalogService(db: db, settings: settings).originals.original(id: id) == nil)
     }
 }

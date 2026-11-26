@@ -118,10 +118,13 @@ public struct AssetDetail: Codable, Sendable {
 public final class CatalogService: Sendable {
     let db: AppDatabase
     let settings: SettingsStore
+    /// Where originals are read from: every read of a photo's or video's bytes goes through it.
+    public let originals: OriginalStore
 
-    public init(db: AppDatabase, settings: SettingsStore) {
+    public init(db: AppDatabase, settings: SettingsStore, originals: OriginalStore? = nil) {
         self.db = db
         self.settings = settings
+        self.originals = originals ?? OriginalStores.make(db: db, settings: settings)
     }
 
     nonisolated(unsafe) static let iso: ISO8601DateFormatter = {
@@ -274,15 +277,11 @@ public final class CatalogService: Sendable {
         }
     }
 
-    /// Absolute URL of an original that still matches what was indexed (size + mtime), so derivatives
-    /// are never built from a file that changed since the last scan.
-    public func sourceURL(id: String) throws -> URL? {
-        let bases = try rootURLs()
-        let rows = try db.writer.read { try FileRow.filter(Column("assetId") == id).order(Column("root"), Column("relPath")).fetchAll($0) }
-        for row in rows {
-            if let url = Self.unchanged(bases[row.root], row.relPath, size: row.size, mtime: row.mtime) { return url }
-        }
-        return nil
+    /// The original's file name (from the catalog: the file itself isn't read).
+    public func originalName(id: String) throws -> String? {
+        try db.writer.read {
+            try String.fetchOne($0, sql: "SELECT relPath FROM file WHERE assetId = ? ORDER BY root, relPath LIMIT 1", arguments: [id])
+        }.map { ($0 as NSString).lastPathComponent }
     }
 
     /// "photo" or "video"; nil for an unknown asset.
@@ -300,12 +299,6 @@ public final class CatalogService: Sendable {
         try db.writer.read { try MotionRow.fetchOne($0, key: id) }
     }
 
-    /// The still's Live Photo motion clip, if it is still on disk as scanned.
-    public func motionURL(id: String) throws -> URL? {
-        guard let row = try motion(id: id) else { return nil }
-        return Self.unchanged(try rootURLs()[row.root], row.relPath, size: row.size, mtime: row.mtime)
-    }
-
     /// Where a photo's (first) file is, also for photos in the uploads Trash.
     public func fileURL(id: String) throws -> URL? {
         let bases = try rootURLs()
@@ -321,20 +314,6 @@ public final class CatalogService: Sendable {
     }
 
     public func rootURLs() throws -> [String: URL] {
-        [
-            Roots.library: try settings.get(.libraryPath).map { URL(fileURLWithPath: $0) },
-            Roots.uploads: try settings.get(.uploadsPath).map { URL(fileURLWithPath: $0) },
-        ].compactMapValues { $0 }
-    }
-
-    /// The file under `base` when it is readable and its size and mtime still match the scan.
-    private static func unchanged(_ base: URL?, _ relPath: String, size: Int64, mtime: Double) -> URL? {
-        guard let base else { return nil }
-        let url = base.appendingPathComponent(relPath)
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              (attrs[.size] as? NSNumber)?.int64Value == size,
-              (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 == mtime,
-              FileManager.default.isReadableFile(atPath: url.path) else { return nil }
-        return url
+        try LocalOriginalStore.rootURLs(settings)
     }
 }

@@ -306,13 +306,13 @@ public final class VideoConversions: @unchecked Sendable {
     private func source(_ r: Running) throws -> Source? {
         let id = r.job.id
         if r.job.motion {
-            guard let url = try catalog.motionURL(id: id) else { throw ConversionError("Motion clip not found") }
+            guard let url = try catalog.originals.motion(id: id) else { throw ConversionError("Motion clip not found") }
             guard let p = VideoProbe.probe(url: url) else { throw ConversionError("Unreadable motion clip") }
             return Source(url: url, width: p.width, height: p.height, hdr: p.hdr, duration: p.duration)
         }
         guard let a = try db.writer.read({ try Asset.fetchOne($0, key: id) }), a.kind == "video",
               a.servePlan == "preview", r.forAll || a.videoError == nil else { return nil }
-        guard let url = try catalog.sourceURL(id: id) else { throw ConversionError("Original file not found") }
+        guard let url = try catalog.originals.original(id: id) else { throw ConversionError("Original file not found") }
         return Source(url: url, width: a.width, height: a.height, hdr: a.videoHDR, duration: a.duration ?? 0)
     }
 

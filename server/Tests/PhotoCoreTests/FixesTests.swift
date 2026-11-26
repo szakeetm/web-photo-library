@@ -20,13 +20,13 @@ import GRDB
         return (db, settings, root, runner, store)
     }
 
-    @Test func sourceURLRejectsFileChangedSinceScan() throws {
+    @Test func originalRejectsFileChangedSinceScan() throws {
         let (db, settings, root, _, _) = try indexed()
         let catalog = CatalogService(db: db, settings: settings)
         let id = try FileHasher.sha256(url: root.appendingPathComponent("a.jpg"))
-        #expect(try catalog.sourceURL(id: id) != nil)
+        #expect(try catalog.originals.original(id: id) != nil)
         Fixtures.writeJPEG(to: root.appendingPathComponent("a.jpg"), width: 640, color: (0, 0, 1))
-        #expect(try catalog.sourceURL(id: id) == nil)
+        #expect(try catalog.originals.original(id: id) == nil)
     }
 
     @Test func skippedOtherFilesAreReported() throws {

@@ -254,7 +254,7 @@ public final class ExportService: Sendable {
                 if it.kind == "photo" && it.ev > 0 {
                     mediaName = base + (o.format == .heic ? ".heic" : ".jpg")
                     entries.append(ExportEntry(path: prefix + mediaName, source: .edited(assetId: id), modified: date, bytes: it.size))
-                } else if it.kind == "photo", let src = try catalog.sourceURL(id: id), !MetadataRewriter.supports(src) {
+                } else if it.kind == "photo", let src = try catalog.originals.original(id: id), !MetadataRewriter.supports(src) {
                     // a format whose date can't be rewritten (RAW…): the original, the date in an XMP sidecar
                     entries.append(ExportEntry(path: prefix + mediaName, source: .original(assetId: id), modified: date, bytes: it.size))
                     forceXMP = it.dated
@@ -330,17 +330,17 @@ public final class ExportService: Sendable {
         case .data:
             return nil
         case .original(let id):
-            guard let url = try catalog.sourceURL(id: id) else { throw ExportError.missing(entry.path) }
+            guard let url = try catalog.originals.original(id: id) else { throw ExportError.missing(entry.path) }
             return (url, false)
         case .motion(let id, let dated):
-            guard let url = try catalog.motionURL(id: id) else { throw ExportError.missing(entry.path) }
+            guard let url = try catalog.originals.motion(id: id) else { throw ExportError.missing(entry.path) }
             guard dated, let a = try catalog.record(id: id) else { return (url, false) }
             let out = try tempURL(ext: url.pathExtension)
             try await VideoCutter.cut(source: url, end: nil, to: out, creationDate: a.takenAt, tzOffset: a.tzOffset, ffmpeg: ffmpeg)
             return (out, true)
         case .edited(let id):
             guard let f = try await editedFile(id: id, format: format) else {
-                guard let url = try catalog.sourceURL(id: id) else { throw ExportError.missing(entry.path) }
+                guard let url = try catalog.originals.original(id: id) else { throw ExportError.missing(entry.path) }
                 return (url, false)
             }
             return (f.url, f.temporary)
@@ -350,7 +350,7 @@ public final class ExportService: Sendable {
     /// A photo or video with its edits applied, or nil when it has none: pixel edits rendered at full
     /// size; an adjusted date written into a copy without re-encoding; a trim cut without re-encoding.
     public func editedFile(id: String, format: ImageFormat) async throws -> (url: URL, name: String, temporary: Bool)? {
-        guard let a = try catalog.record(id: id), let source = try catalog.sourceURL(id: id) else { throw EditError.sourceUnavailable }
+        guard let a = try catalog.record(id: id), let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let dated = a.dateSource == "user"
         if a.kind == "video" {
             let trim = try VideoTrimService(db: db).trim(id: id)

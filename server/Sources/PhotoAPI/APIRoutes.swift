@@ -353,7 +353,7 @@ struct APIRoutes {
             let store = services.derivatives()
             var preview = store.url(id: f.assetId, kind: .preview, format: .heic)
             if !store.exists(id: f.assetId, kind: .preview, format: .heic) {
-                guard let src = try services.catalog.sourceURL(id: f.assetId) else { throw HTTPError(.notFound) }
+                guard let src = try await services.catalog.originals.file(f.assetId) else { throw HTTPError(.notFound) }
                 preview = try await renderLimiter.run { try await blocking { try store.ensure(id: f.assetId, source: src, kind: .preview, format: .heic) } }
             }
             let base = preview
@@ -538,7 +538,7 @@ struct APIRoutes {
         }
 
         api.get("assets/:id/original") { req, ctx in
-            guard let id = validId(ctx), let url = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            guard let id = validId(ctx), let url = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
             return try await fileResponse(path: url.path, contentType: contentType(forExtension: url.pathExtension), request: req,
                                           context: ctx, extraHeaders: [
                                               .contentDisposition: "attachment; filename*=UTF-8''\(percentEncoded(url.lastPathComponent))",
@@ -553,7 +553,7 @@ struct APIRoutes {
 
         // The photo's HDR gain map for the editor (NormalizedGainMap wire format); 204 for SDR photos.
         api.get("gainmap/:id") { _, ctx in
-            guard let id = validId(ctx), let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            guard let id = validId(ctx), let source = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
             let cache = "public, max-age=31536000, immutable"
             if try isVideo(id) { return Response(status: .noContent, headers: [.cacheControl: cache]) }
             let store = services.derivatives()
@@ -682,7 +682,7 @@ struct APIRoutes {
             if store.exists(id: id, kind: kind, format: format) {
                 url = store.url(id: id, kind: kind, format: format)
             } else {
-                guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+                guard let source = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
                 let made = try await renderLimiter.run {
                     try await blocking { try store.ensurePoster(id: id, source: source, format: format, ffmpeg: services.ffmpeg) }
                 }
@@ -691,7 +691,7 @@ struct APIRoutes {
         } else if ev > 0, store.exists(id: id, kind: kind, editVersion: ev, format: format) {
             url = store.url(id: id, kind: kind, editVersion: ev, format: format)
         } else {
-            guard let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            guard let source = try await services.catalog.originals.file(id) else { throw HTTPError(.notFound) }
             if ev > 0 {
                 // Edited renders are regenerated from the stored recipe (e.g. after the caches were cleared).
                 guard let recipe = try services.edits.recipe(id: id, version: ev) else { throw HTTPError(.notFound) }
