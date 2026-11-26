@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Virtualised photo grid using window scrolling. Pinch (touch/trackpad) and ctrl+wheel change density.
 	import { onMount, tick } from 'svelte';
-	import { layoutGrid, visibleRange, columnsFor, idAt, type Section } from '#lib/gridLayout.ts';
+	import { layoutGrid, visibleRange, columnsFor, idAt, neighbour, type Section } from '#lib/gridLayout.ts';
 	import Thumb from './Thumb.svelte';
 	import MonthJump from './MonthJump.svelte';
 	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
@@ -15,7 +15,8 @@
 		selection,
 		onActivate,
 		onLongPress,
-		focused = null
+		focused = null,
+		onFocusMove
 	}: {
 		sections: Section[];
 		startAtEnd?: boolean;
@@ -24,11 +25,15 @@
 		onLongPress?: (id: string) => void;
 		/** the photo last open in the viewer (desktop), framed like a selection */
 		focused?: string | null;
+		/** desktop: the arrow keys move the outline to this photo (Photos on the Mac); unset: no arrow keys */
+		onFocusMove?: (id: string) => void;
 	} = $props();
 
 	const targets = [64, 96, 136, 200, 300];
 	const GAP = 2;
 	const HEADER = 48;
+	/** the sticky title bar over the grid */
+	const TOP_BAR = 56;
 
 	let container: HTMLDivElement;
 	let width = $state(0);
@@ -65,7 +70,45 @@
 	function jumpTo(m: MonthMark) {
 		jumping = false;
 		// leave room for the sticky title bar
-		window.scrollTo(0, Math.max(0, containerTop + m.y - 56));
+		window.scrollTo(0, Math.max(0, containerTop + m.y - TOP_BAR));
+	}
+
+	// Arrow keys move the outlined photo (desktop, not while selecting), scrolling it into view. With
+	// nothing outlined, the first press outlines the top-left photo on screen.
+	$effect(() => {
+		if (!onFocusMove) return;
+		const onKey = (e: KeyboardEvent) => {
+			const dir = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const)[e.key as 'ArrowLeft'];
+			if (!dir || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || selection?.active) return;
+			if ((e.target as HTMLElement).closest?.('input, select, textarea, [contenteditable]')) return;
+			if (document.querySelector('.viewer, [role=dialog], [role=alertdialog]')) return;
+			const next = focused && layout.blocks.some((b) => b.kind === 'row' && b.items.includes(focused!))
+				? neighbour(layout.blocks, focused, dir)
+				: firstOnScreen();
+			e.preventDefault();
+			if (!next) return;
+			onFocusMove(next);
+			reveal(next);
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
+
+	/** The top-left photo whose row is (at least partly) below the title bar. */
+	function firstOnScreen(): string | null {
+		const top = window.scrollY - containerTop + TOP_BAR;
+		for (const b of layout.blocks) if (b.kind === 'row' && b.y + b.h > top) return b.items[0];
+		return null;
+	}
+
+	/** Scrolls just enough to show a photo's row below the title bar. */
+	function reveal(id: string) {
+		const b = layout.blocks.find((x) => x.kind === 'row' && x.items.includes(id));
+		if (!b) return;
+		const rowTop = containerTop + b.y;
+		const rowBottom = rowTop + b.h;
+		if (rowTop < window.scrollY + TOP_BAR) window.scrollTo(0, rowTop - TOP_BAR - GAP);
+		else if (rowBottom > window.scrollY + viewport) window.scrollTo(0, rowBottom - viewport + GAP);
 	}
 
 	function measure() {

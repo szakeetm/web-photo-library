@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutGrid, visibleRange, columnsFor, idAt } from './gridLayout.ts';
+import { layoutGrid, visibleRange, columnsFor, idAt, neighbour } from './gridLayout.ts';
 
 const sections = [
 	{ key: 'a', label: 'A', items: ['1', '2', '3', '4', '5'] },
@@ -61,5 +61,36 @@ describe('idAt', () => {
 		expect(idAt(layout, 2 * (t + 2) + 1, 40 + t + 3)).toBeNull(); // past the last tile of the row
 		expect(idAt(layout, 1, 5)).toBeNull(); // header
 		expect(idAt(layout, 1, layout.height + 50)).toBeNull();
+	});
+});
+
+describe('neighbour', () => {
+	// two sections, 3 columns: [a b c] [d] | [e f g] [h i]
+	const layout = layoutGrid(
+		[
+			{ key: 's1', label: 'One', items: ['a', 'b', 'c', 'd'] },
+			{ key: 's2', label: 'Two', items: ['e', 'f', 'g', 'h', 'i'] }
+		],
+		{ width: 300, columns: 3, gap: 0, headerHeight: 40 }
+	);
+	const n = (from: string, dir: 'left' | 'right' | 'up' | 'down') => neighbour(layout.blocks, from, dir);
+
+	it('steps left and right through the photos in order, across rows and sections', () => {
+		expect(n('a', 'right')).toBe('b');
+		expect(n('c', 'right')).toBe('d');
+		expect(n('d', 'right')).toBe('e');
+		expect(n('e', 'left')).toBe('d');
+		expect(n('a', 'left')).toBeNull();
+		expect(n('i', 'right')).toBeNull();
+	});
+
+	it('goes up and down a row at the same column, or the shorter row’s last photo', () => {
+		expect(n('b', 'down')).toBe('d');
+		expect(n('d', 'down')).toBe('e');
+		expect(n('f', 'up')).toBe('d');
+		expect(n('g', 'down')).toBe('i');
+		expect(n('a', 'up')).toBeNull();
+		expect(n('h', 'down')).toBeNull();
+		expect(n('zz', 'down')).toBeNull();
 	});
 });

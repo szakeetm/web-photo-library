@@ -127,7 +127,7 @@
 		<p class="nomatch muted">Nothing here matches “{filterLabel}”.</p>
 	{/if}
 {/if}
-<Grid sections={filtered} {startAtEnd} {selection} {focused} onActivate={activate} onLongPress={(id) => selection.start(id)} />
+<Grid sections={filtered} {startAtEnd} {selection} {focused} onFocusMove={desktop ? (id) => (focused = id) : undefined} onActivate={activate} onLongPress={(id) => selection.start(id)} />
 {#if selection.active}
 	<ActionBar {selection} order={ids} {albumId} {trash} />
 {/if}

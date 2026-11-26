@@ -88,3 +88,25 @@ export function idAt(layout: GridLayout, x: number, y: number): string | null {
 	const col = Math.floor(x / (tile + gap));
 	return col >= 0 && col < b.items.length ? b.items[col] : null;
 }
+
+export type Direction = 'left' | 'right' | 'up' | 'down';
+
+/**
+ * The photo next to `from` in `dir`, as laid out (Photos on the Mac): left/right step through the photos
+ * in order (across rows and sections), up/down go to the row above/below at the same column, or that
+ * row's last photo when it is shorter. Null at the edges or when `from` isn't laid out.
+ */
+export function neighbour(blocks: Block[], from: string, dir: Direction): string | null {
+	const rows = blocks.filter((b): b is Extract<Block, { kind: 'row' }> => b.kind === 'row');
+	let r = -1;
+	let c = -1;
+	for (let i = 0; i < rows.length && r < 0; i++) {
+		const j = rows[i].items.indexOf(from);
+		if (j >= 0) [r, c] = [i, j];
+	}
+	if (r < 0) return null;
+	if (dir === 'left') return c > 0 ? rows[r].items[c - 1] : r > 0 ? rows[r - 1].items.at(-1)! : null;
+	if (dir === 'right') return c < rows[r].items.length - 1 ? rows[r].items[c + 1] : r < rows.length - 1 ? rows[r + 1].items[0] : null;
+	const target = rows[dir === 'up' ? r - 1 : r + 1];
+	return target ? target.items[Math.min(c, target.items.length - 1)] : null;
+}
