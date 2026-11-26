@@ -71,13 +71,13 @@
 		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
+			<a class="sub" href="/trash" class:active={exact('/trash')}
+				><Icon name="trash" size={18} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
+			>
 		{/if}
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
-		{#if app.trash.length}
-			<a href="/trash" class:active={exact('/trash')}><Icon name="trash" size={20} /> Trash</a>
-		{/if}
 		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
 		<div class="albumlist">
 			{#each sidebarAlbums as al (al.id)}
@@ -219,6 +219,15 @@
 		}
 		.sidebar a.active {
 			background: rgba(127, 127, 127, 0.18);
+		}
+		.sidebar a.sub {
+			padding-left: 30px;
+			font-size: 14px;
+		}
+		.sidebar a .badge {
+			margin-left: auto;
+			font-size: 12px;
+			color: var(--fg-secondary);
 		}
 		.sidebar a span {
 			white-space: nowrap;
