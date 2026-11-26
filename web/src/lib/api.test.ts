@@ -11,12 +11,28 @@ describe('api urls', () => {
 
 describe('video urls', () => {
 	it('builds video, status and motion urls', async () => {
+		vi.resetModules();
+		vi.doMock('./platform', () => ({ playsHevc: true }));
 		const { videoUrl, videoStatusUrl, motionUrl, CLIENT_API_VERSION, CATALOG_FORMAT } = await import('./api');
 		expect(videoUrl('ab')).toBe('/api/assets/ab/video');
+		expect(videoUrl('ab', true)).toBe('/api/assets/ab/video?original=1');
 		expect(videoStatusUrl('ab')).toBe('/api/assets/ab/video/status');
 		expect(motionUrl('ab')).toBe('/api/assets/ab/motion');
 		expect(CLIENT_API_VERSION).toBe(8);
 		expect(CATALOG_FORMAT).toBe(9);
+		vi.doUnmock('./platform');
+	});
+
+	it('asks for H.264 where the browser has no HEVC (Chrome/Firefox on Linux, some PCs)', async () => {
+		vi.resetModules();
+		vi.doMock('./platform', () => ({ playsHevc: false }));
+		const { videoUrl, videoStatusUrl, motionUrl } = await import('./api');
+		expect(videoUrl('ab')).toBe('/api/assets/ab/video?h264=1');
+		expect(videoUrl('ab', true)).toBe('/api/assets/ab/video?original=1&h264=1');
+		expect(videoStatusUrl('ab')).toBe('/api/assets/ab/video/status?h264=1');
+		expect(motionUrl('ab')).toBe('/api/assets/ab/motion?h264=1');
+		vi.doUnmock('./platform');
+		vi.resetModules();
 	});
 });
 

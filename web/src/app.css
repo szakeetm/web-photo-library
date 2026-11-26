@@ -93,3 +93,11 @@ a {
 .muted {
 	color: var(--fg-secondary);
 }
+
+/* The timeline scrubber replaces the page scrollbar while it is shown (TimelineScrubber). */
+html.scrubbed {
+	scrollbar-width: none;
+}
+html.scrubbed::-webkit-scrollbar {
+	display: none;
+}

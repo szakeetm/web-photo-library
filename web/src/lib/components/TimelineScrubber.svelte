@@ -87,7 +87,12 @@
 		scrollY = window.scrollY;
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', measure);
+		// With a mouse the rail is always there and replaces the page scrollbar (on Windows and Linux an
+		// always-visible one that would sit right next to it). See app.css.
+		const root = document.documentElement;
+		if (!touch) root.classList.add('scrubbed');
 		return () => {
+			root.classList.remove('scrubbed');
 			window.removeEventListener('scroll', onScroll);
 			window.removeEventListener('resize', measure);
 			clearTimeout(hideTimer);
