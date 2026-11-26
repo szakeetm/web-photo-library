@@ -41,6 +41,8 @@ export class Selection {
 	anchor = $state<string | null>(null);
 	/** the moving end of a shift+arrow range (the arrow keys move from here) */
 	lead = $state<string | null>(null);
+	/** what was selected when the current shift+arrow range started: kept while the range changes */
+	private rangeBase: Set<string> | null = null;
 	count = $derived(this.ids.size);
 	active = $derived(this.explicit || this.ids.size >= 2);
 
@@ -51,14 +53,17 @@ export class Selection {
 
 	/** Just this photo (a desktop click, the arrow keys, the photo last open). */
 	only(id: string) {
+		this.rangeBase = null;
 		this.ids = new Set([id]);
 		this.anchor = id;
 		this.lead = id;
 	}
 
-	/** Shift+arrows: the photos from the anchor to `to` (in `order`), replacing the selection; `to` becomes the moving end. */
+	/** Shift+arrows: the photos from the anchor to `to` (in `order`) become the range, `to` its moving
+	 *  end; photos selected apart from it (⌘-click) stay selected. */
 	rangeTo(order: string[], to: string) {
-		this.ids = new Set(selectRange(order, this.anchor ?? to, to));
+		this.rangeBase ??= new Set(this.ids);
+		this.ids = new Set([...this.rangeBase, ...selectRange(order, this.anchor ?? to, to)]);
 		this.anchor ??= to;
 		this.lead = to;
 	}
@@ -71,6 +76,7 @@ export class Selection {
 	}
 
 	toggle(id: string) {
+		this.rangeBase = null;
 		const next = new Set(this.ids);
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
@@ -80,6 +86,7 @@ export class Selection {
 	}
 
 	extendTo(order: string[], id: string) {
+		this.rangeBase = null;
 		const range = selectRange(order, this.anchor ?? id, id);
 		this.ids = new Set([...this.ids, ...range]);
 		this.anchor = id;
@@ -88,17 +95,20 @@ export class Selection {
 
 	/** Replaces the selection (drag-select). */
 	set(ids: Set<string>, anchor?: string) {
+		this.rangeBase = null;
 		this.explicit = true;
 		this.ids = ids;
 		if (anchor) this.anchor = anchor;
 	}
 
 	selectAll(order: string[]) {
+		this.rangeBase = null;
 		this.explicit = true;
 		this.ids = new Set(order);
 	}
 
 	clear() {
+		this.rangeBase = null;
 		this.explicit = false;
 		this.ids = new Set();
 		this.anchor = null;
