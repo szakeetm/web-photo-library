@@ -128,7 +128,7 @@
 <DownloadBar {pin} />
 
 {#if app.loaded && !folder}
-	<p class="empty muted">{root === 'uploads' ? 'No uploads yet.' : app.libraryConfigured ? 'Folder not found.' : 'No library folder yet.'}</p>
+	<p class="empty muted">{root === 'uploads' ? 'No uploads yet.' : app.libraryConfigured ? 'Folder not found.' : 'No folders yet.'}</p>
 {:else if folder}
 	{#if children.length}
 		<div class="folders">

@@ -40,8 +40,8 @@
 {#if app.loaded && app.assets.length === 0}
 	<div class="empty">
 		{#if !app.libraryConfigured}
-			<p>No library folder yet.</p>
-			<a class="btn primary" href="/settings">Choose library folder</a>
+			<p>No photos yet: choose a library folder or an uploads folder.</p>
+			<a class="btn primary" href="/settings">Open Settings</a>
 		{:else}
 			<p class="muted">No photos yet. Run “Detect changes” in Settings.</p>
 		{/if}

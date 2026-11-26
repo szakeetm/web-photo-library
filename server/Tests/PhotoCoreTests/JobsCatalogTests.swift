@@ -100,6 +100,18 @@ import GRDB
         #expect(job.state == "failed" && job.error?.contains("library") == true)
     }
 
+    @Test func uploadsAloneAreASource() throws {
+        let e = try env(withLibrary: false)
+        let settings = SettingsStore(db: e.db)
+        try settings.set(.uploadsPath, e.root.path)
+        let id = e.runner.enqueue(.detectChanges)
+        e.runner.waitUntilIdle()
+        #expect(e.runner.job(id: id)?.state == "done")
+        #expect(try e.catalog.catalog().assets.count == 2)
+        let scan = try #require(try settings.get(.sourceScans).first { $0.root == Roots.uploads })
+        #expect(scan.ok)
+    }
+
     @Test func unreadableLibraryFailsJobNotServer() throws {
         let e = try env()
         try SettingsStore(db: e.db).set(.libraryPath, "/nonexistent-\(UUID())")

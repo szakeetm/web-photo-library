@@ -351,6 +351,10 @@ export interface Settings {
 	localFolders: { id: number; path: string; root: `folder-${number}`; title: string; files: number; bytes: number; lastScan: SourceScan | null }[];
 	libraryFiles: number;
 	libraryLastScan: SourceScan | null;
+	/** the uploads folder, a source of its own when set */
+	uploadsFiles: number;
+	uploadsBytes: number;
+	uploadsLastScan: SourceScan | null;
 	/** remote originals kept on the Mac: the limit (GB), and what they take now */
 	originalsCacheGB: number;
 	originalsCacheBytes: number;

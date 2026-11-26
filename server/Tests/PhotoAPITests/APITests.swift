@@ -69,6 +69,16 @@ import UniformTypeIdentifiers
         }
     }
 
+    @Test func uploadsFolderAloneCountsAsConfigured() async throws {
+        let e = try env(configured: false)
+        try e.services.settings.set(.uploadsPath, e.root.deletingLastPathComponent().appendingPathComponent("up").path)
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/health", method: .get) { res in
+                #expect(String(buffer: res.body).contains("\"libraryConfigured\":true"))
+            }
+        }
+    }
+
     @Test func settingsRoundTripAndValidation() async throws {
         let e = try env(configured: false)
         try await e.app.test(.router) { client in

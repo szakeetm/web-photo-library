@@ -146,13 +146,18 @@
 		);
 	}
 	const hasSources = $derived(
-		!!settings?.libraryPath || (settings?.remoteSources.length ?? 0) > 0 || (settings?.photosLibraries.length ?? 0) > 0
+		!!settings?.libraryPath ||
+			!!settings?.uploadsPath ||
+			(settings?.localFolders.length ?? 0) > 0 ||
+			(settings?.remoteSources.length ?? 0) > 0 ||
+			(settings?.photosLibraries.length ?? 0) > 0
 	);
 	async function addLocalFolder(path: string) {
 		picker = null;
 		try {
 			settings = await api.addLocalFolder(path);
 			message = { text: `${path.split('/').pop()} added. Scanning…` };
+			app.libraryConfigured = true;
 			poll();
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
@@ -325,8 +330,9 @@
 		picker = null;
 		try {
 			settings = await api.saveSettings({ uploadsPath: path });
-			message = { text: `Uploads will be saved in ${path}.` };
-			await app.reload();
+			message = { text: `Uploads will be saved in ${path}. Scanning…` };
+			app.libraryConfigured = true;
+			await start('detect-changes');
 		} catch (e) {
 			message = { text: (e as Error).message, error: true };
 		}
@@ -448,6 +454,11 @@
 			<h2>Welcome</h2>
 			<p>Choose the folder on this Mac that holds your photos. It is only ever read, never modified.</p>
 			<button class="btn primary" onclick={() => (picker = 'library')}>Choose library folder…</button>
+			<p class="muted small">
+				No photos on this Mac yet? Choose an uploads folder instead and upload from your devices, or add an Apple Photos
+				library or an rclone folder below.
+			</p>
+			<button class="btn" onclick={() => (picker = 'uploads')}>Choose uploads folder…</button>
 		</div>
 	{/if}
 
@@ -586,6 +597,21 @@
 			</div>
 			<button class="btn" onclick={() => (picker = 'library')}>{settings?.libraryPath ? 'Change…' : 'Choose…'}</button>
 		</div>
+		<div class="row">
+			<div class="label">
+				<div>Uploads</div>
+				<div class="muted path">{settings?.uploadsPath ?? 'Not set: uploading is off'}</div>
+				{#if settings?.uploadsPath}
+					<div class="muted small">{settings.uploadsFiles.toLocaleString()} photo and video files · {fmtBytes(settings.uploadsBytes)}</div>
+					{@render status('uploads', settings.uploadsLastScan)}
+				{/if}
+				<div class="muted small">
+					Photos uploaded from your devices go here (phone-uploads/, desktop-uploads/), never into the other folders. It is
+					always a source: what is in it shows under Folders, even with no other folder set.
+				</div>
+			</div>
+			<button class="btn" onclick={() => (picker = 'uploads')}>{settings?.uploadsPath ? 'Change…' : 'Choose…'}</button>
+		</div>
 		{#each settings?.localFolders ?? [] as f (f.id)}
 			<div class="row">
 				<div class="label">
@@ -601,10 +627,10 @@
 			<div class="label">
 				<div class="muted small">
 					Folders of photos and videos on the Mac or its drives, read where they are (never changed): the main folder, and
-					more next to it. The same photo in several folders is shown once.
+					more next to it. The main folder is optional. The same photo in several folders is shown once.
 				</div>
 			</div>
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => (picker = 'folder')}>Add Folder…</button>
+			<button class="btn" onclick={() => (picker = 'folder')}>Add Folder…</button>
 		</div>
 	</section>
 
@@ -684,14 +710,6 @@
 			<button class="btn" disabled={!hasSources} onclick={() => start('reindex')}>Re-index</button>
 			<button class="btn" disabled={!hasSources} onclick={() => start('rebuild-caches')}>Rebuild caches</button>
 			<button class="btn danger" onclick={() => start('purge-missing')}>Purge missing</button>
-		</div>
-		<div class="row">
-			<div class="label">
-				<div>Uploads folder</div>
-				<div class="muted path">{settings?.uploadsPath ?? 'Not set — uploading is off'}</div>
-				<div class="muted small">Photos uploaded from your devices go here (phone-uploads/, desktop-uploads/), never into the library. Move them into the library whenever you like — albums and favourites follow them.</div>
-			</div>
-			<button class="btn" onclick={() => (picker = 'uploads')}>Choose…</button>
 		</div>
 		<div class="row actions">
 			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('import-takeout-albums')}>Import Takeout albums</button>

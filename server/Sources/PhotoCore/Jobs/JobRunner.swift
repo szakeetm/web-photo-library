@@ -154,30 +154,22 @@ public final class JobRunner: @unchecked Sendable {
         }
     }
 
-    /// Configured roots, library first; remote sources' roots are their mirrors on this Mac. The
-    /// library folder may be left unset when there are remote sources.
+    /// Configured roots, library first; remote sources' roots are their mirrors on this Mac. Every
+    /// source is optional (the uploads folder is one too), as long as there is at least one.
     private func roots() throws -> [(String, URL)] {
         var out: [(String, URL)] = []
-        let remotes = try remoteRoots()
-        let photos = try PhotosLibraries.all(settings)
-        let folders = try LocalFolders.all(settings)
         if let lib = try settings.get(.libraryPath), !lib.isEmpty { out.append((Roots.library, URL(fileURLWithPath: lib))) }
-        else if remotes.isEmpty && photos.isEmpty && folders.isEmpty { throw JobError.noLibrary }
-        out += folders.map { ($0.root, $0.url) }
+        out += try LocalFolders.all(settings).map { ($0.root, $0.url) }
         if let up = try settings.get(.uploadsPath), !up.isEmpty { out.append((Roots.uploads, URL(fileURLWithPath: up))) }
-        return out + photos.map { ($0.root, $0.url) } + remotes.map { ($0.root, $1) }
+        out += try PhotosLibraries.all(settings).map { ($0.root, $0.url) }
+        out += try remoteRoots().map { ($0.root, $1) }
+        if out.isEmpty { throw JobError.noLibrary }
+        return out
     }
 
     private func remoteRoots() throws -> [(RemoteSource, URL)] {
         guard let dataDir else { return [] }
         return try RemoteSources.all(settings).map { ($0, RemoteSources.mirror($0.root, dataDir: dataDir)) }
-    }
-
-    private func libraryRoot() throws -> URL {
-        guard let path = try settings.get(.libraryPath), !path.isEmpty else {
-            throw JobError.noLibrary
-        }
-        return URL(fileURLWithPath: path)
     }
 
     private func execute(id: Int64, kind: JobKind) throws -> String {
@@ -234,7 +226,7 @@ public final class JobRunner: @unchecked Sendable {
                 }
                 let scanner = LibraryScanner(db: db, root: url, rootName: name, serverTZ: serverTZ, excluding: excluding)
                 // folders that are sources report their progress and result as their own
-                let isSource = name == Roots.library || LocalFolders.isLocalFolder(name)
+                let isSource = name == Roots.library || name == Roots.uploads || LocalFolders.isLocalFolder(name)
                 do {
                     let r = kind == .reindex
                         ? try scanner.reindex(progress: progressReporter(id, phase: isSource ? "metadata:\(name)" : "metadata"), isCancelled: cancelled)
@@ -244,7 +236,9 @@ public final class JobRunner: @unchecked Sendable {
                     if let f = try LocalFolders.source(root: name, settings) { try scanner.nameRootFolder(f.title) }
                     if name == Roots.library { try scanner.nameRootFolder(url.lastPathComponent) }
                 } catch ScanError.rootUnreadable(let path) where name == Roots.uploads {
-                    notes.append("Uploads folder is not readable (\(path)); its photos were left untouched.")
+                    let note = "Uploads folder is not readable (\(path)); its photos were left untouched."
+                    notes.append(note)
+                    try? settings.recordScan(SourceScan(root: name, report: nil, note: note))
                 } catch ScanError.rootUnreadable(let path) where LocalFolders.isLocalFolder(name) {
                     let note = "\(path) isn't readable (moved, or its drive isn't connected); its photos were left untouched."
                     notes.append(note)
@@ -535,7 +529,7 @@ public final class JobRunner: @unchecked Sendable {
 
 public enum JobError: Error, CustomStringConvertible {
     case noLibrary
-    public var description: String { "No library folder configured. Choose one in Settings." }
+    public var description: String { "No photos to show yet: choose a library folder or an uploads folder, or add another source, in Settings." }
 }
 
 /// Progress that only moves forward; publishing is throttled to ~4 updates per second.

@@ -99,6 +99,10 @@ struct APIRoutes {
         let localFolders: [LocalFolderInfo]
         let libraryFiles: Int
         let libraryLastScan: SourceScan?
+        /// the uploads folder, a source of its own when set
+        let uploadsFiles: Int
+        let uploadsBytes: Int64
+        let uploadsLastScan: SourceScan?
         /// remote originals kept on this Mac: the limit, and what they take now
         let originalsCacheGB: Int
         let originalsCacheBytes: Int64
@@ -139,6 +143,7 @@ struct APIRoutes {
                             uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil
+                                || ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil
                                 || !((try? RemoteSources.all(services.settings)) ?? []).isEmpty
                                 || !((try? PhotosLibraries.all(services.settings)) ?? []).isEmpty
                                 || !((try? LocalFolders.all(services.settings)) ?? []).isEmpty,
@@ -765,6 +770,7 @@ struct APIRoutes {
             return sum + ((attrs?[.size] as? NSNumber)?.int64Value ?? 0)
         }
         let analysis = try JobRunner.analysisCounts(services.db)
+        let counts = try RemoteSources.fileCounts(services.db)
         return try json(SettingsResponse(libraryPath: try s.get(.libraryPath), uploadsPath: try s.get(.uploadsPath), ownerLogin: try s.get(.ownerLogin),
                                          dataDir: services.paths.dataDir.path, cacheBytes: services.derivatives().sizeOnDisk(),
                                          databaseBytes: dbBytes, dataLocationMissing: services.dataLocationMissing,
@@ -775,8 +781,10 @@ struct APIRoutes {
                                          analysisPending: analysis.pending, analysisTotal: analysis.total,
                                          rclone: RcloneInfo.current(), remoteSources: try sourceInfos(), photosLibraries: try photosInfos(),
                                          localFolders: try localFolderInfos(),
-                                         libraryFiles: try RemoteSources.fileCounts(services.db)[Roots.library]?.0 ?? 0,
+                                         libraryFiles: counts[Roots.library]?.0 ?? 0,
                                          libraryLastScan: try s.get(.sourceScans).first { $0.root == Roots.library },
+                                         uploadsFiles: counts[Roots.uploads]?.0 ?? 0, uploadsBytes: counts[Roots.uploads]?.1 ?? 0,
+                                         uploadsLastScan: try s.get(.sourceScans).first { $0.root == Roots.uploads },
                                          originalsCacheGB: try s.get(.originalsCacheGB) ?? RemoteSources.defaultCacheGB,
                                          originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir)))
     }
