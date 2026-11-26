@@ -14,6 +14,45 @@
 	const unnamed = $derived(app.people.filter((p) => !p.hidden && !p.name));
 	const hidden = $derived(app.people.filter((p) => p.hidden));
 
+	/** The unnamed person whose name is being typed in place. */
+	let naming = $state<number | null>(null);
+	let nameText = $state('');
+	let saving = $state(false);
+	const knownNames = $derived([...new Set(app.people.filter((p) => p.name && !p.hidden).map((p) => p.name!))].sort());
+
+	function startNaming(id: number) {
+		naming = id;
+		nameText = '';
+	}
+	function focusOnMount(el: HTMLInputElement) {
+		el.focus();
+	}
+	/** Saves the typed name; a name someone already has offers to combine the two. */
+	async function saveName(id: number) {
+		if (naming !== id || saving) return;
+		const name = nameText.trim();
+		if (!name) {
+			naming = null;
+			return;
+		}
+		saving = true;
+		try {
+			const same = app.people.find((p) => p.id !== id && p.name?.toLowerCase() === name.toLowerCase());
+			if (same) {
+				if (!confirm(`“${same.name}” already exists. Are these the same person? Their photos will be combined.`)) return;
+				await api.mergePeople([id], same.id);
+			} else {
+				await api.updatePerson(id, { name });
+			}
+			naming = null;
+			await app.reload();
+		} catch (e) {
+			alert((e as Error).message);
+		} finally {
+			saving = false;
+		}
+	}
+
 	onMount(() => {
 		if (!net.online) return;
 		api.settings()
@@ -25,16 +64,42 @@
 	});
 </script>
 
+<datalist id="known-names">
+	{#each knownNames as n (n)}<option value={n}></option>{/each}
+</datalist>
+
 <TitleBar title="People" subtitle={named.length ? String(named.length) : undefined} />
 
 {#snippet grid(list: typeof app.people)}
 	<div class="people">
 		{#each list as p (p.id)}
-			<a class="person" href="/people/{p.id}">
-				<FaceAvatar faceId={p.coverFaceId} size={112} />
-				<span class="name" class:unnamed={!p.name}>{p.name ?? 'Add Name'}</span>
+			<div class="person">
+				<a class="avatar" href="/people/{p.id}" title={p.name ? `All photos of ${p.name}` : 'Photos of this person'}>
+					<FaceAvatar faceId={p.coverFaceId} size={112} />
+				</a>
+				{#if p.name}
+					<a class="name" href="/people/{p.id}">{p.name}</a>
+				{:else if naming === p.id}
+					<input
+						class="name-input"
+						type="text"
+						placeholder="Name"
+						list="known-names"
+						autocomplete="off"
+						disabled={saving}
+						bind:value={nameText}
+						use:focusOnMount
+						onkeydown={(e) => {
+							if (e.key === 'Enter') saveName(p.id);
+							else if (e.key === 'Escape') naming = null;
+						}}
+						onblur={() => saveName(p.id)}
+					/>
+				{:else}
+					<button class="name unnamed" disabled={!net.online} onclick={() => startNaming(p.id)}>Add Name</button>
+				{/if}
 				<span class="count muted">{p.count}</span>
-			</a>
+			</div>
 		{/each}
 	</div>
 {/snippet}
@@ -80,8 +145,18 @@
 		text-align: center;
 		min-width: 0;
 	}
+	.avatar {
+		display: block;
+		border-radius: 50%;
+	}
 	.name {
+		font: inherit;
 		font-weight: 500;
+		color: var(--fg);
+		border: none;
+		background: none;
+		padding: 0;
+		cursor: pointer;
 		max-width: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -89,6 +164,22 @@
 	}
 	.name.unnamed {
 		color: var(--accent);
+	}
+	.name.unnamed:disabled {
+		color: var(--fg-secondary);
+		cursor: default;
+	}
+	.name-input {
+		width: 100%;
+		max-width: 124px;
+		font: inherit;
+		font-weight: 500;
+		text-align: center;
+		padding: 3px 6px;
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		background: var(--bg);
+		color: var(--fg);
 	}
 	.count {
 		font-size: 12px;
