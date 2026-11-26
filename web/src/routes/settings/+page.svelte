@@ -68,7 +68,10 @@
 		if (settings.analysisTotal === 0) return 'No photos yet';
 		if (settings.analysisPending === 0) return `All ${n(settings.analysisTotal)} analysed`;
 		const done = settings.analysisTotal - settings.analysisPending;
-		return `${n(done)} of ${n(settings.analysisTotal)} analysed · ${n(settings.analysisPending)} waiting`;
+		const left = settings.objectsEnabled
+			? `${n(settings.analysisPending)} not analysed yet`
+			: `turned off, so the other ${n(settings.analysisPending)} aren't analysed`;
+		return `${n(done)} of ${n(settings.analysisTotal)} analysed · ${left}`;
 	});
 
 	async function loadSettings() {
@@ -304,7 +307,7 @@
 		if (scanning && current?.phase?.endsWith(':' + root)) {
 			const p = current.total > 0 ? ` ${current.progress.toLocaleString()} of ${current.total.toLocaleString()}` : '…';
 			return {
-				text: `${current.phase.startsWith('photos') ? 'Scanning' : 'Fetching new photos'}${p}`,
+				text: `${current.phase.startsWith('photos') ? 'Scanning' : 'Fetching new and changed files'}${p}`,
 				busy: true,
 				progress: current.total ? current.progress / current.total : undefined,
 				detail: current.detail,
