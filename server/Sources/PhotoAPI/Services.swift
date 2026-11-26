@@ -50,6 +50,7 @@ public final class Services: @unchecked Sendable {
         jobs.onClearCaches = { [videos] in try videos.clear() }
         if let up = try? settings.get(.uploadsPath) { UploadSession.cleanIncoming(uploadsRoot: URL(fileURLWithPath: up)) }
         _ = try? catalog.compactChangeLog()
+        jobs.resumeInterrupted()
     }
 
     public func derivatives() -> DerivativeStore {

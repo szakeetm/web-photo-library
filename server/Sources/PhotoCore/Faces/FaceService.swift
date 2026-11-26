@@ -119,7 +119,14 @@ public final class FaceService: Sendable {
     @discardableResult
     public func cluster() throws -> Int {
         try db.writer.write { d in
+            // Who each face belongs to before, so only photos whose people change are re-sent to clients.
+            var before: [Int64: (asset: String, person: Int64?)] = [:]
+            for r in try Row.fetchAll(d, sql: "SELECT id, assetId, personId FROM face") { before[r["id"]] = (r["assetId"], r["personId"]) }
             // Rebuild automatic unnamed groups from scratch (so they improve as photos are added).
+            let rebuilt = Set(try Int64.fetchAll(d, sql: """
+                SELECT id FROM person WHERE name IS NULL AND hidden = 0
+                  AND NOT EXISTS (SELECT 1 FROM face WHERE personId = person.id AND assignment = 'user')
+                """))
             try d.execute(sql: """
                 DELETE FROM person WHERE name IS NULL AND hidden = 0
                   AND NOT EXISTS (SELECT 1 FROM face WHERE personId = person.id AND assignment = 'user')
@@ -131,7 +138,7 @@ public final class FaceService: Sendable {
                 SELECT f.id, f.embedding, (SELECT group_concat(personId) FROM face_reject r WHERE r.faceId = f.id) AS rejected
                 FROM face f JOIN asset a ON a.id = f.assetId
                 WHERE f.personId IS NULL AND a.missingSince IS NULL AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)
-                ORDER BY f.quality DESC LIMIT 20000
+                ORDER BY f.quality DESC
                 """)
             var pool: [(id: Int64, v: [Float], rejected: Set<Int64>)] = rows.map {
                 ($0["id"], Self.vector($0["embedding"]),
@@ -147,40 +154,35 @@ public final class FaceService: Sendable {
                 }
             }
             pool = remaining
-            // 2. DBSCAN over the rest
-            let n = pool.count
-            var neighbours = [[Int]](repeating: [], count: n)
-            for i in 0..<n {
-                for j in (i + 1)..<max(i + 1, n) where Self.dot(pool[i].v, pool[j].v) >= Self.clusterThreshold {
-                    neighbours[i].append(j)
-                    neighbours[j].append(i)
-                }
-            }
-            var label = [Int](repeating: -1, count: n)
-            var clusters: [[Int]] = []
-            for i in 0..<n where label[i] == -1 && neighbours[i].count + 1 >= Self.minClusterSize {
-                let c = clusters.count
-                var members = [i]
-                label[i] = c
-                var queue = neighbours[i]
-                while let j = queue.popLast() {
-                    guard label[j] == -1 else { continue }
-                    label[j] = c
-                    members.append(j)
-                    if neighbours[j].count + 1 >= Self.minClusterSize { queue.append(contentsOf: neighbours[j]) }
-                }
-                clusters.append(members)
-            }
+            // 2. Group the rest (chunked DBSCAN, see FaceClustering)
+            let clusters = FaceClustering.cluster(pool.map(\.v), threshold: Self.clusterThreshold, minPoints: Self.minClusterSize)
             var created = 0
-            for members in clusters where members.count >= Self.minClusterSize {
-                try d.execute(sql: "INSERT INTO person (name, hidden, createdAt) VALUES (NULL, 0, ?)", arguments: [Date()])
-                let pid = d.lastInsertedRowID
+            var reused = Set<Int64>()
+            for members in clusters.sorted(by: { $0.count > $1.count }) where members.count >= Self.minClusterSize {
+                // A group that is mostly an earlier unnamed person keeps that person's id (stable for clients).
+                var votes: [Int64: Int] = [:]
+                for m in members { if let p = before[pool[m].id]?.person, rebuilt.contains(p), !reused.contains(p) { votes[p, default: 0] += 1 } }
+                let pid: Int64
+                if let (old, n) = votes.max(by: { $0.value < $1.value }), n * 2 > members.count {
+                    try d.execute(sql: "INSERT INTO person (id, name, hidden, createdAt) VALUES (?, NULL, 0, ?)", arguments: [old, Date()])
+                    pid = old
+                    reused.insert(old)
+                } else {
+                    try d.execute(sql: "INSERT INTO person (name, hidden, createdAt) VALUES (NULL, 0, ?)", arguments: [Date()])
+                    pid = d.lastInsertedRowID
+                }
                 for m in members {
                     try d.execute(sql: "UPDATE face SET personId = ?, assignment = 'auto' WHERE id = ?", arguments: [pid, pool[m].id])
                 }
                 created += 1
             }
-            try Self.touchAll(d)
+            var changed = Set<String>()
+            for r in try Row.fetchAll(d, sql: "SELECT id, assetId, personId FROM face") {
+                let id: Int64 = r["id"], person: Int64? = r["personId"]
+                if before[id]?.person != person { changed.insert(r["assetId"]) }
+            }
+            for asset in changed { try ChangeLog.record(d, entity: "asset", id: asset, op: "upsert") }
+            try ChangeLog.record(d, entity: "person", id: "*", op: "upsert")
             return created
         }
     }

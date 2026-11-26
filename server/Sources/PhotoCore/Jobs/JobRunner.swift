@@ -44,11 +44,28 @@ public final class JobRunner: @unchecked Sendable {
         self.settings = settings
         self.derivatives = derivatives
         self.serverTZ = serverTZ
-        // Jobs interrupted by a restart are marked failed.
-        try? db.writer.write {
-            try $0.execute(sql: "UPDATE job SET state = 'failed', error = 'Interrupted by server restart', endedAt = ? WHERE state IN ('queued','running')",
-                           arguments: [Date()])
+        // Jobs interrupted by a restart are marked failed; resumeInterrupted() starts them again.
+        try? db.writer.write { d in
+            let kinds = try String.fetchAll(d, sql: "SELECT DISTINCT kind FROM job WHERE state IN ('queued','running')")
+            let resumed = kinds.compactMap(JobKind.init(rawValue:)).filter(Self.resumable.contains)
+                .map { $0 == .rebuildCaches ? JobKind.detectChanges : $0 }
+            self.interrupted = resumed.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+            try d.execute(sql: "UPDATE job SET state = 'failed', error = 'Interrupted by server restart', endedAt = ? WHERE state IN ('queued','running')",
+                          arguments: [Date()])
         }
+    }
+
+    /// Jobs that pick up where they stopped when run again: files already indexed, images already
+    /// rendered and photos already scanned for faces are skipped. An interrupted Rebuild caches
+    /// continues as Detect changes, which renders whatever is missing (rerunning it would start over).
+    static let resumable: [JobKind] = [.detectChanges, .reindex, .rebuildCaches, .faces]
+    private var interrupted: [JobKind] = []
+
+    /// Restarts the jobs a server restart interrupted (call once the server is set up).
+    public func resumeInterrupted() {
+        let kinds = interrupted
+        interrupted = []
+        for k in kinds { enqueue(k) }
     }
 
     @discardableResult
@@ -230,6 +247,7 @@ public final class JobRunner: @unchecked Sendable {
         let report = progressReporter(id, phase: "faces")
         var found = 0
         for (i, assetId) in ids.enumerated() {
+            InteractiveWork.yield()
             if isCancelled() { throw ScanError.cancelled }
             autoreleasepool {
                 do {
@@ -321,6 +339,7 @@ public final class JobRunner: @unchecked Sendable {
         let failures = FailedDirs()
         parallelFor(items.count, workers: workerCount) { i in
             if isCancelled() { return }
+            InteractiveWork.yield()
             let item = items[i]
             do {
                 guard let source = item.url else { throw ScanError.rootUnreadable(item.rel) }

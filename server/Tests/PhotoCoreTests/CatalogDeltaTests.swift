@@ -38,6 +38,36 @@ import GRDB
         #expect(d.seq > snap.seq && d.folders?.isEmpty == false && d.albums != nil)
     }
 
+    @Test func deltaSendsOnlyChangedAlbumsAndNewLists() throws {
+        let e = try env()
+        let first = try e.albums.create(title: "One", assetIds: [])
+        let second = try e.albums.create(title: "Two", assetIds: [])
+        let snap = try e.catalog.catalog()
+
+        try e.albums.update(id: second.id, title: "Two!", coverAssetId: nil)
+        let d = try e.catalog.changes(since: snap.seq, catalogId: snap.catalogId, have: snap.hashes)
+        #expect(d.albums?.map(\.title) == ["Two!"] && d.deletedAlbums == [])
+        // nothing in folders/people/places changed: the client's copies are kept
+        #expect(d.folders == nil && d.people == nil && d.places == nil && d.hashes == snap.hashes)
+        // without hashes (or with stale ones) the lists come along
+        let full = try e.catalog.changes(since: snap.seq, catalogId: snap.catalogId)
+        #expect(full.folders?.isEmpty == false && full.people != nil && full.places != nil)
+
+        try e.albums.delete(id: first.id)
+        let gone = try e.catalog.changes(since: d.seq, catalogId: snap.catalogId, have: snap.hashes)
+        #expect(gone.albums == [] && gone.deletedAlbums == [first.id])
+    }
+
+    @Test func compactingTheLogKeepsDeltasTheSame() throws {
+        let e = try env()
+        let snap = try e.catalog.catalog()
+        for fav in [true, false, true] { try e.albums.setFavorite(ids: [snap.assets[0].id], favorite: fav) }
+        let before = try e.catalog.changes(since: snap.seq, catalogId: snap.catalogId)
+        #expect(try e.catalog.compactChangeLog() > 0)
+        let after = try e.catalog.changes(since: snap.seq, catalogId: snap.catalogId)
+        #expect(after.assets.map(\.id) == before.assets.map(\.id) && after.seq == before.seq)
+    }
+
     @Test func removedFileIsReportedDeleted() throws {
         let e = try env()
         let snap = try e.catalog.catalog()

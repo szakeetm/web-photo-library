@@ -98,6 +98,7 @@ public final class LibraryScanner: @unchecked Sendable {
         // 1. Images: new or changed files are hashed; unchanged ones probed by an older scanner are re-read.
         for (i, c) in images.enumerated() {
             if isCancelled() { throw ScanError.cancelled }
+            InteractiveWork.yield()
             progress(i, total)
             let old = existing[c.relPath]
             if let old, old.size == c.size, old.mtime == c.mtime {

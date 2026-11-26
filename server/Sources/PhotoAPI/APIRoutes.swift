@@ -448,7 +448,8 @@ struct APIRoutes {
         }
 
         for kind in DerivativeKind.allCases {
-            api.get("\(kind.rawValue)/:id") { req, ctx in try await derivative(kind, req, ctx) }
+            // interactive: background jobs pause while these are rendered
+            api.get("\(kind.rawValue)/:id") { req, ctx in try await InteractiveWork.run { try await derivative(kind, req, ctx) } }
         }
 
         // The photo's HDR gain map for the editor (NormalizedGainMap wire format); 204 for SDR photos.
