@@ -45,6 +45,10 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
     /// When the file was first indexed (date added).
     public var addedAt: Date? = nil
 
+    /// The date isn't the file's: the user's, or Apple Photos' (which the file lacks or has otherwise).
+    /// Exports with edits write it into the file.
+    public var writesDateOnExport: Bool { dateSource == "user" || dateSource == "photos" }
+
     /// 2: media flags (screenshot, selfie, portrait).
     public static let currentProbeVersion = 2
 

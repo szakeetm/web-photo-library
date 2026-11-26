@@ -19,6 +19,8 @@
 	/** iPhone/iPad: the share sheet (Save Image, Save to Files); everything else downloads. */
 	const touch = isIOS;
 	const isVideo = $derived(asset.dur != null);
+	// a date that is not the file's: the user's, or Apple Photos' (written into the exported file)
+	const dated = $derived(asset.md === true || asset.pd === true);
 	/** Bytes received / expected while preparing (null when the size isn't known). */
 	let received = $state(0);
 	let expected = $state<number | null>(null);
@@ -103,20 +105,20 @@
 <div class="sheet" role="dialog" aria-modal="true" aria-label="Export">
 	{#if phase === 'choose'}
 		<h3>Export</h3>
-		{#if isVideo && (asset.tr || asset.md)}
+		{#if isVideo && (asset.tr || dated)}
 			{#if iosStandalone}
 				<button class="opt" onclick={() => prepare(exportUrl(asset.id, 'jpeg'), asset.name, true)}>
-					With edits <span>{asset.tr ? 'trimmed' : 'adjusted date'}, not re-encoded</span>
+					With edits <span>{asset.tr ? 'trimmed' : asset.md ? 'adjusted date' : 'date from Photos'}, not re-encoded</span>
 				</button>
 			{:else}
 				<a class="opt" href={exportUrl(asset.id, 'jpeg')} download={asset.name} onclick={onClose}>
-					With edits <span>{asset.tr ? 'trimmed' : 'adjusted date'}, not re-encoded</span>
+					With edits <span>{asset.tr ? 'trimmed' : asset.md ? 'adjusted date' : 'date from Photos'}, not re-encoded</span>
 				</a>
 			{/if}
 		{/if}
-		{#if !isVideo && asset.md && asset.ev === 0}
+		{#if !isVideo && dated && asset.ev === 0}
 			<button class="opt" onclick={() => prepare(exportUrl(asset.id, 'jpeg'), asset.name, true)}>
-				With adjusted date <span>same file, new date</span>
+				With {asset.md ? 'adjusted date' : 'the date from Photos'} <span>same file, {asset.md ? 'new date' : 'date written in'}</span>
 			</button>
 		{/if}
 		{#if asset.ev > 0}
@@ -148,7 +150,7 @@
 			{/if}
 		{:else}
 			<button class="opt" onclick={() => prepare(originalUrl(asset.id), asset.name)}>
-				Original <span>unchanged file{asset.ev > 0 || asset.md ? ', without edits' : ''}</span>
+				Original <span>unchanged file{asset.ev > 0 || asset.md ? ', without edits' : asset.pd ? ', without the date from Photos' : ''}</span>
 			</button>
 		{/if}
 		<button class="btn cancel" onclick={cancel}>Cancel</button>

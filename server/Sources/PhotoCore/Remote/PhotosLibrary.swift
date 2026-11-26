@@ -39,6 +39,12 @@ extension SettingKey where T == [PhotosLibrarySource] {
     public static let photosLibraries = SettingKey("photosLibraries", default: [])
 }
 
+extension SettingKey where T == [String] {
+    /// Photos libraries (roots) whose dates taken from Photos were read again from the files once, since
+    /// a file's own date within a minute of Photos' stays.
+    public static let photosDatesReread = SettingKey("photosDatesReread", default: [])
+}
+
 extension SettingKey where T == [PhotosLibraryStats] {
     public static let photosLibraryStats = SettingKey("photosLibraryStats", default: [])
 }
@@ -191,7 +197,13 @@ public enum PhotosLibraries {
         }
         // dates and places as Photos shows them (the files can't say: see `Item.date`)
         let byMain = Dictionary(chosen.compactMap { uuid, c in content.items[uuid].map { (c.main, $0) } }, uniquingKeysWith: { a, _ in a })
+        let reread = try settings.get(.photosDatesReread)
+        if !reread.contains(source.root) {
+            // dates taken from Photos by an earlier version even when the file's was only seconds off: read the files again
+            try rereadPhotosDates(scanner: scanner, root: source.root, db: db)
+        }
         report.updated += try applyPhotosMetadata(byMain, root: source.root, db: db, serverTZ: serverTZ)
+        if !reread.contains(source.root) { try settings.set(.photosDatesReread, reread + [source.root]) }
         let albums = try importAlbums(content.albums, source: source, db: db, settings: settings)
 
         let stats = PhotosLibraryStats(root: source.root, items: content.items.count, onDisk: chosen.count,
@@ -222,8 +234,11 @@ public enum PhotosLibraries {
                       var a = try Asset.fetchOne(d, key: row.assetId) else { continue }
                 let before = a
                 if let date = item.date {
-                    // the same moment as the file says (to the second): keep its source and zone
-                    let same = a.fileTakenAt.map { abs($0.timeIntervalSince(date)) < 1 } ?? false
+                    // the same moment as the file says: keep its source and zone. Photos often keeps a date a
+                    // few seconds before the camera's: the camera's stays; a file's own date (the day it was
+                    // saved) is never the photo's
+                    let tolerance: TimeInterval = a.fileDateSource == "exif" || a.fileDateSource == "sidecar" ? 60 : 1
+                    let same = a.fileTakenAt.map { abs($0.timeIntervalSince(date)) < tolerance } ?? false
                     if !same {
                         a.fileTakenAt = date
                         a.fileDateSource = "photos"
@@ -244,6 +259,22 @@ public enum PhotosLibraries {
                 changed += 1
             }
             return changed
+        }
+    }
+
+    /// Reads again, from the files, the dates and places of the photos dated by Photos.
+    static func rereadPhotosDates(scanner: LibraryScanner, root: String, db: AppDatabase) throws {
+        let rows = try db.writer.read { d in
+            try FileRow.fetchAll(d, sql: """
+                SELECT f.* FROM file f JOIN asset a ON a.id = f.assetId WHERE f.root = ? AND a.fileDateSource = 'photos'
+                """, arguments: [root])
+        }
+        var entries: [String: Set<String>] = [:]
+        for row in rows {
+            let url = scanner.root.appendingPathComponent(row.relPath)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else { continue }
+            let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? row.mtime
+            _ = try scanner.refreshMetadata(row, url: url, mtime: mtime, dirEntries: &entries)
         }
     }
 

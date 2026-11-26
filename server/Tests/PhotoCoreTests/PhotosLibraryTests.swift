@@ -186,11 +186,12 @@ import Testing
         #expect(PhotosLibraryReader.uuid(of: "9/9cd3-aa_3.mov") == "9CD3-AA")
     }
 
-    @Test func datesAndPlacesAreAsPhotosShowsThem() throws {
+    @Test func datesAndPlacesAreAsPhotosShowsThem() async throws {
         // A: Photos has the file's own date. B: adjusted in Photos (or a photo whose file has no date, like
         // one saved from WhatsApp), with its zone and a place the file doesn't have.
         let adjusted = ISO8601DateFormatter().date(from: "2024-04-05T12:00:00Z")!
-        let e = try env(dates: [1: Self.exifDate("2024-03-30"), 2: adjusted],
+        // A: Photos keeps a date a few seconds before the camera's: the camera's stays
+        let e = try env(dates: [1: Self.exifDate("2024-03-30").addingTimeInterval(-6), 2: adjusted],
                         places: [2: (35.6861, 139.7118)], zones: [2: (7200, "GMT+0200")])
         _ = try e.scan()
         func asset(_ uuid: String) throws -> Asset {
@@ -206,18 +207,51 @@ import Testing
         #expect(b.takenAt == adjusted && b.tzOffset == 7200 && b.dateSource == "photos" && b.fileTakenAt == adjusted)
         #expect(b.lat == 35.6861 && b.lon == 139.7118 && b.locationSource == "photos")
 
+        // B's date is written into its exported copy; the catalog tells the web so
+        let catalog = CatalogService(db: e.db, settings: e.settings)
+        #expect(b.writesDateOnExport && !a.writesDateOnExport)
+        #expect(try catalog.catalog().assets.first { $0.id == b.id }?.pd == true)
+        #expect(try catalog.catalog().assets.first { $0.id == a.id }?.pd == nil)
+        let cache = Fixtures.tempDir()
+        let ex = ExportService(db: e.db, catalog: catalog, edits: EditService(db: e.db, catalog: catalog, derivatives: { DerivativeStore(cacheDir: cache) }),
+                               ffmpeg: nil, cacheDir: cache)
+        let f = try #require(try await ex.editedFile(id: b.id, format: .jpeg))
+        #expect(try #require(ImageProbe.probe(url: f.url)).exifDate == adjusted)
+        #expect(try await ex.editedFile(id: a.id, format: .jpeg) == nil)
+
         // nothing changes on the next scan
         let (again, _) = try e.scan()
         #expect(again.updated == 0 && again.unchanged == 2, "\(again)")
 
         // a date set here stays the user's
         let mine = ISO8601DateFormatter().date(from: "2020-01-01T00:00:00Z")!
-        try e.db.writer.write { d in
-            try d.execute(sql: "INSERT INTO meta_edit (assetId, takenAt, tzOffset, createdAt) VALUES (?, ?, 0, ?)", arguments: [b.id, mine, Date()])
-            try d.execute(sql: "UPDATE asset SET takenAt = ?, tzOffset = 0, dateSource = 'user' WHERE id = ?", arguments: [mine, b.id])
+        let bid = b.id
+        try await e.db.writer.write { d in
+            try d.execute(sql: "INSERT INTO meta_edit (assetId, takenAt, tzOffset, createdAt) VALUES (?, ?, 0, ?)", arguments: [bid, mine, Date()])
+            try d.execute(sql: "UPDATE asset SET takenAt = ?, tzOffset = 0, dateSource = 'user' WHERE id = ?", arguments: [mine, bid])
         }
         _ = try e.scan()
         b = try asset("BBBB-2")
         #expect(b.takenAt == mine && b.dateSource == "user" && b.fileTakenAt == adjusted)
+    }
+
+    /// An earlier version took Photos' date even when it was seconds from the camera's: read once again.
+    @Test func datesTakenFromPhotosBeforeAreReadAgainOnce() throws {
+        let e = try env(dates: [1: Self.exifDate("2024-03-30").addingTimeInterval(-6), 2: Self.exifDate("2024-03-31")])
+        _ = try e.scan()
+        let photosDate = Self.exifDate("2024-03-30").addingTimeInterval(-6)
+        try e.db.writer.write { d in
+            try d.execute(sql: """
+                UPDATE asset SET takenAt = ?, fileTakenAt = ?, dateSource = 'photos', fileDateSource = 'photos'
+                WHERE id = (SELECT assetId FROM file WHERE relPath LIKE '%AAAA-1%')
+                """, arguments: [photosDate, photosDate])
+        }
+        try e.settings.set(.photosDatesReread, [])
+        _ = try e.scan()
+        let a = try e.db.writer.read { d in
+            try #require(try Asset.fetchOne(d, sql: "SELECT * FROM asset WHERE id = (SELECT assetId FROM file WHERE relPath LIKE '%AAAA-1%')"))
+        }
+        #expect(a.takenAt == Self.exifDate("2024-03-30") && a.dateSource == "exif")
+        #expect(try e.settings.get(.photosDatesReread) == [e.source.root])
     }
 }

@@ -53,6 +53,8 @@ export interface CatalogAsset {
 	live?: boolean;
 	/** the user changed the date (kept on the server, applied on export) */
 	md?: boolean;
+	/** the date is Apple Photos', not the file's (written into the file on export, like md) */
+	pd?: boolean;
 	/** media flags: 1 screenshot, 2 selfie, 4 portrait */
 	mf?: number;
 	/** date added (seconds since 1970) */

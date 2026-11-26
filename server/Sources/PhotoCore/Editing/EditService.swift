@@ -174,7 +174,7 @@ public final class EditService: Sendable {
         guard let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let dir = derivatives().cacheDir.appendingPathComponent("exports", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let userDate = detail.asset.dateSource == "user" ? (detail.asset.takenAt, detail.asset.tzOffset) : nil
+        let userDate = detail.asset.writesDateOnExport ? (detail.asset.takenAt, detail.asset.tzOffset) : nil
         // "_l": exports that keep the Live Photo pairing (older cached exports lack it); "_d…": the adjusted date
         let dated = userDate.map { "_d\(Int($0.0.timeIntervalSince1970))_\($0.1 ?? 0)" } ?? ""
         let target = dir.appendingPathComponent("\(id)_e\(version)_l\(dated).\(format.rawValue)")

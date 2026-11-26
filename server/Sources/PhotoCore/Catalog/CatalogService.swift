@@ -26,6 +26,8 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var live: Bool? = nil
     /// True when the user changed the date (kept in the database only, applied on export).
     public var md: Bool? = nil
+    /// True when the date is Apple Photos' and the file has another one or none (applied on export, like `md`).
+    public var pd: Bool? = nil
     /// MediaFlags (1 screenshot, 2 selfie, 4 portrait); absent when 0.
     public var mf: Int? = nil
     /// Date added (seconds since 1970).
@@ -147,7 +149,7 @@ public final class CatalogService: Sendable {
         }
         let rows = try Row.fetchAll(d, sql: """
             SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion, a.mediaFlags, a.addedAt,
-                   a.lat, a.lon, a.placeId, a.kind, a.duration,
+                   a.lat, a.lon, a.placeId, a.kind, a.duration, a.dateSource = 'photos' AS pd,
                    EXISTS (SELECT 1 FROM motion m WHERE m.assetId = a.id) AS live,
                    EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id) AS md,
                    (SELECT vt.start || ',' || vt."end" FROM video_trim vt WHERE vt.assetId = a.id) AS trim,
@@ -172,7 +174,7 @@ public final class CatalogService: Sendable {
                                     loc: (lat != nil && lon != nil && !(lat == 0 && lon == 0)) ? [round5(lat!), round5(lon!)] : nil,
                                     pl: r["placeId"], pp: people.isEmpty ? nil : people,
                                     dur: duration.map { ($0 * 10).rounded() / 10 }, live: (r["live"] as Bool) ? true : nil,
-                                    md: (r["md"] as Bool) ? true : nil,
+                                    md: (r["md"] as Bool) ? true : nil, pd: (r["pd"] as Bool) ? true : nil,
                                     mf: (r["mediaFlags"] as Int) == 0 ? nil : r["mediaFlags"],
                                     ad: (r["addedAt"] as Date?).map { Int($0.timeIntervalSince1970) },
                                     tr: (r["trim"] as String?).map { $0.split(separator: ",").compactMap { Double($0) }.map { ($0 * 100).rounded() / 100 } })

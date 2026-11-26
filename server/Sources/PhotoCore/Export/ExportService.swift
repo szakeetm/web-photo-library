@@ -155,7 +155,7 @@ public final class ExportService: Sendable {
                        (SELECT f.size FROM file f WHERE f.assetId = a.id ORDER BY f.root, f.relPath LIMIT 1) AS size,
                        (SELECT m.relPath FROM motion m WHERE m.assetId = a.id) AS motionRel,
                        (SELECT m.size FROM motion m WHERE m.assetId = a.id) AS motionSize,
-                       EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id) AS dated,
+                       (a.dateSource = 'photos' OR EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id)) AS dated,
                        (SELECT vt.start FROM video_trim vt WHERE vt.assetId = a.id) AS trimStart,
                        (SELECT vt."end" FROM video_trim vt WHERE vt.assetId = a.id) AS trimEnd
                 FROM asset a
@@ -351,7 +351,7 @@ public final class ExportService: Sendable {
     /// size; an adjusted date written into a copy without re-encoding; a trim cut without re-encoding.
     public func editedFile(id: String, format: ImageFormat) async throws -> (url: URL, name: String, temporary: Bool)? {
         guard let a = try catalog.record(id: id), let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
-        let dated = a.dateSource == "user"
+        let dated = a.writesDateOnExport
         if a.kind == "video" {
             let trim = try VideoTrimService(db: db).trim(id: id)
             guard trim != nil || dated else { return nil }
