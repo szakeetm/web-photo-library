@@ -10,7 +10,7 @@
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
-	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
 	import FaceAvatar from './FaceAvatar.svelte';
@@ -332,9 +332,10 @@
 	}
 
 	function removeUpload() {
-		if (!asset || !app.isUpload(asset.id)) return;
-		if (!confirm(`Delete this uploaded photo? It stays in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.`)) return;
-		leave((id) => deleteUploads([id]));
+		if (!asset) return;
+		const files = app.isUpload(asset.id) ? '' : ' Its file stays where it is: it is only hidden here.';
+		if (!confirm(`Delete this photo? It stays in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.${files}`)) return;
+		leave((id) => deletePhotos([id]));
 	}
 
 	function deletePermanently() {
@@ -879,8 +880,8 @@
 					><Icon name="finder" /></button>
 			{/if}
 			<button class="icon-btn" onclick={() => (exporting = true)} title="Download / share" aria-label="Download"><Icon name="download" /></button>
-			{#if asset && app.isUpload(asset.id)}
-				<button class="icon-btn" onclick={removeUpload} title="Delete upload" aria-label="Delete upload"><Icon name="trash" /></button>
+			{#if asset}
+				<button class="icon-btn" onclick={removeUpload} title="Delete" aria-label="Delete"><Icon name="trash" /></button>
 			{/if}
 		{/if}
 		{/if}

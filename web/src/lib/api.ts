@@ -25,6 +25,8 @@ export interface TrashItem {
 	asset: CatalogAsset;
 	/** ISO-8601 UTC */
 	trashedAt: string;
+	/** only hidden: its files (not uploads) are where they were */
+	virtual: boolean;
 }
 
 /** Days a deleted upload stays in the Trash before it is deleted for good (server UploadTrash.keepDays). */
@@ -690,9 +692,9 @@ export const api = {
 		call<CatalogAsset[]>('/api/assets/meta/revert', { method: 'POST', body: JSON.stringify({ ids }) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
-	/** Moves uploaded photos to the Trash; the server refuses anything in the library. */
-	deleteUploads: (ids: string[]) =>
-		call<{ deleted: string[] }>('/api/uploads/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+	/** Puts photos in the Trash: uploads are moved there, every other photo is only hidden (its files are never touched). */
+	deletePhotos: (ids: string[]) =>
+		call<{ deleted: string[] }>('/api/assets/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 	trash: () => call<TrashItem[]>('/api/trash'),
 	/** Recognised objects, most common first. */
 	objects: () => call<ObjectLabel[]>('/api/objects'),

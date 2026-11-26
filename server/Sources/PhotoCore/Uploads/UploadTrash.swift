@@ -16,6 +16,8 @@ public struct TrashItem: Codable, Sendable {
     public var asset: CatalogAsset
     /// When it was deleted, ISO-8601 UTC.
     public var trashedAt: String
+    /// Only hidden: its files (not uploads) are where they were.
+    public var virtual: Bool = false
 }
 
 /// The Trash for deleted uploads, kept in the uploads folder itself: deleting moves a photo's files
@@ -51,7 +53,7 @@ public enum UploadTrash {
 
     /// Puts photos back where they were (albums, favourites and edits were kept).
     public static func restore(ids: [String], db: AppDatabase, uploadsRoot: URL) throws -> [String] {
-        let inTrash = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash") })
+        let inTrash = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash WHERE virtual = 0") })
         let ids = Array(Set(ids).intersection(inTrash))
         guard !ids.isEmpty else { return [] }
         let (files, motions) = try check(ids: ids, db: db, requireFiles: false)
@@ -73,19 +75,20 @@ public enum UploadTrash {
     /// Everything in the Trash, most recently deleted first.
     public static func list(db: AppDatabase) throws -> [TrashItem] {
         try db.writer.read { d in
-            let dates = Dictionary(uniqueKeysWithValues: try Row.fetchAll(d, sql: "SELECT assetId, trashedAt FROM trash").map {
-                ($0["assetId"] as String, $0["trashedAt"] as Date)
+            // photos deleted for good stay hidden but aren't in the Trash
+            let rows = Dictionary(uniqueKeysWithValues: try Row.fetchAll(d, sql: "SELECT assetId, trashedAt, virtual FROM trash WHERE forever = 0").map {
+                ($0["assetId"] as String, ($0["trashedAt"] as Date, $0["virtual"] as Bool))
             })
             return try CatalogService.catalogAssets(d, ids: nil, trashed: true)
-                .compactMap { a in dates[a.id].map { (a, $0) } }
-                .sorted { $0.1 > $1.1 }
-                .map { TrashItem(asset: $0.0, trashedAt: CatalogService.iso.string(from: $0.1)) }
+                .compactMap { a in rows[a.id].map { (a, $0) } }
+                .sorted { $0.1.0 > $1.1.0 }
+                .map { TrashItem(asset: $0.0, trashedAt: CatalogService.iso.string(from: $0.1.0), virtual: $0.1.1) }
         }
     }
 
     /// Deletes photos in the Trash from disk (all of them when `ids` is nil). Others are ignored.
     public static func deleteForever(ids: [String]?, db: AppDatabase, uploadsRoot: URL) throws -> [String] {
-        let inTrash = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash") })
+        let inTrash = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash WHERE virtual = 0") })
         let chosen = ids.map { Set($0).intersection(inTrash) } ?? inTrash
         return try purge(ids: Array(chosen), db: db, uploadsRoot: uploadsRoot)
     }
@@ -93,7 +96,9 @@ public enum UploadTrash {
     /// Deletes for good what has been in the Trash longer than `keepDays`.
     public static func expire(db: AppDatabase, uploadsRoot: URL, now: Date = Date()) throws -> [String] {
         let cutoff = now.addingTimeInterval(-Double(keepDays) * 86_400)
-        let old = try db.writer.read { try String.fetchAll($0, sql: "SELECT assetId FROM trash WHERE trashedAt < ?", arguments: [cutoff]) }
+        let old = try db.writer.read {
+            try String.fetchAll($0, sql: "SELECT assetId FROM trash WHERE virtual = 0 AND trashedAt < ?", arguments: [cutoff])
+        }
         return try purge(ids: old, db: db, uploadsRoot: uploadsRoot)
     }
 

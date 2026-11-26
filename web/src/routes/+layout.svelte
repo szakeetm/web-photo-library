@@ -153,8 +153,10 @@
 		>
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
-			<a class="sub" href="/trash" class:active={exact('/trash')}
-				><Icon name="trash" size={18} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
+		{/if}
+		{#if app.uploadsConfigured || app.trash.length}
+			<a class:sub={app.uploadsConfigured} href="/trash" class:active={exact('/trash')}
+				><Icon name="trash" size={app.uploadsConfigured ? 18 : 20} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
 			>
 		{/if}
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>

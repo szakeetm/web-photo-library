@@ -477,8 +477,8 @@ struct APIRoutes {
 
         api.post("uploads") { req, ctx in try await upload(req, ctx) }
 
-        // The Trash for uploads: deleting moves uploaded photos there (anything in the library is
-        // refused); they can be restored, or deleted from disk for good.
+        // The Trash: uploads are moved there (and deleted from disk for good); every other photo is only
+        // hidden, and deleting it for good keeps it hidden.
         @Sendable func uploadsRoot() throws -> URL? {
             try services.settings.get(.uploadsPath).map { URL(fileURLWithPath: $0, isDirectory: true) }
         }
@@ -500,19 +500,21 @@ struct APIRoutes {
             }
         }
         let db = services.db
-        api.post("uploads/delete") { req, ctx in
-            let body = try await req.decode(as: DeleteBody.self, context: ctx)
-            guard validIds(body.ids) else { throw HTTPError(.badRequest) }
-            guard let root = try uploadsRoot() else { return errorResponse(.conflict, UploadError.notConfigured.description) }
-            return try await trashCall { try UploadTrash.trash(ids: body.ids, db: db, uploadsRoot: root) }
+        // Any photo to the Trash: uploads are moved, the rest only hidden (their files are never touched).
+        for path in ["assets/delete", "uploads/delete"] {
+            api.post(RouterPath(path)) { req, ctx in
+                let body = try await req.decode(as: DeleteBody.self, context: ctx)
+                guard validIds(body.ids) else { throw HTTPError(.badRequest) }
+                let root = try uploadsRoot()
+                return try await trashCall { try PhotoTrash.trash(ids: body.ids, db: db, uploadsRoot: root) }
+            }
         }
         api.get("trash") { _, _ in
-            if let root = try uploadsRoot() {
-                let gone = (try? await blocking { try UploadTrash.expire(db: db, uploadsRoot: root) }) ?? []
-                let store = services.derivatives()
-                for id in gone { store.remove(id: id); services.videos.remove(id: id) }
-            }
-            let items = try await blocking { try UploadTrash.list(db: db) }
+            let root = try uploadsRoot()
+            let gone = (try? await blocking { try PhotoTrash.expire(db: db, uploadsRoot: root) }) ?? []
+            let store = services.derivatives()
+            for id in gone { store.remove(id: id); services.videos.remove(id: id) }
+            let items = try await blocking { try PhotoTrash.list(db: db) }
             var res = try json(items)
             res.headers[.cacheControl] = "no-store"
             return res
@@ -520,15 +522,15 @@ struct APIRoutes {
         api.post("trash/restore") { req, ctx in
             let body = try await req.decode(as: DeleteBody.self, context: ctx)
             guard validIds(body.ids) else { throw HTTPError(.badRequest) }
-            guard let root = try uploadsRoot() else { return errorResponse(.conflict, UploadError.notConfigured.description) }
-            return try await trashCall { try UploadTrash.restore(ids: body.ids, db: db, uploadsRoot: root) }
+            let root = try uploadsRoot()
+            return try await trashCall { try PhotoTrash.restore(ids: body.ids, db: db, uploadsRoot: root) }
         }
         // ids omitted: empty the Trash
         api.post("trash/delete") { req, ctx in
             let body = try await req.decode(as: TrashBody.self, context: ctx)
             guard validIds(body.ids ?? []) else { throw HTTPError(.badRequest) }
-            guard let root = try uploadsRoot() else { return errorResponse(.conflict, UploadError.notConfigured.description) }
-            return try await trashCall({ try UploadTrash.deleteForever(ids: body.ids, db: db, uploadsRoot: root) }, purged: true)
+            let root = try uploadsRoot()
+            return try await trashCall({ try PhotoTrash.deleteForever(ids: body.ids, db: db, uploadsRoot: root) }, purged: true)
         }
 
         // Objects recognised in photos: the labels (most common first) and a label's photos and videos.

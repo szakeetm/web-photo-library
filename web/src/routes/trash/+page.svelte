@@ -20,7 +20,13 @@
 
 	async function empty() {
 		const n = app.trash.length;
-		if (!confirm(`Delete ${n === 1 ? 'this photo' : `all ${n} photos`} permanently? The files are deleted from disk; this can't be undone.`)) return;
+		const uploads = app.trash.filter((t) => !t.virtual).length;
+		const hidden = n - uploads;
+		const parts = [
+			uploads && `${uploads === 1 ? 'The upload is' : `${uploads} uploads are`} deleted from disk`,
+			hidden && `${hidden === 1 ? 'the other photo stays' : `${hidden} other photos stay`} hidden for good (${hidden === 1 ? 'its file is' : 'their files are'} not touched)`
+		].filter(Boolean);
+		if (!confirm(`Delete ${n === 1 ? 'this photo' : `all ${n} photos`} permanently? ${parts.join('; ')}. This can't be undone.`)) return;
 		busy = true;
 		try {
 			await deleteForever();

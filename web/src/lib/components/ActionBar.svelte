@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
 	import { TRASH_KEEP_DAYS } from '#lib/api.ts';
-	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
@@ -19,7 +19,7 @@
 	let dating = $state(false);
 	let busy = $state(false);
 	const ids = $derived([...selection.ids]);
-	/** Only uploads can be deleted: the button shows when every selected photo is one. */
+	/** Uploads are moved to the Trash; other photos are only hidden there (their files stay where they are). */
 	const allUploads = $derived(ids.length > 0 && ids.every((i) => app.isUpload(i)));
 	const favNext = $derived(nextFavoriteValue(ids.map((i) => app.byId.get(i)?.fav ?? false)));
 
@@ -42,9 +42,13 @@
 
 	function remove() {
 		const n = ids.length;
-		if (!confirm(`Delete ${n === 1 ? 'this uploaded photo' : `${n} uploaded photos`}? ${n === 1 ? 'It stays' : 'They stay'} in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.`)) return;
+		const what = n === 1 ? 'this photo' : `${n} photos`;
+		const files = allUploads
+			? ''
+			: ' Only uploads are deleted from disk; the files of the others stay where they are (folders, Photos libraries, pCloud…).';
+		if (!confirm(`Delete ${what}? ${n === 1 ? 'It stays' : 'They stay'} in Trash (in Collections) for ${TRASH_KEEP_DAYS} days.${files}`)) return;
 		run(async () => {
-			await deleteUploads(ids);
+			await deletePhotos(ids);
 			selection.clear();
 		});
 	}
@@ -89,10 +93,8 @@
 			<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Remove from album" aria-label="Remove from album"
 				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
 		{/if}
-		{#if allUploads}
-			<button class="icon-btn danger" disabled={busy || !net.online} title="Delete uploads" aria-label="Delete uploads"
-				onclick={remove}><Icon name="trash" /></button>
-		{/if}
+		<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Delete" aria-label="Delete"
+			onclick={remove}><Icon name="trash" /></button>
 		<button class="icon-btn" disabled={!selection.count || !net.online} title="Export / download" aria-label="Export"
 			onclick={download}><Icon name="download" /></button>
 		{/if}

@@ -291,6 +291,14 @@ public final class AppDatabase: Sendable {
             // The original name of a file stored under another one (Apple Photos keeps IMG_1234.HEIC as <UUID>.heic).
             try db.execute(sql: "ALTER TABLE file ADD COLUMN name TEXT")
         }
+        m.registerMigration("v15-trash-hidden") { db in
+            // Photos that aren't uploads go to the Trash by being hidden (their files are never touched):
+            // virtual = hidden only; forever = deleted for good (stays hidden; rescans don't bring it back).
+            try db.execute(sql: """
+                ALTER TABLE trash ADD COLUMN virtual INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE trash ADD COLUMN forever INTEGER NOT NULL DEFAULT 0;
+                """)
+        }
         return m
     }
 }

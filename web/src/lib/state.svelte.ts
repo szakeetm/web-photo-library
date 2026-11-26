@@ -235,13 +235,13 @@ function applyAssets(list: CatalogAsset[]) {
 }
 
 /** Moves uploaded photos to the Trash (restorable for TRASH_KEEP_DAYS). */
-export async function deleteUploads(ids: string[]) {
-	if (!ids.every((id) => app.isUpload(id))) throw new Error('Only uploaded photos can be deleted.');
+/** Puts photos in the Trash: uploads are moved there, the others only hidden (their files stay). */
+export async function deletePhotos(ids: string[]) {
 	const set = new Set(ids);
 	const before = app.assets;
 	app.assets = app.assets.filter((a) => !set.has(a.id));
 	try {
-		await api.deleteUploads(ids);
+		await api.deletePhotos(ids);
 	} catch (e) {
 		app.assets = before;
 		throw e;
