@@ -37,6 +37,10 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
     public var videoError: String? = nil
     public var contentId: String? = nil
     public var probeVersion: Int = 0
+    /// The date as read from the file; `takenAt`/`tzOffset` hold the user's date instead when one is set (MetadataService).
+    public var fileTakenAt: Date? = nil
+    public var fileTzOffset: Int? = nil
+    public var fileDateSource: String? = nil
 
     public static let currentProbeVersion = 1
 

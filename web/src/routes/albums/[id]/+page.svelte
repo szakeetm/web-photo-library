@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { api } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
+	import { sortByLocalTime } from '#lib/dates.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { confirmDownload, pins, pinStatus } from '#lib/pins.svelte.ts';
 	import DownloadBar from '#lib/components/DownloadBar.svelte';
@@ -22,7 +23,10 @@
 		menu = false;
 	});
 	const album = $derived(app.albums.find((a) => a.id === id));
-	const items = $derived(album ? album.assetIds.filter((i) => app.byId.has(i)) : []);
+	// Always oldest to newest (by the date shown, including adjusted dates); no sort control.
+	const items = $derived(
+		album ? sortByLocalTime(album.assetIds.map((i) => app.byId.get(i)).filter((a) => a != null)).map((a) => a.id) : []
+	);
 	const sections = $derived([{ key: `album-${id}`, label: null, items }]);
 	const pin = $derived(pins.records[id]);
 

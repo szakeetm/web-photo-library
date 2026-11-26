@@ -6,6 +6,7 @@
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
 	import MultiExportSheet from './MultiExportSheet.svelte';
+	import AdjustDateSheet from './AdjustDateSheet.svelte';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -15,6 +16,7 @@
 		trash = false
 	}: { selection: Selection; order: string[]; albumId?: number; trash?: boolean } = $props();
 	let picking = $state(false);
+	let dating = $state(false);
 	let busy = $state(false);
 	const ids = $derived([...selection.ids]);
 	/** Only uploads can be deleted: the button shows when every selected photo is one. */
@@ -81,6 +83,8 @@
 		</button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Add to album" aria-label="Add to album"
 			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
+		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Adjust date & time"
+			aria-label="Adjust date and time" onclick={() => (dating = true)}><Icon name="clock" /></button>
 		{#if albumId != null}
 			<button class="icon-btn danger" disabled={!selection.count || busy || !net.online} title="Remove from album" aria-label="Remove from album"
 				onclick={() => run(async () => { await removeFromAlbum(albumId, ids); selection.clear(); })}><Icon name="minus" /></button>
@@ -97,6 +101,10 @@
 
 {#if downloading}
 	<MultiExportSheet {ids} onClose={() => (downloading = false)} />
+{/if}
+
+{#if dating}
+	<AdjustDateSheet {ids} onClose={() => (dating = false)} />
 {/if}
 
 {#if picking}

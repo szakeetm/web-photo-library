@@ -417,7 +417,9 @@ public final class LibraryScanner: @unchecked Sendable {
             a.videoError = nil
         }
         a.probeVersion = Asset.currentProbeVersion
+        a.fileTakenAt = meta.takenAt; a.fileTzOffset = meta.tzOffset; a.fileDateSource = meta.dateSource
         a.takenAt = meta.takenAt; a.tzOffset = meta.tzOffset; a.dateSource = meta.dateSource
+        try MetadataService.applyOverride(d, to: &a)
         a.lat = meta.lat; a.lon = meta.lon; a.locationSource = meta.locationSource
         if !a.favoriteUserSet, let f = meta.favorited { a.favorite = f }
         if a.description == nil { a.description = meta.description }
@@ -434,6 +436,7 @@ public final class LibraryScanner: @unchecked Sendable {
         if new.description == nil { new.description = old.description }
         try new.update(d)
         try EditService.relink(d, from: oldId, to: newId, sizeChanged: old.width != new.width || old.height != new.height)
+        try MetadataService.relink(d, from: oldId, to: newId)
         // Albums follow the photo to its new content.
         try ChangeLog.recordAlbums(d, containing: [oldId])
         try d.execute(sql: """

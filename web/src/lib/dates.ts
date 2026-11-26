@@ -77,3 +77,52 @@ export function offsetLabel(tz: number | null): string {
 	const m = Math.floor((abs % 3600) / 60);
 	return `UTC${sign}${h}${m ? ':' + String(m).padStart(2, '0') : ''}`;
 }
+
+/** "YYYY-MM-DDTHH:mm" in the photo's local time (for date/time inputs). */
+export function localInput(t: string, tz: number | null): string {
+	const p = localParts(t, tz);
+	const pad = (n: number) => String(n).padStart(2, '0');
+	return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+}
+
+/** The instant (ms) of a wall-clock "YYYY-MM-DDTHH:mm[:ss]" at offset `tz` (seconds east of UTC). */
+export function instantOf(local: string, tz: number): number {
+	return Date.parse(local.length === 16 ? `${local}:00Z` : `${local}Z`) - tz * 1000;
+}
+
+export interface DateEdit {
+	/** wall clock "YYYY-MM-DDTHH:mm" chosen for the first (earliest) photo, or for all of them */
+	local: string;
+	/** time zone the wall clock is in (seconds east of UTC) */
+	tz: number;
+	/** shift every photo by the same amount (keeps their spacing), or set them all to the same time */
+	mode: 'shift' | 'same';
+}
+
+/** The server change that makes the earliest photo show `edit.local` in `edit.tz`. */
+export function dateChangeFor(assets: Pick<CatalogAsset, 't' | 'tz'>[], edit: DateEdit) {
+	const target = instantOf(edit.local, edit.tz);
+	const tzChanged = assets.some((a) => a.tz !== edit.tz);
+	if (edit.mode === 'same') return { shift: 0, setTo: new Date(target).toISOString().replace('.000Z', 'Z'), tzOffset: edit.tz };
+	const earliest = Math.min(...assets.map((a) => Date.parse(a.t)));
+	return { shift: (target - earliest) / 1000, tzOffset: tzChanged ? edit.tz : null, keepWallClock: false };
+}
+
+/** Time zones offered when adjusting a date: UTC−12 … UTC+14 (quarter hours where used). */
+export const TZ_OFFSETS: number[] = [
+	-12, -11, -10, -9.5, -9, -8, -7, -6, -5, -4, -3.5, -3, -2, -1, 0, 1, 2, 3, 3.5, 4, 4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8,
+	8.75, 9, 9.5, 10, 10.5, 11, 12, 12.75, 13, 14
+].map((h) => Math.round(h * 3600));
+
+/** e.g. "+1 h 20 min", "−3 days 2 h" (for showing a shift). */
+export function shiftLabel(seconds: number): string {
+	if (Math.abs(seconds) < 60) return 'no change';
+	const sign = seconds < 0 ? '−' : '+';
+	let s = Math.round(Math.abs(seconds) / 60);
+	const days = Math.floor(s / 1440);
+	s -= days * 1440;
+	const h = Math.floor(s / 60);
+	const m = s % 60;
+	const parts = [days ? `${days} day${days === 1 ? '' : 's'}` : '', h ? `${h} h` : '', m ? `${m} min` : ''].filter(Boolean);
+	return sign + parts.join(' ');
+}

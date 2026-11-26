@@ -1,5 +1,5 @@
 import { version } from '$app/env';
-import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem, type DownloadProgress } from './api';
+import { api, onServerApiVersion, CLIENT_API_VERSION, CATALOG_FORMAT, type CatalogAsset, type DateChange, type CatalogAlbum, type CatalogPerson, type CatalogPlace, type FolderNode, type ImageFmt, type ServerInfo, type TrashItem, type DownloadProgress } from './api';
 import { supportsHeic } from './heic';
 import { sortByLocalTime } from './dates';
 import { buildIndex } from './assetIndex';
@@ -212,6 +212,22 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 		app.assets = before;
 		throw e;
 	}
+	app.reload(); // persist to the device copy
+}
+
+/** Changes the dates of photos (database only; exports write them into the copies). */
+export async function changeDates(ids: string[], change: DateChange) {
+	applyAssets(await api.changeDates(ids, change));
+}
+
+/** Back to the dates read from the files. */
+export async function revertDates(ids: string[]) {
+	applyAssets(await api.revertDates(ids));
+}
+
+function applyAssets(list: CatalogAsset[]) {
+	const byId = new Map(list.map((a) => [a.id, a]));
+	app.assets = sortByLocalTime(app.assets.map((a) => byId.get(a.id) ?? a));
 	app.reload(); // persist to the device copy
 }
 

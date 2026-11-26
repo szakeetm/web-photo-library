@@ -266,7 +266,7 @@ import HummingbirdTesting
             #expect(dur == (dur * 10).rounded() / 10)
             #expect(try await catalogEntry(client, photo)?.dur == nil)
             try await client.execute(uri: "/api/catalog", method: .get) { res in
-                #expect(String(buffer: res.body).contains("\"format\":6"))
+                #expect(String(buffer: res.body).contains("\"format\":7"))
             }
         }
     }

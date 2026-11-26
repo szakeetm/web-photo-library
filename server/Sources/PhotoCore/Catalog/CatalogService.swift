@@ -24,10 +24,12 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var dur: Double? = nil
     /// True when the photo is a Live Photo (has a motion clip).
     public var live: Bool? = nil
+    /// True when the user changed the date (kept in the database only, applied on export).
+    public var md: Bool? = nil
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 6
+public let catalogFormat = 7
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -136,6 +138,7 @@ public final class CatalogService: Sendable {
             SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion,
                    a.lat, a.lon, a.placeId, a.kind, a.duration,
                    EXISTS (SELECT 1 FROM motion m WHERE m.assetId = a.id) AS live,
+                   EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id) AS md,
                    (SELECT GROUP_CONCAT(DISTINCT fc.personId) FROM face fc JOIN person p ON p.id = fc.personId
                      WHERE fc.assetId = a.id AND p.hidden = 0) AS people,
                    GROUP_CONCAT(f.folderId) AS folders, MIN(f.relPath) AS relPath
@@ -156,8 +159,14 @@ public final class CatalogService: Sendable {
                                     folders: Array(Set(folders)).sorted(), name: (rel as NSString).lastPathComponent,
                                     loc: (lat != nil && lon != nil && !(lat == 0 && lon == 0)) ? [round5(lat!), round5(lon!)] : nil,
                                     pl: r["placeId"], pp: people.isEmpty ? nil : people,
-                                    dur: duration.map { ($0 * 10).rounded() / 10 }, live: (r["live"] as Bool) ? true : nil)
+                                    dur: duration.map { ($0 * 10).rounded() / 10 }, live: (r["live"] as Bool) ? true : nil,
+                                    md: (r["md"] as Bool) ? true : nil)
         }
+    }
+
+    /// The catalog entries for these (present) assets.
+    public func catalogAssets(ids: [String]) throws -> [CatalogAsset] {
+        try db.writer.read { try Self.catalogAssets($0, ids: ids) }
     }
 
     /// The catalog entry for one (present) asset.

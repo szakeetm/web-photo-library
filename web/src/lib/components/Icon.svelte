@@ -2,6 +2,7 @@
 	// Small inline SVG icon set (SF Symbols–like strokes).
 	let { name, size = 22 }: { name: string; size?: number } = $props();
 	const paths: Record<string, string> = {
+		clock: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8v4l3 2',
 		photos: 'M4 5h16v14H4z M4 15l4.5-4.5 3.5 3.5 2.5-2.5L20 17 M15.5 8.5a1.5 1.5 0 1 0 0 .01',
 		folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
 		settings:

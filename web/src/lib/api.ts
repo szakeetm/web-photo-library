@@ -3,9 +3,9 @@
 export type ImageFmt = 'heic' | 'jpeg';
 
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
-export const CLIENT_API_VERSION = 5;
+export const CLIENT_API_VERSION = 6;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 6;
+export const CATALOG_FORMAT = 7;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
@@ -50,6 +50,18 @@ export interface CatalogAsset {
 	dur?: number;
 	/** the photo has a Live Photo motion clip */
 	live?: boolean;
+	/** the user changed the date (kept on the server, applied on export) */
+	md?: boolean;
+}
+
+/** A date change for several photos: the instant moves by `shift` seconds; with `tzOffset` they get
+ * that time zone, keeping their wall-clock time (`keepWallClock`) or their instant. */
+export interface DateChange {
+	shift: number;
+	/** ISO instant: all photos get this time (instead of a shift) */
+	setTo?: string;
+	tzOffset?: number | null;
+	keepWallClock?: boolean;
 }
 
 export interface CatalogPerson {
@@ -188,6 +200,10 @@ export interface Asset {
 	/** seconds (videos only) */
 	duration: number | null;
 	videoCodec: string | null;
+	/** the date read from the file (takenAt is the user's date when dateSource is 'user') */
+	fileTakenAt?: string | null;
+	fileTzOffset?: number | null;
+	fileDateSource?: string | null;
 }
 
 export interface AssetDetail {
@@ -414,6 +430,10 @@ export const api = {
 	deleteAlbum: (id: number) => call<void>(`/api/albums/${id}`, { method: 'DELETE' }),
 	albumAssets: (id: number, change: { add?: string[]; remove?: string[]; order?: string[] }) =>
 		call<AlbumSummary>(`/api/albums/${id}/assets`, { method: 'POST', body: JSON.stringify(change) }),
+	changeDates: (ids: string[], change: DateChange) =>
+		call<CatalogAsset[]>('/api/assets/meta', { method: 'PATCH', body: JSON.stringify({ ids, change }) }),
+	revertDates: (ids: string[]) =>
+		call<CatalogAsset[]>('/api/assets/meta/revert', { method: 'POST', body: JSON.stringify({ ids }) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
 	/** Moves uploaded photos to the Trash; the server refuses anything in the library. */

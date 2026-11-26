@@ -238,6 +238,21 @@ public final class AppDatabase: Sendable {
                 ALTER TABLE asset ADD COLUMN objectsVersion INTEGER NOT NULL DEFAULT 0;
                 """)
         }
+        m.registerMigration("v10-meta-edit") { db in
+            // The date read from the file (sidecar → EXIF → file date) is kept in asset.file*; a date the
+            // user set lives in meta_edit and wins. asset.takenAt/tzOffset are always the effective date.
+            try db.execute(sql: """
+                ALTER TABLE asset ADD COLUMN fileTakenAt DATETIME;
+                ALTER TABLE asset ADD COLUMN fileTzOffset INTEGER;
+                ALTER TABLE asset ADD COLUMN fileDateSource TEXT;
+                UPDATE asset SET fileTakenAt = takenAt, fileTzOffset = tzOffset, fileDateSource = dateSource;
+                CREATE TABLE meta_edit (
+                    assetId TEXT PRIMARY KEY,
+                    takenAt DATETIME NOT NULL,
+                    tzOffset INTEGER,
+                    createdAt DATETIME NOT NULL);
+                """)
+        }
         return m
     }
 }

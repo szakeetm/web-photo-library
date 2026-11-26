@@ -6,7 +6,7 @@ import PhotoCore
 public let serverVersion = "0.1.0"
 /// Version of the HTTP API contract. Bump whenever request/response shapes change.
 /// Clients must match exactly; any other client gets 426 and reloads the current web app.
-public let apiVersion = 5
+public let apiVersion = 6
 
 public func buildApplication(services: Services, webRoot: URL?, port: Int) -> some ApplicationProtocol {
     let router = Router()

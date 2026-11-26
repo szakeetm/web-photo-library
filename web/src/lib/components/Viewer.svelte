@@ -14,6 +14,7 @@
 	import Icon from './Icon.svelte';
 	import FaceAvatar from './FaceAvatar.svelte';
 	import ExportSheet from './ExportSheet.svelte';
+	import AdjustDateSheet from './AdjustDateSheet.svelte';
 	import Editor from '#lib/editor/Editor.svelte';
 	import VideoPlayer from './VideoPlayer.svelte';
 	import LiveOverlay from './LiveOverlay.svelte';
@@ -103,6 +104,7 @@
 	let closing = $state(false);
 	let editing = $state(false);
 	let exporting = $state(false);
+	let adjustingDate = $state(false);
 	const canEdit = typeof navigator !== 'undefined' && 'gpu' in navigator;
 	/** Displayed pixel size of loaded previews (an edit's crop changes the aspect). */
 	let dims = $state(new Map<string, { w: number; h: number }>());
@@ -867,6 +869,10 @@
 	{#if editing && asset}
 		<Editor {asset} onClose={() => (editing = false)} />
 	{/if}
+	{#if adjustingDate && asset}
+		<AdjustDateSheet ids={[asset.id]} onClose={() => (adjustingDate = false)} />
+	{/if}
+
 	{#if exporting && asset}
 		<ExportSheet {asset} onClose={() => (exporting = false)} />
 	{/if}
@@ -886,7 +892,17 @@
 				<dt>Taken</dt>
 				<dd>
 					{captureLabel(asset.t, asset.tz)}
-					<span class="muted">{offsetLabel(asset.tz)}{detail ? ` · from ${detail.asset.dateSource}` : ''}</span>
+					<span class="muted">{offsetLabel(asset.tz)}{detail && !asset.md ? ` · from ${detail.asset.dateSource}` : ''}</span>
+					{#if asset.md}
+						<div class="muted">
+							Date adjusted{detail?.asset.fileTakenAt
+								? ` · originally ${captureLabel(detail.asset.fileTakenAt, detail.asset.fileTzOffset ?? null)}`
+								: ''}
+						</div>
+					{/if}
+					{#if net.online && !trash}
+						<button class="link adjust" onclick={() => (adjustingDate = true)}>Adjust…</button>
+					{/if}
 				</dd>
 				{#if camera}
 					<dt>Camera</dt>
@@ -1344,5 +1360,13 @@
 		font-size: 12px;
 		word-break: break-all;
 		color: var(--fg-secondary);
+	}
+	.link.adjust {
+		border: none;
+		background: none;
+		padding: 2px 0;
+		color: var(--accent);
+		cursor: pointer;
+		font: inherit;
 	}
 </style>

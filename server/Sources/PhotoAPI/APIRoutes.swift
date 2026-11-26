@@ -76,6 +76,7 @@ struct APIRoutes {
     struct AlbumPatch: Decodable { var title: String?; var coverAssetId: String? }
     struct AlbumMembers: Decodable { var add: [String]?; var remove: [String]?; var order: [String]? }
     struct FavoriteBody: Decodable { let ids: [String]; let favorite: Bool }
+    struct DateChangeBody: Decodable { let ids: [String]; let change: DateChange }
     struct DeleteBody: Decodable { let ids: [String] }
     /// What to show in the Finder: a photo or video, a folder, or the uploads folder / its Trash.
     struct RevealBody: Decodable { let asset: String?; let folder: Int64?; let place: String? }
@@ -280,6 +281,26 @@ struct APIRoutes {
             try services.albums.setFavorite(ids: body.ids, favorite: body.favorite)
             return Response(status: .noContent)
         }
+        @Sendable func validIds(_ ids: [String]) -> Bool { ids.allSatisfy { $0.count == 64 && $0.allSatisfy(\.isHexDigit) } }
+        // Dates the user set (database only; exports write them into the copy)
+        api.patch("assets/meta") { req, ctx in
+            guard let body = try? await req.decode(as: DateChangeBody.self, context: ctx), validIds(body.ids) else {
+                return errorResponse(.badRequest, "Invalid date change.")
+            }
+            let meta = MetadataService(db: services.db)
+            do { try await blocking { try meta.change(ids: body.ids, body.change) } } catch let e as MetadataError {
+                return errorResponse(.badRequest, e.description)
+            }
+            return try json(try services.catalog.catalogAssets(ids: body.ids))
+        }
+        api.post("assets/meta/revert") { req, ctx in
+            guard let body = try? await req.decode(as: DeleteBody.self, context: ctx), validIds(body.ids) else {
+                throw HTTPError(.badRequest)
+            }
+            let meta = MetadataService(db: services.db)
+            try await blocking { try meta.revert(ids: body.ids) }
+            return try json(try services.catalog.catalogAssets(ids: body.ids))
+        }
         api.get("search") { req, _ in
             let q = req.uri.queryParameters.get("q") ?? ""
             let ids = try await blocking { try services.albums.search(q) }
@@ -390,7 +411,6 @@ struct APIRoutes {
 
         // The Trash for uploads: deleting moves uploaded photos there (anything in the library is
         // refused); they can be restored, or deleted from disk for good.
-        @Sendable func validIds(_ ids: [String]) -> Bool { ids.allSatisfy { $0.count == 64 && $0.allSatisfy(\.isHexDigit) } }
         @Sendable func uploadsRoot() throws -> URL? {
             try services.settings.get(.uploadsPath).map { URL(fileURLWithPath: $0, isDirectory: true) }
         }
