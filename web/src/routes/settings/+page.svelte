@@ -16,7 +16,7 @@
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
 	let recent = $state<Job[]>([]);
-	let picker = $state<'library' | 'data' | 'uploads' | 'photos' | 'folder' | null>(null);
+	let picker = $state<'data' | 'uploads' | 'photos' | 'folder' | null>(null);
 	let message = $state<{ text: string; error?: boolean } | null>(null);
 	let owner = $state('');
 	let moving = $state(false);
@@ -183,6 +183,15 @@
 			message = { text: (e as Error).message, error: true };
 		}
 	}
+	async function removeLibraryFolder(path: string) {
+		if (!confirm(removeWarning(path, 'Nothing in the folder is touched.'))) return;
+		try {
+			settings = await api.removeLibraryFolder();
+			await app.reload();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
 	async function removePhotosLibrary(id: number, title: string) {
 		if (!confirm(removeWarning(title, 'Albums imported from it stay (without its photos). Nothing in the Photos library is touched.'))) return;
 		try {
@@ -314,18 +323,6 @@
 		return () => clearInterval(t);
 	});
 
-	async function setLibrary(path: string) {
-		picker = null;
-		try {
-			settings = await api.saveSettings({ libraryPath: path });
-			message = { text: 'Library folder saved. Scanning…' };
-			app.libraryConfigured = true;
-			await start('detect-changes');
-		} catch (e) {
-			message = { text: (e as Error).message, error: true };
-		}
-	}
-
 	async function setUploads(path: string) {
 		picker = null;
 		try {
@@ -452,8 +449,8 @@
 	{#if !app.libraryConfigured}
 		<div class="welcome">
 			<h2>Welcome</h2>
-			<p>Choose the folder on this Mac that holds your photos. It is only ever read, never modified.</p>
-			<button class="btn primary" onclick={() => (picker = 'library')}>Choose library folder…</button>
+			<p>Add a folder on this Mac that holds your photos. It is only ever read, never modified.</p>
+			<button class="btn primary" onclick={() => (picker = 'folder')}>Add folder…</button>
 			<p class="muted small">
 				No photos on this Mac yet? Choose an uploads folder instead and upload from your devices, or add an Apple Photos
 				library or an rclone folder below.
@@ -588,17 +585,6 @@
 		<h3>Local folders</h3>
 		<div class="row">
 			<div class="label">
-				<div>Main folder</div>
-				<div class="muted path">{settings?.libraryPath ?? 'Not set'}</div>
-				{#if settings?.libraryPath}
-					<div class="muted small">{settings.libraryFiles.toLocaleString()} photo and video files</div>
-					{@render status('library', settings.libraryLastScan)}
-				{/if}
-			</div>
-			<button class="btn" onclick={() => (picker = 'library')}>{settings?.libraryPath ? 'Change…' : 'Choose…'}</button>
-		</div>
-		<div class="row">
-			<div class="label">
 				<div>Uploads</div>
 				<div class="muted path">{settings?.uploadsPath ?? 'Not set: uploading is off'}</div>
 				{#if settings?.uploadsPath}
@@ -612,6 +598,17 @@
 			</div>
 			<button class="btn" onclick={() => (picker = 'uploads')}>{settings?.uploadsPath ? 'Change…' : 'Choose…'}</button>
 		</div>
+		{#if settings?.libraryPath}
+			<div class="row">
+				<div class="label">
+					<div>{settings.libraryPath.split('/').filter(Boolean).pop()}</div>
+					<div class="muted path">{settings.libraryPath}</div>
+					<div class="muted small">{settings.libraryFiles.toLocaleString()} photo and video files</div>
+					{@render status('library', settings.libraryLastScan)}
+				</div>
+				<button class="btn" disabled={!!current} onclick={() => removeLibraryFolder(settings!.libraryPath!)}>Remove</button>
+			</div>
+		{/if}
 		{#each settings?.localFolders ?? [] as f (f.id)}
 			<div class="row">
 				<div class="label">
@@ -626,8 +623,8 @@
 		<div class="row">
 			<div class="label">
 				<div class="muted small">
-					Folders of photos and videos on the Mac or its drives, read where they are (never changed): the main folder, and
-					more next to it. The main folder is optional. The same photo in several folders is shown once.
+					Folders of photos and videos on the Mac or its drives, read where they are (never changed). Add as many as you
+					like, or none. The same photo in several folders is shown once.
 				</div>
 			</div>
 			<button class="btn" onclick={() => (picker = 'folder')}>Add Folder…</button>
@@ -1050,14 +1047,7 @@
 {#if restoring && backup}
 	<RestoreSheet start={backup.last?.destination ?? backup.destination} onClose={() => (restoring = false)} />
 {/if}
-{#if picker === 'library'}
-	<FolderPicker
-		title="Choose library folder"
-		start={settings?.libraryPath}
-		onPick={setLibrary}
-		onCancel={() => (picker = null)}
-	/>
-{:else if picker === 'folder'}
+{#if picker === 'folder'}
 	<FolderPicker title="Add a folder of photos" start={settings?.libraryPath} onPick={addLocalFolder} onCancel={() => (picker = null)} />
 {:else if picker === 'photos'}
 	<FolderPicker title="Choose a Photos library (.photoslibrary)" start={'/Volumes'} onPick={addPhotosLibrary} onCancel={() => (picker = null)} />

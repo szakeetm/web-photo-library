@@ -652,6 +652,7 @@ export const api = {
 	removeSource: (id: number) => call<Settings>(`/api/sources/${id}`, { method: 'DELETE' }),
 	addLocalFolder: (path: string) => call<Settings>('/api/local-folders', { method: 'POST', body: JSON.stringify({ path }) }),
 	removeLocalFolder: (id: number) => call<Settings>(`/api/local-folders/${id}`, { method: 'DELETE' }),
+	removeLibraryFolder: () => call<Settings>('/api/library-folder', { method: 'DELETE' }),
 	addPhotosLibrary: (path: string) => call<Settings>('/api/photos-libraries', { method: 'POST', body: JSON.stringify({ path }) }),
 	removePhotosLibrary: (id: number) => call<Settings>(`/api/photos-libraries/${id}`, { method: 'DELETE' }),
 	backup: () => call<BackupStatus>('/api/backup'),

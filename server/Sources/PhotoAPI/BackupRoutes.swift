@@ -168,6 +168,14 @@ extension APIRoutes {
             return try settingsResponse()
         }
 
+        api.delete("library-folder") { _, _ in
+            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+            let purged = try await blocking { try LocalFolders.removeLibrary(db: services.db, services.settings) }
+            let store = services.derivatives()
+            for a in purged { store.remove(id: a); services.videos.remove(id: a) }
+            return try settingsResponse()
+        }
+
         // Apple Photos libraries on this Mac: added (then scanned), removed.
         api.post("photos-libraries") { req, ctx in
             let body = try await req.decode(as: PathBody.self, context: ctx)

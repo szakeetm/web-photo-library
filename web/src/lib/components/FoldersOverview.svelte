@@ -31,7 +31,7 @@
 <TitleBar title="Folders" subtitle={`${all.toLocaleString()} photos · ${list.length} ${list.length === 1 ? 'source' : 'sources'}`} />
 
 {#if app.loaded && !list.length}
-	<p class="empty muted">{app.libraryConfigured ? 'No folders yet.' : 'No folders yet: choose a folder or an uploads folder in Settings.'}</p>
+	<p class="empty muted">{app.libraryConfigured ? 'No folders yet.' : 'No folders yet: add one, or choose an uploads folder, in Settings.'}</p>
 {/if}
 
 {#snippet card(f: FolderNode, name: string, href: string, count: number)}

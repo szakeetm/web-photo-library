@@ -75,6 +75,18 @@ public enum LocalFolders {
         try settings.set(.sourceScans, try settings.get(.sourceScans).filter { $0.root != s.root })
         return purged
     }
+
+    /// Removes the original library folder (from before every folder was a local folder) the same way:
+    /// its photos only there are removed for good, nothing in the folder is touched.
+    @discardableResult
+    public static func removeLibrary(db: AppDatabase, _ settings: SettingsStore) throws -> [String] {
+        guard let path = try settings.get(.libraryPath) else { return [] }
+        let url = URL(fileURLWithPath: path, isDirectory: true)
+        let purged = try AssetPurge.removeRoot(Roots.library, scanner: LibraryScanner(db: db, root: url, rootName: Roots.library), db: db)
+        try settings.set(.libraryPath, nil)
+        try settings.set(.sourceScans, try settings.get(.sourceScans).filter { $0.root != Roots.library })
+        return purged
+    }
 }
 
 extension LibraryScanner {

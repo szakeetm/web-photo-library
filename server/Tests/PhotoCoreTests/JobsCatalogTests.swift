@@ -112,6 +112,18 @@ import GRDB
         #expect(scan.ok)
     }
 
+    @Test func libraryFolderCanBeRemoved() throws {
+        let e = try env()
+        e.runner.enqueue(.detectChanges)
+        e.runner.waitUntilIdle()
+        #expect(try e.catalog.catalog().assets.count == 2)
+        let settings = SettingsStore(db: e.db)
+        try LocalFolders.removeLibrary(db: e.db, settings)
+        #expect(try settings.get(.libraryPath) == nil)
+        #expect(try e.catalog.catalog().assets.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: e.root.appendingPathComponent("A/x.jpg").path))
+    }
+
     @Test func unreadableLibraryFailsJobNotServer() throws {
         let e = try env()
         try SettingsStore(db: e.db).set(.libraryPath, "/nonexistent-\(UUID())")
