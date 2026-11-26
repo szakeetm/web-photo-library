@@ -1,10 +1,12 @@
 import Foundation
 import GRDB
 
-/// An Apple Photos library (a .photoslibrary package on this Mac) as a source, read-only: its
-/// originals are indexed where they are (originals/<0-F>/<UUID>.<ext>), named with their original
-/// names, and its albums become albums here. Edits made in Photos aren't read (yet); shared albums
-/// (reduced copies, not originals) are left out.
+/// An Apple Photos library (a .photoslibrary package on this Mac) as a source, read-only. Each of its
+/// own photos is indexed where it is, as Photos shows it: an edited photo's rendered version
+/// (resources/renders/…_1_201_a.heic, a video's …_2_0_a.mov, a Live Photo clip's …_2_100_a.mov) stands
+/// for its original, and edits made here go on top of it; an unedited one is its original
+/// (originals/<0-F>/<UUID>.<ext>). Files are named with their original names, and the library's albums
+/// become albums here. Shared albums (reduced copies, not originals) are left out.
 public struct PhotosLibrarySource: Codable, Sendable, Equatable {
     public var id: Int
     /// the .photoslibrary package
@@ -16,7 +18,8 @@ public struct PhotosLibrarySource: Codable, Sendable, Equatable {
     }
 
     public var root: String { PhotosLibraries.rootPrefix + String(id) }
-    public var originals: URL { URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent("originals", isDirectory: true) }
+    /// The root's folder: the package (files are under originals/ and resources/renders/).
+    public var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
     /// "Photos Library"
     public var title: String { (URL(fileURLWithPath: path).lastPathComponent as NSString).deletingPathExtension }
 }
@@ -80,28 +83,94 @@ public enum PhotosLibraries {
     public static func remove(id: Int, db: AppDatabase, _ settings: SettingsStore) throws {
         var list = try all(settings)
         guard let s = list.first(where: { $0.id == id }) else { return }
-        _ = try LibraryScanner(db: db, root: s.originals, rootName: s.root).finishBatches(present: [], videos: [], dirs: [])
+        _ = try LibraryScanner(db: db, root: s.url, rootName: s.root).finishBatches(present: [], videos: [], dirs: [])
         list.removeAll { $0.id == id }
         try settings.set(.photosLibraries, list)
         try settings.set(.photosLibraryStats, try settings.get(.photosLibraryStats).filter { $0.root != s.root })
+        try settings.set(.sourceScans, try settings.get(.sourceScans).filter { $0.root != s.root })
     }
 
-    /// Scans a library: indexes its own photos' originals (in place), names them, and brings its albums.
+    /// The file standing for an item: its rendered version when edited in Photos, else its original;
+    /// and its Live Photo clip, the same way. Paths are inside the package; nil when not on disk.
+    static func files(of item: PhotosLibraryReader.Item, in library: URL) -> (main: String?, motion: String?) {
+        let fm = FileManager.default
+        func exists(_ rel: String) -> Bool { fm.fileExists(atPath: library.appendingPathComponent(rel).path) }
+        let renders = "resources/renders/\(item.directory)/\(item.uuid)"
+        let original = "originals/\(item.directory)/\(item.fileName)"
+        var main: String?
+        if item.edited {
+            let candidates = item.isVideo ? [renders + "_2_0_a.mov"] : [renders + "_1_201_a.heic", renders + "_1_201_a.jpeg"]
+            main = candidates.first(where: exists)
+        }
+        if main == nil, exists(original) { main = original }
+        var motion: String?
+        if !item.isVideo {
+            let clip = "originals/\(item.directory)/\((item.fileName as NSString).deletingPathExtension)_3.mov"
+            if item.edited, exists(renders + "_2_100_a.mov") { motion = renders + "_2_100_a.mov" } else if exists(clip) { motion = clip }
+        }
+        return (main, motion)
+    }
+
+    /// Scans a library: indexes its own photos as Photos shows them (edited ones by their rendered
+    /// version), names them, and brings its albums.
     public static func scan(_ source: PhotosLibrarySource, db: AppDatabase, settings: SettingsStore, serverTZ: TimeZone,
                             progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> (ScanReport, [String]) {
-        let content = try PhotosLibraryReader.read(URL(fileURLWithPath: source.path))
-        let scanner = LibraryScanner(db: db, root: source.originals, rootName: source.root, serverTZ: serverTZ)
-        // only files of the library's own photos: not deleted ones, not hidden ones
-        var walked = try scanner.walk(isCancelled: isCancelled)
-        let keep = { (c: LibraryScanner.Candidate) in content.items[PhotosLibraryReader.uuid(of: c.relPath)] != nil }
-        walked.images = walked.images.filter(keep)
-        walked.videos = walked.videos.filter(keep)
-        scanner.listing = walked
-        var report = try scanner.detectChanges(progress: progress, isCancelled: isCancelled)
-        report.skippedOther = 0
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: source.url.appendingPathComponent("database").path) else { throw ScanError.rootUnreadable(source.path) }
+        let content = try PhotosLibraryReader.read(source.url)
+        let scanner = LibraryScanner(db: db, root: source.url, rootName: source.root, serverTZ: serverTZ)
+
+        // which file stands for each photo
+        var chosen: [String: (main: String, motion: String?, name: String?)] = [:]
+        for item in content.items.values {
+            if isCancelled() { throw ScanError.cancelled }
+            let f = files(of: item, in: source.url)
+            guard let main = f.main else { continue }
+            // an edited photo keeps its original name with its render's type (IMG_1234.HEIC → IMG_1234.jpeg)
+            var name = item.originalName
+            if let n = name, main.hasPrefix("resources/renders/") {
+                name = (n as NSString).deletingPathExtension + "." + (main as NSString).pathExtension
+            }
+            chosen[item.uuid] = (main, f.motion, name)
+        }
+
+        // a photo edited (or reverted) in Photos since the last scan stands for itself under its new file:
+        // its row moves there first, so its albums, edits and people follow it like a changed file
+        try db.writer.write { d in
+            for row in try FileRow.filter(Column("root") == source.root).fetchAll(d) {
+                guard let c = chosen[PhotosLibraryReader.uuid(of: row.relPath)], c.main != row.relPath else { continue }
+                if try FileRow.filter(Column("root") == source.root && Column("relPath") == c.main).fetchCount(d) == 0 {
+                    try d.execute(sql: "UPDATE file SET relPath = ? WHERE id = ?", arguments: [c.main, row.id])
+                }
+            }
+            for m in try MotionRow.filter(Column("root") == source.root).fetchAll(d) {
+                guard let c = chosen[PhotosLibraryReader.uuid(of: m.relPath)], let clip = c.motion, clip != m.relPath else { continue }
+                try d.execute(sql: "UPDATE motion SET relPath = ? WHERE assetId = ?", arguments: [clip, m.assetId])
+            }
+        }
+
+        func candidate(_ rel: String) -> LibraryScanner.Candidate? {
+            let url = source.url.appendingPathComponent(rel)
+            guard let v = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+            return LibraryScanner.Candidate(relPath: rel, url: url, size: Int64(v.fileSize ?? 0),
+                                            mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        }
+        var images: [LibraryScanner.Candidate] = [], videos: [LibraryScanner.Candidate] = []
+        var dirs = Set([""])
+        for c in chosen.values {
+            for rel in [c.main] + (c.motion.map { [$0] } ?? []) {
+                guard let cand = candidate(rel) else { continue }
+                let ext = (rel as NSString).pathExtension.lowercased()
+                if LibraryScanner.videoExtensions.contains(ext) { videos.append(cand) } else { images.append(cand) }
+                var p = (rel as NSString).deletingLastPathComponent
+                while !p.isEmpty && !dirs.contains(p) { dirs.insert(p); p = (p as NSString).deletingLastPathComponent }
+            }
+        }
+        scanner.listing = (Array(dirs), images.sorted { $0.relPath < $1.relPath }, videos.sorted { $0.relPath < $1.relPath }, [], 0)
+        let report = try scanner.detectChanges(progress: progress, isCancelled: isCancelled)
 
         // original names, albums, and the top folder named after the library
-        let names = Dictionary(content.items.values.compactMap { i in i.originalName.map { (i.relPath, $0) } }, uniquingKeysWith: { a, _ in a })
+        let names = Dictionary(chosen.values.compactMap { c in c.name.map { (c.main, $0) } }, uniquingKeysWith: { a, _ in a })
         try db.writer.write { d in
             for row in try FileRow.filter(Column("root") == source.root).fetchAll(d) {
                 let name = names[row.relPath]
@@ -119,9 +188,7 @@ public enum PhotosLibraries {
         }
         let albums = try importAlbums(content.albums, source: source, db: db, settings: settings)
 
-        let onDisk = Set(walked.images.map(\.relPath) + walked.videos.map(\.relPath))
-        let stats = PhotosLibraryStats(root: source.root, items: content.items.count,
-                                       onDisk: content.items.values.filter { onDisk.contains($0.relPath) }.count,
+        let stats = PhotosLibraryStats(root: source.root, items: content.items.count, onDisk: chosen.count,
                                        albums: content.albums.count, scannedAt: Date())
         try settings.set(.photosLibraryStats, try settings.get(.photosLibraryStats).filter { $0.root != source.root } + [stats])
         var notes: [String] = []
@@ -139,13 +206,14 @@ public enum PhotosLibraries {
     static func importAlbums(_ albums: [PhotosLibraryReader.Album], source: PhotosLibrarySource, db: AppDatabase,
                              settings: SettingsStore) throws -> (created: Int, updated: Int) {
         let service = AlbumService(db: db, settings: settings)
-        let byPath = try db.writer.read { d in
-            Dictionary(try FileRow.filter(Column("root") == source.root).fetchAll(d).map { ($0.relPath, $0.assetId) }, uniquingKeysWith: { a, _ in a })
+        let byUUID = try db.writer.read { d in
+            Dictionary(try FileRow.filter(Column("root") == source.root).fetchAll(d).map { (PhotosLibraryReader.uuid(of: $0.relPath), $0.assetId) },
+                       uniquingKeysWith: { a, _ in a })
         }
         var created = 0, updated = 0
         for album in albums {
             var seen = Set<String>()
-            let ids = album.relPaths.compactMap { byPath[$0] }.filter { seen.insert($0).inserted }
+            let ids = album.members.compactMap { byUUID[$0] }.filter { seen.insert($0).inserted }
             guard !ids.isEmpty else { continue }
             let key = "\(source.root):\(album.uuid)"
             if let existing = try db.writer.read({ try Int64.fetchOne($0, sql: "SELECT id FROM album WHERE sourceKey = ?", arguments: [key]) }) {
@@ -167,15 +235,20 @@ public enum PhotosLibraries {
 /// Reads an Apple Photos library's database (from a copy: Photos may be using it).
 public enum PhotosLibraryReader {
     public struct Item: Sendable {
-        /// the original's path inside originals/
-        public var relPath: String
+        public var uuid: String
+        /// originals/<directory>/<fileName> is the original
+        public var directory: String
+        public var fileName: String
         public var originalName: String?
+        public var isVideo: Bool
+        /// edited in Photos (its rendered version is shown there)
+        public var edited: Bool
     }
     public struct Album: Sendable {
         public var uuid: String
         public var title: String
-        /// members' paths inside originals/, oldest first
-        public var relPaths: [String]
+        /// members' UUIDs, oldest first
+        public var members: [String]
     }
 
     /// The UUID a file in originals/ belongs to ("9CD3…-…_3.mov" → "9CD3…-…").
@@ -204,18 +277,20 @@ public enum PhotosLibraryReader {
             defer { try? q.close() }
             return try q.read { d in
                 var items: [String: Item] = [:]
-                var byPK: [Int64: (relPath: String, date: Double)] = [:]
+                var byPK: [Int64: (uuid: String, date: Double)] = [:]
+                let cols = Set(try Row.fetchAll(d, sql: "PRAGMA table_info(ZASSET)").map { $0["name"] as String })
+                let edited = cols.contains("ZADJUSTMENTSSTATE") ? "COALESCE(a.ZADJUSTMENTSSTATE, 0)" : "0"
                 for r in try Row.fetchAll(d, sql: """
-                    SELECT a.Z_PK AS pk, a.ZUUID AS uuid, a.ZDIRECTORY AS dir, a.ZFILENAME AS file,
-                           COALESCE(a.ZDATECREATED, 0) AS date, x.ZORIGINALFILENAME AS original
+                    SELECT a.Z_PK AS pk, a.ZUUID AS uuid, a.ZDIRECTORY AS dir, a.ZFILENAME AS file, COALESCE(a.ZKIND, 0) AS kind,
+                           \(edited) AS edited, COALESCE(a.ZDATECREATED, 0) AS date, x.ZORIGINALFILENAME AS original
                     FROM ZASSET a LEFT JOIN ZADDITIONALASSETATTRIBUTES x ON x.ZASSET = a.Z_PK
                     WHERE a.ZTRASHEDSTATE = 0 AND COALESCE(a.ZHIDDEN, 0) = 0 AND a.ZDIRECTORY IS NOT NULL AND a.ZFILENAME IS NOT NULL
                       AND COALESCE(a.ZVISIBILITYSTATE, 0) = 0   -- shared albums' photos are 2: reduced copies, not originals
                     """) {
                     let uuid = ((r["uuid"] as String?) ?? "").uppercased()
-                    let rel = (r["dir"] as String) + "/" + (r["file"] as String)
-                    items[uuid] = Item(relPath: rel, originalName: r["original"])
-                    byPK[r["pk"]] = (rel, r["date"])
+                    items[uuid] = Item(uuid: uuid, directory: r["dir"], fileName: r["file"], originalName: r["original"],
+                                       isVideo: (r["kind"] as Int) == 1, edited: (r["edited"] as Int) > 0)
+                    byPK[r["pk"]] = (uuid, r["date"])
                 }
                 // albums: the album–asset join table's name depends on the Photos version (Z_26ASSETS, Z_34ASSETS…)
                 var albums: [Album] = []
@@ -236,8 +311,8 @@ public enum PhotosLibraryReader {
                             SELECT Z_PK AS pk, ZUUID AS uuid, ZTITLE AS title FROM ZGENERICALBUM
                             WHERE ZKIND = 2 AND ZTRASHEDSTATE = 0 AND ZTITLE IS NOT NULL
                             """) {
-                            let paths = (members[r["pk"]] ?? []).compactMap { byPK[$0] }.sorted { $0.date < $1.date }.map(\.relPath)
-                            albums.append(Album(uuid: r["uuid"], title: r["title"], relPaths: paths))
+                            let uuids = (members[r["pk"]] ?? []).compactMap { byPK[$0] }.sorted { $0.date < $1.date }.map(\.uuid)
+                            albums.append(Album(uuid: r["uuid"], title: r["title"], members: uuids))
                         }
                     }
                 }

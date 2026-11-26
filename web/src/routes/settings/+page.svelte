@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
-	import { api, type BackupStatus, type ConvertAllState, type Job, type JobKind, type Settings } from '#lib/api.ts';
+	import { api, type BackupStatus, type ConvertAllState, type Job, type JobKind, type Settings, type SourceScan } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import DeviceStorage from '#lib/components/DeviceStorage.svelte';
@@ -15,7 +15,7 @@
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
 	let recent = $state<Job[]>([]);
-	let picker = $state<'library' | 'data' | 'uploads' | 'photos' | null>(null);
+	let picker = $state<'library' | 'data' | 'uploads' | 'photos' | 'folder' | null>(null);
 	let message = $state<{ text: string; error?: boolean } | null>(null);
 	let owner = $state('');
 	let moving = $state(false);
@@ -137,6 +137,25 @@
 	const hasSources = $derived(
 		!!settings?.libraryPath || (settings?.remoteSources.length ?? 0) > 0 || (settings?.photosLibraries.length ?? 0) > 0
 	);
+	async function addLocalFolder(path: string) {
+		picker = null;
+		try {
+			settings = await api.addLocalFolder(path);
+			message = { text: `${path.split('/').pop()} added. Scanning…` };
+			poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	async function removeLocalFolder(id: number, path: string) {
+		if (!confirm(`Remove ${path} from the library? Its photos disappear from here unless they're also in another folder. Nothing in the folder is touched.`)) return;
+		try {
+			settings = await api.removeLocalFolder(id);
+			await app.reload();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
 	async function addPhotosLibrary(path: string) {
 		picker = null;
 		try {
@@ -185,6 +204,42 @@
 		}
 	}
 	const cacheSizes = [5, 10, 20, 50, 100, 200, 500];
+
+	/** A job's phase in words; a source's scan names the source ("remote:remote-2" → Fetching from Chicago to Seattle). */
+	function phaseLabel(phase: string | null) {
+		const [kind, root] = (phase ?? '').split(':');
+		if (root) {
+			const src = [...(settings?.remoteSources ?? []), ...(settings?.photosLibraries ?? [])].find((s) => s.root === root);
+			return `${kind === 'photos' ? 'Scanning' : 'Fetching from'} ${src?.title ?? 'a source'}`;
+		}
+		return phaseNames[kind] ?? phase ?? '';
+	}
+
+	/** What a source is doing, or how its last scan went. */
+	function sourceStatus(root: string, lastScan: SourceScan | null): { text: string; busy?: boolean; progress?: number; error?: boolean } {
+		const scanning = current?.state === 'running' && (current.kind === 'detect-changes' || current.kind === 'reindex');
+		if (scanning && current?.phase?.endsWith(':' + root)) {
+			const p = current.total > 0 ? ` ${current.progress.toLocaleString()} of ${current.total.toLocaleString()}` : '…';
+			return {
+				text: `${current.phase.startsWith('photos') ? 'Scanning' : 'Fetching new photos'}${p}`,
+				busy: true,
+				progress: current.total ? current.progress / current.total : undefined
+			};
+		}
+		const waiting =
+			(scanning && !lastScan) || (!lastScan && recent.some((r) => r.kind === 'detect-changes' && r.state === 'queued'));
+		if (waiting) return { text: 'Waiting to be scanned…', busy: true };
+		if (!lastScan) return { text: 'Not scanned yet' };
+		const when = new Date(lastScan.at).toLocaleString();
+		if (!lastScan.ok) return { text: `Last scan failed (${when}): ${lastScan.note ?? ''}`, error: true };
+		const parts = [
+			lastScan.added && `${lastScan.added.toLocaleString()} added`,
+			lastScan.updated && `${lastScan.updated.toLocaleString()} updated`,
+			lastScan.removed && `${lastScan.removed.toLocaleString()} removed`,
+			lastScan.problems && `${lastScan.problems.toLocaleString()} problems (see Recent jobs)`
+		].filter(Boolean);
+		return { text: `Scanned ${when}: ${parts.length ? parts.join(', ') : 'nothing new'}`, error: lastScan.problems > 0 };
+	}
 
 	// ---- backup (database and uploads, to an rclone destination)
 
@@ -480,59 +535,97 @@
 	{#if !net.online}
 		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are above.</p>
 	{:else}
+	{#snippet status(root: string, lastScan: SourceScan | null)}
+		{#each [sourceStatus(root, lastScan)] as st, i (i)}
+			<div class="small" class:muted={!st.busy} class:warn={st.error}>{st.text}</div>
+			{#if st.progress != null}<div class="bar srcbar"><div style:width={`${st.progress * 100}%`}></div></div>{/if}
+		{/each}
+	{/snippet}
+
 	<section>
-		<h3>Library</h3>
+		<h3>Folders on this Mac</h3>
 		<div class="row">
 			<div class="label">
-				<div>Library folder</div>
+				<div>{settings?.libraryPath ? settings.libraryPath.split('/').pop() : 'Library folder'}</div>
 				<div class="muted path">{settings?.libraryPath ?? 'Not set'}</div>
+				{#if settings?.libraryPath}
+					<div class="muted small">{settings.libraryFiles.toLocaleString()} photo and video files</div>
+					{@render status('library', settings.libraryLastScan)}
+				{/if}
 			</div>
-			<button class="btn" onclick={() => (picker = 'library')}>Choose…</button>
+			<button class="btn" onclick={() => (picker = 'library')}>{settings?.libraryPath ? 'Change…' : 'Choose…'}</button>
 		</div>
+		{#each settings?.localFolders ?? [] as f (f.id)}
+			<div class="row">
+				<div class="label">
+					<div>{f.title}</div>
+					<div class="muted path">{f.path}</div>
+					<div class="muted small">{f.files.toLocaleString()} photo and video files · {fmtBytes(f.bytes)}</div>
+					{@render status(f.root, f.lastScan)}
+				</div>
+				<button class="btn" disabled={!!current} onclick={() => removeLocalFolder(f.id, f.path)}>Remove</button>
+			</div>
+		{/each}
+		<div class="row">
+			<div class="label">
+				<div class="muted small">
+					Folders of photos and videos on the Mac or its drives, read where they are (never changed). The same photo in
+					several folders is shown once.
+				</div>
+			</div>
+			<button class="btn" disabled={!settings?.libraryPath} onclick={() => (picker = 'folder')}>Add Folder…</button>
+		</div>
+	</section>
+
+	<section>
+		<h3>Apple Photos libraries</h3>
 		{#each settings?.photosLibraries ?? [] as lib (lib.id)}
 			<div class="row">
 				<div class="label">
-					<div>{lib.title} <span class="muted small">(Apple Photos)</span></div>
+					<div>{lib.title}</div>
 					<div class="muted path">{lib.path}</div>
 					{#if lib.stats}
 						<div class="muted small">
 							{lib.stats.onDisk.toLocaleString()} of {lib.stats.items.toLocaleString()} photos and videos on the Mac{#if lib.stats.onDisk < lib.stats.items}
 								(the rest have no original in the library){/if} · {lib.stats.albums} albums · {fmtBytes(lib.bytes)}
 						</div>
-					{:else}
-						<div class="muted small">Not scanned yet</div>
 					{/if}
+					{@render status(lib.root, lib.lastScan)}
 				</div>
 				<button class="btn" disabled={!!current} onclick={() => removePhotosLibrary(lib.id, lib.title)}>Remove</button>
 			</div>
 		{/each}
 		<div class="row">
 			<div class="label">
-				<div>Apple Photos libraries</div>
 				<div class="muted small">
 					Your own photos and videos in a Photos library, read where they are (never changed), with their original names and
-					your albums. Edits made in Photos and shared albums aren't read yet. The same photo also in another folder is shown once.
+					your albums. Photos edited in Photos come as Photos shows them (edits made here go on top). Shared albums aren't
+					read yet.
 				</div>
 			</div>
 			<button class="btn" onclick={() => (picker = 'photos')}>Add Photos Library…</button>
 		</div>
+	</section>
+
+	<section>
+		<h3>Folders on rclone remotes</h3>
 		{#each settings?.remoteSources ?? [] as src (src.id)}
 			<div class="row">
 				<div class="label">
-					<div>{src.title} <span class="muted small">(rclone)</span></div>
+					<div>{src.title}</div>
 					<div class="muted path">{src.path}</div>
 					<div class="muted small">{src.files.toLocaleString()} photo and video files · {fmtBytes(src.bytes)}</div>
+					{@render status(src.root, src.lastScan)}
 				</div>
 				<button class="btn" disabled={!!current} onclick={() => removeSource(src.id, src.path)}>Remove</button>
 			</div>
 		{/each}
 		<div class="row">
 			<div class="label">
-				<div>Folders on rclone remotes</div>
 				<div class="muted small">
-					Library folders on pCloud or any other rclone remote, read-only. Scans list them in one go and fetch new photos
-					(many at a time) to make their thumbnails and previews; originals are fetched again when needed — to zoom,
-					edit, play or export. The same photo in several places is shown once.
+					Folders on pCloud or any other rclone remote, read-only. Scans list them in one go and fetch new photos (many at a
+					time) to make their thumbnails and previews; originals are fetched again when needed — to zoom, edit, play or
+					export.{#if !settings?.rclone} Needs rclone on the Mac (see Backup).{/if}
 				</div>
 			</div>
 			<button class="btn" disabled={!settings?.rclone} onclick={() => (pickingSource = true)}>Add rclone Folder…</button>
@@ -551,6 +644,10 @@
 				</select>
 			</div>
 		{/if}
+	</section>
+
+	<section>
+		<h3>Library</h3>
 		<div class="row actions">
 			<button class="btn" disabled={!hasSources} onclick={() => start('detect-changes')}>Detect changes</button>
 			<button class="btn" disabled={!hasSources} onclick={() => start('reindex')}>Re-index</button>
@@ -578,7 +675,7 @@
 				<div class="jobhead">
 					<strong>{jobNames[current.kind] ?? current.kind}</strong>
 					<span class="muted"
-						>{current.state === 'queued' ? 'Waiting…' : (phaseNames[current.phase ?? ''] ?? current.phase ?? '')}
+						>{current.state === 'queued' ? 'Waiting…' : phaseLabel(current.phase)}
 						{#if current.total}· {current.progress} / {current.total}{/if}</span
 					>
 					<button class="btn" onclick={() => current && api.cancelJob(current.id)}>Cancel</button>
@@ -908,6 +1005,8 @@
 		onPick={setLibrary}
 		onCancel={() => (picker = null)}
 	/>
+{:else if picker === 'folder'}
+	<FolderPicker title="Add a folder of photos" start={settings?.libraryPath} onPick={addLocalFolder} onCancel={() => (picker = null)} />
 {:else if picker === 'photos'}
 	<FolderPicker title="Choose a Photos library (.photoslibrary)" start={'/Volumes'} onPick={addPhotosLibrary} onCancel={() => (picker = null)} />
 {:else if picker === 'uploads'}
@@ -1031,6 +1130,10 @@
 		background: var(--separator);
 		border-radius: 3px;
 		overflow: hidden;
+	}
+	.srcbar {
+		margin-top: 4px;
+		max-width: 320px;
 	}
 	.bar div {
 		height: 100%;

@@ -31,6 +31,44 @@ extension SettingKey where T == [RemoteSource] {
     public static let remoteSources = SettingKey("remoteSources", default: [])
 }
 
+/// How the last scan of a source (an rclone folder or a Photos library) went.
+public struct SourceScan: Codable, Sendable, Equatable {
+    public var root: String
+    public var at: Date
+    public var ok: Bool
+    public var added: Int
+    public var updated: Int
+    public var removed: Int
+    public var unchanged: Int
+    /// files that couldn't be read or fetched
+    public var problems: Int
+    /// why it failed, or what to know
+    public var note: String?
+
+    public init(root: String, at: Date = Date(), report: ScanReport?, note: String? = nil) {
+        self.root = root
+        self.at = at
+        ok = report != nil
+        added = report?.added ?? 0
+        updated = report?.updated ?? 0
+        removed = report?.removed ?? 0
+        unchanged = report?.unchanged ?? 0
+        problems = (report?.skipped ?? 0) + (report?.errors.count ?? 0)
+        self.note = note
+    }
+}
+
+extension SettingKey where T == [SourceScan] {
+    public static let sourceScans = SettingKey("sourceScans", default: [])
+}
+
+extension SettingsStore {
+    /// Records how a source's scan went.
+    public func recordScan(_ scan: SourceScan) throws {
+        try set(.sourceScans, try get(.sourceScans).filter { $0.root != scan.root } + [scan])
+    }
+}
+
 extension SettingKey where T == Int? {
     /// Gigabytes of remote originals kept on this Mac (nil = `RemoteSources.defaultCacheGB`).
     public static let originalsCacheGB = SettingKey("originalsCacheGB", default: nil)
@@ -67,6 +105,7 @@ public enum RemoteSources {
         _ = try scanner.finishBatches(present: [], videos: [], dirs: [])
         list.removeAll { $0.id == id }
         try settings.set(.remoteSources, list)
+        try settings.set(.sourceScans, try settings.get(.sourceScans).filter { $0.root != s.root })
         if let dataDir { try? FileManager.default.removeItem(at: mirror(s.root, dataDir: dataDir)) }
     }
 

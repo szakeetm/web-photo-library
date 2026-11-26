@@ -148,6 +148,22 @@ extension APIRoutes {
             return try settingsResponse()
         }
 
+        // More library folders on this Mac: added (then scanned), removed.
+        api.post("local-folders") { req, ctx in
+            let body = try await req.decode(as: PathBody.self, context: ctx)
+            do { _ = try LocalFolders.add(path: body.path, services.settings, dataDir: services.paths.dataDir) } catch let e as LocalFolderError {
+                return errorResponse(.badRequest, e.description)
+            }
+            _ = services.jobs.enqueue(.detectChanges)
+            return try settingsResponse()
+        }
+        api.delete("local-folders/:id") { _, ctx in
+            guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
+            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+            try await blocking { try LocalFolders.remove(id: id, db: services.db, services.settings) }
+            return try settingsResponse()
+        }
+
         // Apple Photos libraries on this Mac: added (then scanned), removed.
         api.post("photos-libraries") { req, ctx in
             let body = try await req.decode(as: PathBody.self, context: ctx)

@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { api, isPhotosRoot, isRemoteRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
+	import { api, isNamedRoot, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -273,8 +273,7 @@
 			.filter((f): f is NonNullable<typeof f> => !!f)
 			.map((f) => {
 				const photosLib = isPhotosRoot(f.root);
-				const remote =
-					isRemoteRoot(f.root) || photosLib ? app.folders.find((r) => r.root === f.root && r.relPath === '') : undefined;
+				const remote = isNamedRoot(f.root) ? app.folders.find((r) => r.root === f.root && r.relPath === '') : undefined;
 				// a Photos library is shown as one (its folders are 0…F)
 				if (photosLib) return { id: f.id, href: `/sources/${f.root}`, name: remote?.name || 'Photos library' };
 				const base = f.root === 'uploads' ? '/uploads' : remote ? `/sources/${f.root}` : '/folders';

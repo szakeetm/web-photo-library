@@ -87,7 +87,7 @@ struct BackupTests {
         try FileManager.default.moveItem(at: e.library, to: moved)
         let bad = try e.service.inspect(e.remote)
         #expect(!bad.canRestore)
-        #expect(bad.checks.contains { $0.title == "Library" && !$0.ok })
+        #expect(bad.checks.contains { $0.title == "Library folder" && !$0.ok })
         // nothing there at all
         #expect(try !e.service.inspect(Fixtures.tempDir().path).canRestore)
     }

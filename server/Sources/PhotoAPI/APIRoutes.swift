@@ -60,6 +60,12 @@ struct APIRoutes {
         var facesEnabled: Bool?; var mapStyleURL: String?
         var originalsCacheGB: Int?
     }
+    struct LocalFolderInfo: Encodable {
+        let id: Int; let path: String; let root: String; let title: String
+        let files: Int
+        let bytes: Int64
+        let lastScan: SourceScan?
+    }
     struct PhotosLibraryInfo: Encodable {
         let id: Int; let path: String; let root: String; let title: String
         /// files indexed from it
@@ -67,12 +73,14 @@ struct APIRoutes {
         let bytes: Int64
         /// what the last scan found (nil before the first)
         let stats: PhotosLibraryStats?
+        let lastScan: SourceScan?
     }
     struct SourceInfo: Encodable {
         let id: Int; let path: String; let root: String; let title: String
         /// photo and video files indexed from it
         let files: Int
         let bytes: Int64
+        let lastScan: SourceScan?
     }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
@@ -87,6 +95,10 @@ struct APIRoutes {
         let remoteSources: [SourceInfo]
         /// Apple Photos libraries
         let photosLibraries: [PhotosLibraryInfo]
+        /// more library folders on the Mac, and how the library folder's last scan went
+        let localFolders: [LocalFolderInfo]
+        let libraryFiles: Int
+        let libraryLastScan: SourceScan?
         /// remote originals kept on this Mac: the limit, and what they take now
         let originalsCacheGB: Int
         let originalsCacheBytes: Int64
@@ -128,7 +140,8 @@ struct APIRoutes {
                             webVersion: webVersion,
                             libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil
                                 || !((try? RemoteSources.all(services.settings)) ?? []).isEmpty
-                                || !((try? PhotosLibraries.all(services.settings)) ?? []).isEmpty,
+                                || !((try? PhotosLibraries.all(services.settings)) ?? []).isEmpty
+                                || !((try? LocalFolders.all(services.settings)) ?? []).isEmpty,
                             mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle,
                             local: LocalClient.isLocal(req),
                             commit: BuildInfo.current.commit, commitDate: BuildInfo.current.commitDate, dirty: BuildInfo.current.dirty))
@@ -762,23 +775,38 @@ struct APIRoutes {
                                          mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle,
                                          analysisPending: analysis.pending, analysisTotal: analysis.total,
                                          rclone: RcloneInfo.current(), remoteSources: try sourceInfos(), photosLibraries: try photosInfos(),
+                                         localFolders: try localFolderInfos(),
+                                         libraryFiles: try RemoteSources.fileCounts(services.db)[Roots.library]?.0 ?? 0,
+                                         libraryLastScan: try s.get(.sourceScans).first { $0.root == Roots.library },
                                          originalsCacheGB: try s.get(.originalsCacheGB) ?? RemoteSources.defaultCacheGB,
                                          originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir)))
+    }
+
+    func localFolderInfos() throws -> [LocalFolderInfo] {
+        let counts = try RemoteSources.fileCounts(services.db)
+        let scans = try services.settings.get(.sourceScans)
+        return try LocalFolders.all(services.settings).map { f in
+            LocalFolderInfo(id: f.id, path: f.path, root: f.root, title: f.title, files: counts[f.root]?.0 ?? 0,
+                            bytes: counts[f.root]?.1 ?? 0, lastScan: scans.first { $0.root == f.root })
+        }
     }
 
     func photosInfos() throws -> [PhotosLibraryInfo] {
         let counts = try RemoteSources.fileCounts(services.db)
         let stats = try services.settings.get(.photosLibraryStats)
+        let scans = try services.settings.get(.sourceScans)
         return try PhotosLibraries.all(services.settings).map { p in
             PhotosLibraryInfo(id: p.id, path: p.path, root: p.root, title: p.title, files: counts[p.root]?.0 ?? 0,
-                              bytes: counts[p.root]?.1 ?? 0, stats: stats.first { $0.root == p.root })
+                              bytes: counts[p.root]?.1 ?? 0, stats: stats.first { $0.root == p.root }, lastScan: scans.first { $0.root == p.root })
         }
     }
 
     func sourceInfos() throws -> [SourceInfo] {
         let sources = try RemoteSources.all(services.settings)
         let counts = try RemoteSources.fileCounts(services.db)
-        return sources.map { SourceInfo(id: $0.id, path: $0.path, root: $0.root, title: $0.title,
-                                        files: counts[$0.root]?.0 ?? 0, bytes: counts[$0.root]?.1 ?? 0) }
+        let scans = try services.settings.get(.sourceScans)
+        return sources.map { s in SourceInfo(id: s.id, path: s.path, root: s.root, title: s.title,
+                                             files: counts[s.root]?.0 ?? 0, bytes: counts[s.root]?.1 ?? 0,
+                                             lastScan: scans.first { $0.root == s.root }) }
     }
 }

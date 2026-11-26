@@ -191,7 +191,9 @@ export interface ServerInfo {
 }
 
 /** Where files are: the library folder on the Mac, the uploads folder, or a source on an rclone remote. */
-export type RootName = 'library' | 'uploads' | `remote-${number}` | `photos-${number}`;
+export type RootName = 'library' | 'uploads' | `remote-${number}` | `photos-${number}` | `folder-${number}`;
+/** A source shown under its own name (another folder on the Mac, a Photos library, an rclone folder). */
+export const isNamedRoot = (r: string) => r !== 'library' && r !== 'uploads';
 export const isRemoteRoot = (r: string): r is `remote-${number}` => r.startsWith('remote-');
 /** An Apple Photos library: its folders (originals/0…F) mean nothing, so it's shown as one. */
 export const isPhotosRoot = (r: string): r is `photos-${number}` => r.startsWith('photos-');
@@ -345,6 +347,10 @@ export interface Settings {
 	remoteSources: RemoteSourceInfo[];
 	/** Apple Photos libraries on the Mac */
 	photosLibraries: PhotosLibraryInfo[];
+	/** more library folders on the Mac */
+	localFolders: { id: number; path: string; root: `folder-${number}`; title: string; files: number; bytes: number; lastScan: SourceScan | null }[];
+	libraryFiles: number;
+	libraryLastScan: SourceScan | null;
 	/** remote originals kept on the Mac: the limit (GB), and what they take now */
 	originalsCacheGB: number;
 	originalsCacheBytes: number;
@@ -360,6 +366,20 @@ export interface PhotosLibraryInfo {
 	bytes: number;
 	/** what the last scan found: own photos (not deleted or hidden), how many have their original on the Mac, albums */
 	stats: { items: number; onDisk: number; albums: number; scannedAt: string } | null;
+	lastScan: SourceScan | null;
+}
+
+/** How the last scan of a source went. */
+export interface SourceScan {
+	root: string;
+	at: string;
+	ok: boolean;
+	added: number;
+	updated: number;
+	removed: number;
+	unchanged: number;
+	problems: number;
+	note: string | null;
 }
 
 export interface RemoteSourceInfo {
@@ -371,6 +391,7 @@ export interface RemoteSourceInfo {
 	/** photo and video files indexed from it */
 	files: number;
 	bytes: number;
+	lastScan: SourceScan | null;
 }
 
 export interface RcloneInfo {
@@ -625,6 +646,8 @@ export const api = {
 	settings: () => call<Settings>('/api/settings'),
 	addSource: (path: string) => call<Settings>('/api/sources', { method: 'POST', body: JSON.stringify({ path }) }),
 	removeSource: (id: number) => call<Settings>(`/api/sources/${id}`, { method: 'DELETE' }),
+	addLocalFolder: (path: string) => call<Settings>('/api/local-folders', { method: 'POST', body: JSON.stringify({ path }) }),
+	removeLocalFolder: (id: number) => call<Settings>(`/api/local-folders/${id}`, { method: 'DELETE' }),
 	addPhotosLibrary: (path: string) => call<Settings>('/api/photos-libraries', { method: 'POST', body: JSON.stringify({ path }) }),
 	removePhotosLibrary: (id: number) => call<Settings>(`/api/photos-libraries/${id}`, { method: 'DELETE' }),
 	backup: () => call<BackupStatus>('/api/backup'),

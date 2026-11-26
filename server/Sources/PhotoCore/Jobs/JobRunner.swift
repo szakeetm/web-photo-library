@@ -160,10 +160,12 @@ public final class JobRunner: @unchecked Sendable {
         var out: [(String, URL)] = []
         let remotes = try remoteRoots()
         let photos = try PhotosLibraries.all(settings)
+        let folders = try LocalFolders.all(settings)
         if let lib = try settings.get(.libraryPath), !lib.isEmpty { out.append((Roots.library, URL(fileURLWithPath: lib))) }
-        else if remotes.isEmpty && photos.isEmpty { throw JobError.noLibrary }
+        else if remotes.isEmpty && photos.isEmpty && folders.isEmpty { throw JobError.noLibrary }
+        out += folders.map { ($0.root, $0.url) }
         if let up = try settings.get(.uploadsPath), !up.isEmpty { out.append((Roots.uploads, URL(fileURLWithPath: up))) }
-        return out + photos.map { ($0.root, $0.originals) } + remotes.map { ($0.root, $1) }
+        return out + photos.map { ($0.root, $0.url) } + remotes.map { ($0.root, $1) }
     }
 
     private func remoteRoots() throws -> [(RemoteSource, URL)] {
@@ -191,13 +193,17 @@ public final class JobRunner: @unchecked Sendable {
                     guard let source = try PhotosLibraries.source(root: name, settings) else { continue }
                     do {
                         let (r, n) = try PhotosLibraries.scan(source, db: db, settings: settings, serverTZ: serverTZ,
-                                                              progress: progressReporter(id, phase: "photos"), isCancelled: cancelled)
+                                                              progress: progressReporter(id, phase: "photos:\(name)"), isCancelled: cancelled)
                         total.merge(r)
                         notes += n
+                        try? settings.recordScan(SourceScan(root: name, report: r, note: n.last))
                     } catch ScanError.rootUnreadable(let path) {
-                        notes.append("The Photos library isn't readable (\(path)): is its drive connected? Its photos were left untouched.")
+                        let note = "The Photos library isn't readable (\(path)): is its drive connected? Its photos were left untouched."
+                        notes.append(note)
+                        try? settings.recordScan(SourceScan(root: name, report: nil, note: note))
                     } catch let e as PhotosLibraryError {
                         notes.append(e.description)
+                        try? settings.recordScan(SourceScan(root: name, report: nil, note: e.description))
                     }
                     continue
                 }
@@ -206,30 +212,42 @@ public final class JobRunner: @unchecked Sendable {
                     guard let dataDir, let source = try RemoteSources.source(root: name, settings) else { continue }
                     guard let rclone = Rclone.locate() else {
                         notes.append("rclone isn't installed: \(source.path) was not scanned.")
+                        try? settings.recordScan(SourceScan(root: name, report: nil, note: "rclone isn't installed."))
                         continue
                     }
                     let store = derivatives()
                     let scanner = RemoteScanner(db: db, source: source, dataDir: dataDir, rclone: rclone, serverTZ: serverTZ,
                                                 cacheBudget: try RemoteSources.cacheBytes(settings))
                     do {
-                        total.merge(try scanner.detectChanges(progress: progressReporter(id, phase: "remote"), isCancelled: cancelled) { made in
+                        let r = try scanner.detectChanges(progress: progressReporter(id, phase: "remote:\(name)"), isCancelled: cancelled) { made in
                             parallelFor(made.count, workers: self.workerCount) { i in
                                 try? self.render(assetId: made[i].id, source: made[i].url, store: store)
                             }
-                        })
+                        }
+                        total.merge(r)
+                        try? settings.recordScan(SourceScan(root: name, report: r, note: r.errors.first))
                     } catch ScanError.rootUnreadable(let why) {
                         notes.append("Could not list \(why); its photos were left untouched.")
+                        try? settings.recordScan(SourceScan(root: name, report: nil, note: "Could not list \(why)"))
                     }
                     continue
                 }
                 let scanner = LibraryScanner(db: db, root: url, rootName: name, serverTZ: serverTZ, excluding: excluding)
+                // folders that are sources report their progress and result as their own
+                let isSource = name == Roots.library || LocalFolders.isLocalFolder(name)
                 do {
                     let r = kind == .reindex
-                        ? try scanner.reindex(progress: progressReporter(id, phase: "metadata"), isCancelled: cancelled)
-                        : try scanner.detectChanges(progress: progressReporter(id, phase: "scan"), isCancelled: cancelled)
+                        ? try scanner.reindex(progress: progressReporter(id, phase: isSource ? "metadata:\(name)" : "metadata"), isCancelled: cancelled)
+                        : try scanner.detectChanges(progress: progressReporter(id, phase: isSource ? "scan:\(name)" : "scan"), isCancelled: cancelled)
                     total.merge(r)
+                    if isSource { try? settings.recordScan(SourceScan(root: name, report: r, note: r.errors.first)) }
+                    if let f = try LocalFolders.source(root: name, settings) { try scanner.nameRootFolder(f.title) }
                 } catch ScanError.rootUnreadable(let path) where name == Roots.uploads {
                     notes.append("Uploads folder is not readable (\(path)); its photos were left untouched.")
+                } catch ScanError.rootUnreadable(let path) where LocalFolders.isLocalFolder(name) {
+                    let note = "\(path) isn't readable (moved, or its drive isn't connected); its photos were left untouched."
+                    notes.append(note)
+                    try? settings.recordScan(SourceScan(root: name, report: nil, note: note))
                 }
             }
             let failures = kind == .detectChanges ? try generateDerivatives(id: id, isCancelled: cancelled) : []

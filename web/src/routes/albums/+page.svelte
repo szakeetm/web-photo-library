@@ -28,7 +28,7 @@
 	/** Top folders of library sources on rclone remotes (named after the source). */
 	const remoteRoots = $derived(
 		app.folders
-			.filter((f) => f.relPath === '' && (f.root.startsWith('remote-') || f.root.startsWith('photos-')))
+			.filter((f) => f.relPath === '' && f.root !== 'library' && f.root !== 'uploads')
 			.sort((a, b) => a.name.localeCompare(b.name))
 	);
 	const firstIn = (root: RootName) =>

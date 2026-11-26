@@ -209,7 +209,8 @@ public final class BackupService: @unchecked Sendable {
     func sources() throws -> [BackupSource] {
         var list: [(root: String, kind: String, path: String)] = []
         if let lib = try settings.get(.libraryPath) { list.append((Roots.library, "local", lib)) }
-        list += try PhotosLibraries.all(settings).map { ($0.root, "local", $0.originals.path) }
+        list += try LocalFolders.all(settings).map { ($0.root, "local", $0.path) }
+        list += try PhotosLibraries.all(settings).map { ($0.root, "local", $0.path) }
         list += try RemoteSources.all(settings).map { ($0.root, "rclone", $0.path) }
         return try db.writer.read { d in
             try list.map { s in
@@ -367,7 +368,8 @@ public final class BackupService: @unchecked Sendable {
 
     /// Whether a source is still where it was: there, with its sample files at the same paths and sizes.
     func check(_ s: BackupSource, rclone: Rclone) -> BackupInspection.Check {
-        let title = s.root == Roots.library ? "Library" : PhotosLibraries.isPhotos(s.root) ? "Photos library" : "Source \(s.path)"
+        let title = s.root == Roots.library || LocalFolders.isLocalFolder(s.root) ? "Library folder"
+            : PhotosLibraries.isPhotos(s.root) ? "Photos library" : "Source \(s.path)"
         let found: [String: Int64]
         if s.kind == "local" {
             var isDir: ObjCBool = false

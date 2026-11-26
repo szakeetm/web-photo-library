@@ -99,7 +99,8 @@ public struct LocalOriginalStore: OriginalStore {
             Roots.library: try settings.get(.libraryPath).map { URL(fileURLWithPath: $0) },
             Roots.uploads: try settings.get(.uploadsPath).map { URL(fileURLWithPath: $0) },
         ].compactMapValues { $0 }
-        for p in try PhotosLibraries.all(settings) { out[p.root] = p.originals }
+        for p in try PhotosLibraries.all(settings) { out[p.root] = p.url }
+        for f in try LocalFolders.all(settings) { out[f.root] = f.url }
         return out
     }
 

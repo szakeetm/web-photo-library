@@ -14,6 +14,7 @@
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
 	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
 	import type { LayoutProps } from './$types';
+	import { isPhotosRoot, isRemoteRoot } from '#lib/api.ts';
 
 	let { children }: LayoutProps = $props();
 
@@ -72,6 +73,49 @@
 		uploads.resume();
 		if (!app.libraryConfigured && !page.url.pathname.startsWith('/settings')) goto('/settings');
 	});
+
+	/** Sources shown under Folders: more folders on the Mac, Photos libraries, rclone folders. */
+	const sourceRoots = $derived(
+		app.folders
+			.filter((f) => f.relPath === '' && f.root !== 'library' && f.root !== 'uploads')
+			.sort((a, b) => a.name.localeCompare(b.name))
+	);
+
+	// ---- resizable sidebar (desktop): dragged by its edge, remembered on this device
+	const SIDEBAR_KEY = 'sidebarWidth';
+	const SIDEBAR_MIN = 180;
+	const SIDEBAR_MAX = 480;
+	function setSidebarWidth(w: number | null) {
+		if (w == null) document.documentElement.style.removeProperty('--sidebar-w');
+		else document.documentElement.style.setProperty('--sidebar-w', `${Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)))}px`);
+	}
+	onMount(() => {
+		const saved = Number(localStorage.getItem(SIDEBAR_KEY));
+		if (saved) setSidebarWidth(saved);
+	});
+	let resizing = $state(false);
+	function startResize(e: PointerEvent) {
+		e.preventDefault();
+		resizing = true;
+		const handle = e.currentTarget as HTMLElement;
+		handle.setPointerCapture(e.pointerId);
+		const move = (ev: PointerEvent) => setSidebarWidth(ev.clientX);
+		const up = (ev: PointerEvent) => {
+			resizing = false;
+			handle.removeEventListener('pointermove', move);
+			handle.removeEventListener('pointerup', up);
+			handle.removeEventListener('pointercancel', up);
+			const w = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX));
+			localStorage.setItem(SIDEBAR_KEY, String(Math.round(w)));
+		};
+		handle.addEventListener('pointermove', move);
+		handle.addEventListener('pointerup', up);
+		handle.addEventListener('pointercancel', up);
+	}
+	function resetSidebar() {
+		localStorage.removeItem(SIDEBAR_KEY);
+		setSidebarWidth(null);
+	}
 </script>
 
 
@@ -97,6 +141,11 @@
 			><Icon name="photos" size={20} /> Library</a
 		>
 		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
+		{#each sourceRoots as r (r.id)}
+			<a class="sub" href="/sources/{r.root}" class:active={page.url.pathname.startsWith(`/sources/${r.root}`)}
+				><Icon name={isPhotosRoot(r.root) ? 'photos' : isRemoteRoot(r.root) ? 'server' : 'folder'} size={18} /> <span>{r.name || 'Source'}</span></a
+			>
+		{/each}
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
 			<a class="sub" href="/trash" class:active={exact('/trash')}
@@ -121,6 +170,14 @@
 			{/each}
 		</div>
 		<a class="bottom" href="/settings" class:active={exact('/settings')}><Icon name="settings" size={20} /> Settings</a>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="resizer"
+			class:resizing
+			title="Drag to resize (double-click to reset)"
+			onpointerdown={startResize}
+			ondblclick={resetSidebar}
+		></div>
 	</nav>
 	<main>
 		{#if !net.online}
@@ -236,6 +293,22 @@
 			padding: 16px 10px;
 			background: var(--bg-elevated);
 			border-right: 0.5px solid var(--separator);
+			/* the whole sidebar scrolls when it's taller than the window */
+			overflow-y: auto;
+			overscroll-behavior: contain;
+		}
+		.resizer {
+			position: fixed;
+			top: 0;
+			bottom: 0;
+			left: calc(var(--sidebar-w) - 3px);
+			width: 6px;
+			cursor: col-resize;
+			z-index: 30;
+		}
+		.resizer:hover,
+		.resizer.resizing {
+			background: color-mix(in srgb, var(--accent) 35%, transparent);
 		}
 		.brand {
 			font-weight: 700;
@@ -281,12 +354,13 @@
 			color: inherit;
 		}
 		.albumlist {
-			overflow: auto;
-			flex: 1;
-			min-height: 0;
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
 		}
 		.bottom {
-			margin-top: 8px;
+			margin-top: auto;
+			padding-top: 8px;
 		}
 	}
 </style>
