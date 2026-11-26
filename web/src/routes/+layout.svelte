@@ -31,6 +31,12 @@
 				? albumsSection.some((p) => page.url.pathname.startsWith(p))
 				: page.url.pathname.startsWith(href);
 	const exact = (href: string) => page.url.pathname === href || page.url.pathname.startsWith(href + '/');
+	/** Media types that only show when there are any. */
+	const mediaLinks = $derived([
+		{ href: '/media/selfies', label: 'Selfies', count: app.index.selfies.length },
+		{ href: '/media/portraits', label: 'Portraits', count: app.index.portraits.length },
+		{ href: '/media/screenshots', label: 'Screenshots', count: app.index.screenshots.length }
+	]);
 	const sidebarAlbums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 
 	let updating = $state(false);
@@ -68,6 +74,9 @@
 		<a href="/edited" class:active={exact('/edited')}><Icon name="edit" size={20} /> Edited</a>
 		<a href="/videos" class:active={exact('/videos')}><Icon name="video" size={20} /> Videos</a>
 		<a href="/live" class:active={exact('/live')}><Icon name="live" size={20} /> Live Photos</a>
+		{#each mediaLinks as m (m.href)}
+			{#if m.count}<a href={m.href} class:active={exact(m.href)}><Icon name="photos" size={20} /> {m.label}</a>{/if}
+		{/each}
 		<a href="/folders" class:active={exact('/folders')}><Icon name="folder" size={20} /> Folders</a>
 		{#if app.uploadsConfigured}
 			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
@@ -77,6 +86,8 @@
 		{/if}
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
+		<a href="/objects" class:active={page.url.pathname.startsWith('/objects')}><Icon name="tag" size={20} /> Objects</a>
+		<a href="/duplicates" class:active={exact('/duplicates')}><Icon name="duplicate" size={20} /> Duplicates</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
 		<div class="group"><a class="grouplink" href="/albums">Albums</a></div>
 		<div class="albumlist">

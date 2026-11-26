@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import FilterMenu from './FilterMenu.svelte';
-	import { gridView } from '#lib/gridView.svelte.ts';
+	import { gridView, gridZoom } from '#lib/gridView.svelte.ts';
 
 	let { title, subtitle, back, crumbs, actions }: {
 		title: string;
@@ -14,6 +14,17 @@
 </script>
 
 <header class="titlebar">
+	{#if gridZoom.enabled}
+		<!-- thumbnail size (desktop; phones pinch) -->
+		<div class="zoom-ctl">
+			<button onclick={() => gridZoom.set(gridZoom.level - 1)} disabled={gridZoom.level <= 0} aria-label="Smaller thumbnails"
+				title="Smaller thumbnails (−)">−</button>
+			<input type="range" min="0" max={gridZoom.max} step="1" value={gridZoom.level} aria-label="Thumbnail size"
+				oninput={(e) => gridZoom.set(Number((e.currentTarget as HTMLInputElement).value))} />
+			<button onclick={() => gridZoom.set(gridZoom.level + 1)} disabled={gridZoom.level >= gridZoom.max} aria-label="Larger thumbnails"
+				title="Larger thumbnails (+)">+</button>
+		</div>
+	{/if}
 	{#if back}<a class="back" href={back} aria-label="Back"><Icon name="back" size={20} /></a>{/if}
 	<div class="titles">
 		{#if crumbs}<nav class="crumbs muted">{@render crumbs()}</nav>{/if}
@@ -92,5 +103,40 @@
 	.actions :global(.btn) {
 		padding: 5px 12px;
 		font-size: 14px;
+	}
+	.zoom-ctl {
+		display: none;
+	}
+	@media (hover: hover) and (min-width: 768px) {
+		.zoom-ctl {
+			display: flex;
+			align-items: center;
+			gap: 2px;
+			height: 30px;
+			padding: 0 6px;
+			margin-right: 6px;
+			border-radius: 999px;
+			background: rgba(127, 127, 127, 0.14);
+			flex: none;
+		}
+		.zoom-ctl button {
+			border: none;
+			background: none;
+			color: var(--fg-secondary);
+			font-size: 17px;
+			width: 22px;
+			height: 26px;
+			padding: 0;
+			cursor: pointer;
+			border-radius: 50%;
+		}
+		.zoom-ctl button:disabled {
+			opacity: 0.35;
+			cursor: default;
+		}
+		.zoom-ctl input {
+			width: 90px;
+			accent-color: var(--fg-secondary);
+		}
 	}
 </style>

@@ -154,3 +154,11 @@ export class GridView {
 }
 
 export const gridView = new GridView();
+
+/** Thumbnail size of the grid on screen, for the title bar's zoom control (desktop). 0 = smallest. */
+export const gridZoom = $state({
+	enabled: false,
+	level: 0,
+	max: 0,
+	set: (_level: number) => {}
+});

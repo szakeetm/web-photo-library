@@ -8,6 +8,7 @@
 	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
 
 	import { dragSelect, type Selection } from '#lib/selection.svelte.ts';
+	import { gridZoom } from '#lib/gridView.svelte.ts';
 
 	let {
 		sections,
@@ -254,6 +255,19 @@
 		}
 		onActivate(id, e);
 	}
+
+	// The title bar's zoom control (desktop) drives the density.
+	$effect(() => {
+		gridZoom.max = targets.length - 1;
+		gridZoom.set = (n) => setDensity(n);
+		gridZoom.enabled = true;
+		return () => {
+			gridZoom.enabled = false;
+		};
+	});
+	$effect(() => {
+		gridZoom.level = Math.max(0, density);
+	});
 
 	// Photos-style: open scrolled to the newest photos at the bottom.
 	let scrolledToEnd = false;
