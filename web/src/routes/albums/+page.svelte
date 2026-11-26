@@ -25,7 +25,6 @@
 	const present = (al: CatalogAlbum) => al.assetIds.filter((i) => app.byId.has(i));
 	const albums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 	const libraryRoot = $derived(app.folders.find((f) => f.root === 'library' && f.relPath === ''));
-	const uploadsRoot = $derived(app.folders.find((f) => f.root === 'uploads' && f.relPath === ''));
 	/** Top folders of every source (the library folder, more folders, Photos libraries, rclone folders). */
 	const sourceRoots = $derived(sources(app.folders).map((s) => s.folder));
 	const trashCover = $derived(app.trash[0]?.asset);
@@ -161,9 +160,6 @@
 <div class="cards">
 	{#if sourceRoots.length}
 		{@render card('/folders', 'Folders', sourceRoots.reduce((n, r) => n + rootCount(r.root), 0), firstIn(sourceRoots[0].root), 'folder', null, libraryRoot ? pins.folderPin(libraryRoot) : undefined)}
-	{/if}
-	{#if uploadsRoot}
-		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}
 	{/if}
 	{@render card('/trash', 'Trash', app.trash.length, null, 'trash', trashCover ? thumbUrl(trashCover.id, trashCover.ev, app.fmt) : null)}
 </div>

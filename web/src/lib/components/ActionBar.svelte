@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
-	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, type Selection } from '#lib/selection.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
@@ -49,10 +50,10 @@
 			others &&
 				`${others === 1 ? 'The other photo is' : `${others} photos are`} only hidden: ${others === 1 ? 'its file stays' : 'their files stay'} where they are (local folders, Photos libraries, pCloud…) and can be restored from the Trash any time.`
 		].filter(Boolean);
-		if (!confirm(`Delete ${n === 1 ? 'this photo' : `${n} photos`}? ${parts.join(' ')}`)) return;
+		const chosen = [...ids];
 		run(async () => {
-			await deletePhotos(ids);
-			selection.clear();
+			const done = await deleteFlow.remove(chosen, `Delete ${n === 1 ? 'this photo' : `${n} photos`}?`, parts.join('\n\n'));
+			if (done) selection.clear();
 		});
 	}
 

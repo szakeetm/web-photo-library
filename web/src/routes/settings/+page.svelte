@@ -6,6 +6,7 @@
 	import FolderPicker from '#lib/components/FolderPicker.svelte';
 	import DeviceStorage from '#lib/components/DeviceStorage.svelte';
 	import RemotePicker from '#lib/components/RemotePicker.svelte';
+	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import RestoreSheet from '#lib/components/RestoreSheet.svelte';
 	import { net } from '#lib/net.svelte.ts';
 	import { applyUpdate } from '#lib/sw.ts';
@@ -515,6 +516,23 @@
 			</div>
 		</section>
 	{/if}
+
+	<section>
+		<h3>Deleting</h3>
+		<div class="row">
+			<div class="label">
+				<div>Ask before deleting</div>
+				<div class="muted small">
+					Off: photos go to the Trash right away and an Undo button shows for a few seconds. Deleting uploads permanently always
+					asks.
+				</div>
+			</div>
+			<label class="switch">
+				<input type="checkbox" checked={!deleteFlow.skip} onchange={(e) => deleteFlow.setSkip(!(e.target as HTMLInputElement).checked)} />
+				<span>{deleteFlow.skip ? 'Off' : 'On'}</span>
+			</label>
+		</div>
+	</section>
 
 	<section>
 		<h3>Storage</h3>

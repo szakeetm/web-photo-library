@@ -12,6 +12,7 @@
 	import { uploads } from '#lib/uploadsInstance.svelte.ts';
 	import DropZone from '#lib/components/DropZone.svelte';
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
+	import DeleteFlow from '#lib/components/DeleteFlow.svelte';
 	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
 	import type { LayoutProps } from './$types';
 	import type { FolderNode } from '#lib/api.ts';
@@ -138,6 +139,7 @@
 
 <DropZone />
 <UploadSheet />
+<DeleteFlow />
 <LibraryDownload />
 
 <div class="shell">
@@ -151,9 +153,6 @@
 		<a href="/" class:active={onLibrary && libraryFilter === 'all'} onclick={(e) => showLibrary('all', e)}
 			><Icon name="photos" size={20} /> Library</a
 		>
-		{#if app.uploadsConfigured}
-			<a href="/uploads" class:active={exact('/uploads')}><Icon name="upload" size={20} /> Uploads</a>
-		{/if}
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
 		<a href="/objects" class:active={page.url.pathname.startsWith('/objects')}><Icon name="tag" size={20} /> Objects</a>
@@ -361,10 +360,6 @@
 		}
 		.sidebar a.active {
 			background: rgba(127, 127, 127, 0.18);
-		}
-		.sidebar a.sub {
-			padding-left: 30px;
-			font-size: 14px;
 		}
 		.sidebar a .badge {
 			margin-left: auto;

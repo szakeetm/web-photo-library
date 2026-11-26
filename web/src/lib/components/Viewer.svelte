@@ -11,6 +11,7 @@
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
 	import FaceAvatar from './FaceAvatar.svelte';
@@ -333,11 +334,11 @@
 
 	function removeUpload() {
 		if (!asset) return;
-		const msg = app.isUpload(asset.id)
-			? "Delete this uploaded photo? It stays in the Trash until you delete it there (then it's deleted from disk)."
-			: 'Hide this photo? It goes to the Trash; its file stays where it is (it is never deleted). Restore it from the Trash any time.';
-		if (!confirm(msg)) return;
-		leave((id) => deletePhotos([id]));
+		const id = asset.id;
+		const msg = app.isUpload(id)
+			? "It stays in the Trash until you delete it there (then it's deleted from disk)."
+			: 'Its file stays where it is (it is never deleted): it is only hidden here. Restore it from the Trash any time.';
+		deleteFlow.remove([id], app.isUpload(id) ? 'Delete this uploaded photo?' : 'Hide this photo?', msg, () => leave((x) => deletePhotos([x])));
 	}
 
 	function deletePermanently() {

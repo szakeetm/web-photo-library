@@ -87,10 +87,10 @@
 <TitleBar
 	{title}
 	{subtitle}
-	back={trail.length ? (trail.length > 1 ? href(trail[trail.length - 2].path) : base) : root === 'uploads' ? undefined : '/folders'}
+	back={trail.length ? (trail.length > 1 ? href(trail[trail.length - 2].path) : base) : '/folders'}
 >
 	{#snippet crumbs()}
-		{#if root !== 'uploads'}<a href="/folders">Folders</a> <span>›</span>{/if}
+		<a href="/folders">Folders</a> <span>›</span>
 		<a href={base}>{rootTitle}</a>
 		{#each trail.slice(0, -1) as c (c.path)}
 			<span>›</span> <a href={href(c.path)}>{c.name}</a>
