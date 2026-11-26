@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { reveal } from '#lib/reveal.ts';
-	// Folder tree of one root (the read-only library or the uploads folder).
-	import { thumbUrl, type FolderNode } from '#lib/api.ts';
+	// Folder tree of one root (the read-only library, the uploads folder, or a source on an rclone remote).
+	import { thumbUrl, type FolderNode, type RootName } from '#lib/api.ts';
 	import { Selection } from '#lib/selection.svelte.ts';
 	import TitleBar from './TitleBar.svelte';
 	import { app } from '#lib/state.svelte.ts';
@@ -11,7 +11,7 @@
 	import { net } from '#lib/net.svelte.ts';
 	import { confirmDownload, folderAssetIds, folderPinId, pins, pinStatus, pinProgress } from '#lib/pins.svelte.ts';
 
-	let { root, relPath, base, rootTitle }: { root: 'library' | 'uploads'; relPath: string; base: string; rootTitle: string } =
+	let { root, relPath, base, rootTitle }: { root: RootName; relPath: string; base: string; rootTitle: string } =
 		$props();
 	const selection = new Selection();
 	const folder = $derived(app.folders.find((f) => f.root === root && f.relPath === relPath));

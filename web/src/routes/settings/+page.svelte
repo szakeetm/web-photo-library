@@ -37,7 +37,8 @@
 		previews: 'Generating previews',
 		images: 'Generating thumbnails and previews',
 		faces: 'Looking for faces',
-		analyse: 'Analysing photos'
+		analyse: 'Analysing photos',
+		remote: 'Fetching from remote sources'
 	};
 
 	/** The Analyse photos job, when it is running or waiting its turn. */
@@ -118,6 +119,39 @@
 		const t = setInterval(loadVideos, 2000);
 		return () => clearInterval(t);
 	});
+
+	// ---- library sources on rclone remotes
+
+	let pickingSource = $state(false);
+	const hasSources = $derived(!!settings?.libraryPath || (settings?.remoteSources.length ?? 0) > 0);
+	async function addSource(path: string) {
+		pickingSource = false;
+		try {
+			settings = await api.addSource(path);
+			message = { text: `${path} added. Scanning…` };
+			app.libraryConfigured = true;
+			poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	async function removeSource(id: number, path: string) {
+		if (!confirm(`Remove ${path} from the library? Its photos disappear from here (albums, edits and people are kept if they come back). Nothing on the remote is touched.`)) return;
+		try {
+			settings = await api.removeSource(id);
+			await app.reload();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	async function setCacheGB(gb: number) {
+		try {
+			settings = await api.saveSettings({ originalsCacheGB: gb });
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	const cacheSizes = [5, 10, 20, 50, 100, 200, 500];
 
 	// ---- backup (database and uploads, to an rclone destination)
 
@@ -422,10 +456,45 @@
 			</div>
 			<button class="btn" onclick={() => (picker = 'library')}>Choose…</button>
 		</div>
+		{#each settings?.remoteSources ?? [] as src (src.id)}
+			<div class="row">
+				<div class="label">
+					<div>{src.title} <span class="muted small">(rclone)</span></div>
+					<div class="muted path">{src.path}</div>
+					<div class="muted small">{src.files.toLocaleString()} photo and video files · {fmtBytes(src.bytes)}</div>
+				</div>
+				<button class="btn" disabled={!!current} onclick={() => removeSource(src.id, src.path)}>Remove</button>
+			</div>
+		{/each}
+		<div class="row">
+			<div class="label">
+				<div>Folders on rclone remotes</div>
+				<div class="muted small">
+					Library folders on pCloud or any other rclone remote, read-only. Scans list them in one go and fetch new photos
+					(many at a time) to make their thumbnails and previews; originals are fetched again when needed — to zoom,
+					edit, play or export. The same photo in several places is shown once.
+				</div>
+			</div>
+			<button class="btn" disabled={!settings?.rclone} onclick={() => (pickingSource = true)}>Add rclone Folder…</button>
+		</div>
+		{#if settings?.remoteSources.length}
+			<div class="row">
+				<div class="label">
+					<div>Originals kept on the Mac</div>
+					<div class="muted small">
+						The most recently used originals from rclone folders stay on the Mac, up to this size: {fmtBytes(settings.originalsCacheBytes)} now.
+					</div>
+				</div>
+				<select value={settings.originalsCacheGB} onchange={(e) => setCacheGB(Number((e.target as HTMLSelectElement).value))}>
+					{#each cacheSizes as gb (gb)}<option value={gb}>{gb} GB</option>{/each}
+					{#if !cacheSizes.includes(settings.originalsCacheGB)}<option value={settings.originalsCacheGB}>{settings.originalsCacheGB} GB</option>{/if}
+				</select>
+			</div>
+		{/if}
 		<div class="row actions">
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('detect-changes')}>Detect changes</button>
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('reindex')}>Re-index</button>
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('rebuild-caches')}>Rebuild caches</button>
+			<button class="btn" disabled={!hasSources} onclick={() => start('detect-changes')}>Detect changes</button>
+			<button class="btn" disabled={!hasSources} onclick={() => start('reindex')}>Re-index</button>
+			<button class="btn" disabled={!hasSources} onclick={() => start('rebuild-caches')}>Rebuild caches</button>
 			<button class="btn danger" onclick={() => start('purge-missing')}>Purge missing</button>
 		</div>
 		<div class="row">
@@ -754,6 +823,9 @@
 	{/if}
 </div>
 
+{#if pickingSource}
+	<RemotePicker title="Add a library folder" chooseLabel="Add This Folder" onPick={addSource} onCancel={() => (pickingSource = false)} />
+{/if}
 {#if pickingDestination && backup}
 	<RemotePicker
 		title="Back up to…"

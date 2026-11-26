@@ -79,7 +79,7 @@ export interface DuplicateItem {
 	bytes: number;
 	mime: string;
 	path: string;
-	root: 'library' | 'uploads';
+	root: RootName;
 	fav: boolean;
 	albums: number;
 }
@@ -190,9 +190,13 @@ export interface ServerInfo {
 	dirty: boolean;
 }
 
+/** Where files are: the library folder on the Mac, the uploads folder, or a source on an rclone remote. */
+export type RootName = 'library' | 'uploads' | `remote-${number}`;
+export const isRemoteRoot = (r: string): r is `remote-${number}` => r.startsWith('remote-');
+
 export interface FolderNode {
 	id: number;
-	root: 'library' | 'uploads';
+	root: RootName;
 	parentId: number | null;
 	name: string;
 	relPath: string;
@@ -335,6 +339,22 @@ export interface Settings {
 	analysisTotal: number;
 	/** rclone on the server (backups, remote sources); null when it isn't installed */
 	rclone: RcloneInfo | null;
+	/** library folders on rclone remotes */
+	remoteSources: RemoteSourceInfo[];
+	/** remote originals kept on the Mac: the limit (GB), and what they take now */
+	originalsCacheGB: number;
+	originalsCacheBytes: number;
+}
+
+export interface RemoteSourceInfo {
+	id: number;
+	/** rclone path, "remote:folder" */
+	path: string;
+	root: `remote-${number}`;
+	title: string;
+	/** photo and video files indexed from it */
+	files: number;
+	bytes: number;
 }
 
 export interface RcloneInfo {
@@ -587,6 +607,8 @@ export const api = {
 		call<ConvertAllState>('/api/videos/cache', { method: 'PUT', body: JSON.stringify({ keepDays }) }),
 	asset: (id: string) => call<AssetDetail>(`/api/assets/${id}`),
 	settings: () => call<Settings>('/api/settings'),
+	addSource: (path: string) => call<Settings>('/api/sources', { method: 'POST', body: JSON.stringify({ path }) }),
+	removeSource: (id: number) => call<Settings>(`/api/sources/${id}`, { method: 'DELETE' }),
 	backup: () => call<BackupStatus>('/api/backup'),
 	setBackup: (patch: { enabled?: boolean; destination?: string; intervalHours?: number }) =>
 		call<BackupStatus>('/api/backup', { method: 'PUT', body: JSON.stringify(patch) }),
@@ -598,7 +620,14 @@ export const api = {
 	rcloneFolders: (path: string) => call<{ path: string; folders: string[] }>(`/api/rclone/folders?path=${encodeURIComponent(path)}`),
 	rcloneMakeFolder: (path: string) =>
 		call<{ path: string; folders: string[] }>('/api/rclone/folders', { method: 'POST', body: JSON.stringify({ path }) }),
-	saveSettings: (s: { libraryPath?: string; uploadsPath?: string; ownerLogin?: string; facesEnabled?: boolean; mapStyleURL?: string }) =>
+	saveSettings: (s: {
+		libraryPath?: string;
+		uploadsPath?: string;
+		ownerLogin?: string;
+		facesEnabled?: boolean;
+		mapStyleURL?: string;
+		originalsCacheGB?: number;
+	}) =>
 		call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 	moveData: (path: string) =>
 		call<{ dataDir: string; restarting: boolean }>('/api/data/move', { method: 'POST', body: JSON.stringify({ path }) }),

@@ -124,6 +124,30 @@ extension APIRoutes {
             }
         }
 
+        // Library folders on rclone remotes: added (then scanned), removed.
+        api.post("sources") { req, ctx in
+            let body = try await req.decode(as: PathBody.self, context: ctx)
+            let path = body.path.trimmingCharacters(in: .whitespaces)
+            guard let r = Rclone.locate() else { return errorResponse(.conflict, RcloneError.notInstalled.description) }
+            if try RemoteSources.all(services.settings).contains(where: { $0.path == path }) {
+                return errorResponse(.conflict, "\(path) is already a source.")
+            }
+            let entry: Rclone.Entry?
+            do { entry = try await blocking { try r.stat(path) } } catch let e as RcloneError {
+                return errorResponse(.badRequest, e.description)
+            }
+            guard let entry, entry.IsDir else { return errorResponse(.badRequest, "\(path) isn't a folder rclone can read.") }
+            _ = try RemoteSources.add(path: path, services.settings)
+            _ = services.jobs.enqueue(.detectChanges)
+            return try settingsResponse()
+        }
+        api.delete("sources/:id") { _, ctx in
+            guard let id = ctx.parameters.get("id", as: Int.self) else { throw HTTPError(.badRequest) }
+            if services.jobs.current() != nil { return errorResponse(.conflict, "Wait for running jobs to finish first.") }
+            try await blocking { try RemoteSources.remove(id: id, db: services.db, services.settings, dataDir: services.paths.dataDir) }
+            return try settingsResponse()
+        }
+
         // What a backup holds and whether it can be restored here.
         api.get("backup/inspect") { req, _ in
             guard let location = req.uri.queryParameters.get("location"), !location.isEmpty else { throw HTTPError(.badRequest) }

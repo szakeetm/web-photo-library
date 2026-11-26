@@ -2,7 +2,7 @@
 	import { inFolders } from '#lib/assetIndex.ts';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type DuplicateGroup, type ObjectLabel } from '#lib/api.ts';
+	import { api, faceThumbUrl, objectName, thumbUrl, type CatalogAlbum, type DuplicateGroup, type ObjectLabel, type RootName } from '#lib/api.ts';
 	import { app, createAlbum } from '#lib/state.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
@@ -25,9 +25,13 @@
 	const albums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 	const libraryRoot = $derived(app.folders.find((f) => f.root === 'library' && f.relPath === ''));
 	const uploadsRoot = $derived(app.folders.find((f) => f.root === 'uploads' && f.relPath === ''));
-	const firstIn = (root: 'library' | 'uploads') =>
+	/** Top folders of library sources on rclone remotes (named after the source). */
+	const remoteRoots = $derived(
+		app.folders.filter((f) => f.relPath === '' && f.root.startsWith('remote-')).sort((a, b) => a.name.localeCompare(b.name))
+	);
+	const firstIn = (root: RootName) =>
 		app.folders.find((f) => f.root === root && f.coverId)?.coverId ?? null;
-	const rootCount = (root: 'library' | 'uploads') => {
+	const rootCount = (root: RootName) => {
 		const ids = new Set(app.folders.filter((f) => f.root === root).map((f) => f.id));
 		return inFolders(app.index, ids).length;
 	};
@@ -156,6 +160,9 @@
 <h2 class="section">Folders</h2>
 <div class="cards">
 	{#if libraryRoot}{@render card('/folders', 'Library folders', rootCount('library'), firstIn('library'), 'folder', null, pins.folderPin(libraryRoot))}{/if}
+	{#each remoteRoots as r (r.id)}
+		{@render card(`/sources/${r.root}`, r.name || 'Source', rootCount(r.root), firstIn(r.root), 'folder', null, pins.folderPin(r))}
+	{/each}
 	{#if uploadsRoot}
 		{@render card('/uploads', 'Uploads', rootCount('uploads'), firstIn('uploads'), 'upload', null, pins.folderPin(uploadsRoot))}
 	{/if}

@@ -26,7 +26,7 @@ export interface PinRecord {
 	/** The pin id (the store's key): an album's id, or −id of a folder. */
 	albumId: number;
 	/** Set for a folder download (photos of the folder and all its subfolders). */
-	folder?: { root: 'library' | 'uploads'; relPath: string };
+	folder?: { root: import('./api.ts').RootName; relPath: string };
 	title: string;
 	state: 'downloading' | 'done';
 	total: number;

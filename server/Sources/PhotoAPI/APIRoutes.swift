@@ -58,6 +58,13 @@ struct APIRoutes {
     struct SettingsBody: Codable {
         var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String?
         var facesEnabled: Bool?; var mapStyleURL: String?
+        var originalsCacheGB: Int?
+    }
+    struct SourceInfo: Encodable {
+        let id: Int; let path: String; let root: String; let title: String
+        /// photo and video files indexed from it
+        let files: Int
+        let bytes: Int64
     }
     struct SettingsResponse: Encodable {
         let libraryPath: String?; let uploadsPath: String?; let ownerLogin: String?
@@ -68,6 +75,11 @@ struct APIRoutes {
         let analysisPending: Int; let analysisTotal: Int
         /// rclone on this Mac (for backups and remote sources); nil when it isn't installed
         let rclone: RcloneInfo.Info?
+        /// library folders on rclone remotes
+        let remoteSources: [SourceInfo]
+        /// remote originals kept on this Mac: the limit, and what they take now
+        let originalsCacheGB: Int
+        let originalsCacheBytes: Int64
     }
     static let defaultMapStyle = "https://tiles.openfreemap.org/styles/liberty"
     struct PersonPatch: Decodable { var name: String??; var hidden: Bool?; var coverFaceId: Int64? }
@@ -104,7 +116,8 @@ struct APIRoutes {
             try json(Health(ok: true, version: serverVersion, apiVersion: apiVersion,
                             uploadsConfigured: ((try? services.settings.get(.uploadsPath)).flatMap { $0 }) != nil,
                             webVersion: webVersion,
-                            libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil,
+                            libraryConfigured: ((try? services.settings.get(.libraryPath)).flatMap { $0 }) != nil
+                                || !((try? RemoteSources.all(services.settings)) ?? []).isEmpty,
                             mapStyleURL: ((try? services.settings.get(.mapStyleURL)).flatMap { $0 }) ?? Self.defaultMapStyle,
                             local: LocalClient.isLocal(req),
                             commit: BuildInfo.current.commit, commitDate: BuildInfo.current.commitDate, dirty: BuildInfo.current.dirty))
@@ -169,6 +182,10 @@ struct APIRoutes {
             if let f = body.facesEnabled {
                 try services.settings.set(.facesEnabled, f)
                 if f { services.jobs.enqueueFacesIfNeeded() }
+            }
+            if let g = body.originalsCacheGB {
+                guard (1...10_000).contains(g) else { return errorResponse(.badRequest, "Keep between 1 GB and 10 TB of originals.") }
+                try services.settings.set(.originalsCacheGB, g == RemoteSources.defaultCacheGB ? nil : g)
             }
             if let m = body.mapStyleURL {
                 let t = m.trimmingCharacters(in: .whitespaces)
@@ -731,6 +748,15 @@ struct APIRoutes {
                                          faceModelPath: FaceAnalyzer.modelURL(dataDir: services.paths.dataDir).path,
                                          mapStyleURL: try s.get(.mapStyleURL), defaultMapStyleURL: Self.defaultMapStyle,
                                          analysisPending: analysis.pending, analysisTotal: analysis.total,
-                                         rclone: RcloneInfo.current()))
+                                         rclone: RcloneInfo.current(), remoteSources: try sourceInfos(),
+                                         originalsCacheGB: try s.get(.originalsCacheGB) ?? RemoteSources.defaultCacheGB,
+                                         originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir)))
+    }
+
+    func sourceInfos() throws -> [SourceInfo] {
+        let sources = try RemoteSources.all(services.settings)
+        let counts = try RemoteSources.fileCounts(services.db)
+        return sources.map { SourceInfo(id: $0.id, path: $0.path, root: $0.root, title: $0.title,
+                                        files: counts[$0.root]?.0 ?? 0, bytes: counts[$0.root]?.1 ?? 0) }
     }
 }

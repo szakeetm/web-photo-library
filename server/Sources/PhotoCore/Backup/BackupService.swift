@@ -23,7 +23,7 @@ extension SettingKey where T == BackupReport? {
 
 /// A folder photos come from, as recorded in a backup: restoring checks it's still there.
 public struct BackupSource: Codable, Sendable, Equatable {
-    /// "library" (the folder on this Mac); later also rclone sources
+    /// "library" (the folder on this Mac) or "remote-<n>" (an rclone source)
     public var root: String
     /// "local" (a folder on this Mac) or "rclone" (a remote path)
     public var kind: String
@@ -207,12 +207,16 @@ public final class BackupService: @unchecked Sendable {
 
     /// Where photos come from, with a few sample files each (for the restore check).
     func sources() throws -> [BackupSource] {
-        guard let lib = try settings.get(.libraryPath) else { return [] }
+        var list: [(root: String, kind: String, path: String)] = []
+        if let lib = try settings.get(.libraryPath) { list.append((Roots.library, "local", lib)) }
+        list += try RemoteSources.all(settings).map { ($0.root, "rclone", $0.path) }
         return try db.writer.read { d in
-            let files = try Int.fetchOne(d, sql: "SELECT count(*) FROM file WHERE root = ?", arguments: [Roots.library]) ?? 0
-            let samples = try Row.fetchAll(d, sql: "SELECT relPath, size FROM file WHERE root = ? ORDER BY random() LIMIT 20",
-                                           arguments: [Roots.library]).map { BackupSource.Sample(path: $0["relPath"], size: $0["size"]) }
-            return [BackupSource(root: Roots.library, kind: "local", path: lib, files: files, samples: samples)]
+            try list.map { s in
+                let files = try Int.fetchOne(d, sql: "SELECT count(*) FROM file WHERE root = ?", arguments: [s.root]) ?? 0
+                let samples = try Row.fetchAll(d, sql: "SELECT relPath, size FROM file WHERE root = ? ORDER BY random() LIMIT 20",
+                                               arguments: [s.root]).map { BackupSource.Sample(path: $0["relPath"], size: $0["size"]) }
+                return BackupSource(root: s.root, kind: s.kind, path: s.path, files: files, samples: samples)
+            }
         }
     }
 
@@ -362,7 +366,7 @@ public final class BackupService: @unchecked Sendable {
 
     /// Whether a source is still where it was: there, with its sample files at the same paths and sizes.
     func check(_ s: BackupSource, rclone: Rclone) -> BackupInspection.Check {
-        let title = s.root == Roots.library ? "Library" : "Source"
+        let title = s.root == Roots.library ? "Library" : "Source \(s.path)"
         let found: [String: Int64]
         if s.kind == "local" {
             var isDir: ObjCBool = false

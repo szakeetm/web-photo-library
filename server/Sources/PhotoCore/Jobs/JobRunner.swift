@@ -154,11 +154,20 @@ public final class JobRunner: @unchecked Sendable {
         }
     }
 
-    /// Configured roots, library first.
+    /// Configured roots, library first; remote sources' roots are their mirrors on this Mac. The
+    /// library folder may be left unset when there are remote sources.
     private func roots() throws -> [(String, URL)] {
-        var out = [(Roots.library, try libraryRoot())]
+        var out: [(String, URL)] = []
+        let remotes = try remoteRoots()
+        if let lib = try settings.get(.libraryPath), !lib.isEmpty { out.append((Roots.library, URL(fileURLWithPath: lib))) }
+        else if remotes.isEmpty { throw JobError.noLibrary }
         if let up = try settings.get(.uploadsPath), !up.isEmpty { out.append((Roots.uploads, URL(fileURLWithPath: up))) }
-        return out
+        return out + remotes.map { ($0.root, $1) }
+    }
+
+    private func remoteRoots() throws -> [(RemoteSource, URL)] {
+        guard let dataDir else { return [] }
+        return try RemoteSources.all(settings).map { ($0, RemoteSources.mirror($0.root, dataDir: dataDir)) }
     }
 
     private func libraryRoot() throws -> URL {
@@ -176,6 +185,27 @@ public final class JobRunner: @unchecked Sendable {
             var total = ScanReport()
             var notes: [String] = []
             for (name, url) in try roots() {
+                if RemoteSources.isRemote(name) {
+                    // remote sources are listed with rclone; Re-index reads what changed there too
+                    guard let dataDir, let source = try RemoteSources.source(root: name, settings) else { continue }
+                    guard let rclone = Rclone.locate() else {
+                        notes.append("rclone isn't installed: \(source.path) was not scanned.")
+                        continue
+                    }
+                    let store = derivatives()
+                    let scanner = RemoteScanner(db: db, source: source, dataDir: dataDir, rclone: rclone, serverTZ: serverTZ,
+                                                cacheBudget: try RemoteSources.cacheBytes(settings))
+                    do {
+                        total.merge(try scanner.detectChanges(progress: progressReporter(id, phase: "remote"), isCancelled: cancelled) { made in
+                            parallelFor(made.count, workers: self.workerCount) { i in
+                                try? self.render(assetId: made[i].id, source: made[i].url, store: store)
+                            }
+                        })
+                    } catch ScanError.rootUnreadable(let why) {
+                        notes.append("Could not list \(why); its photos were left untouched.")
+                    }
+                    continue
+                }
                 let scanner = LibraryScanner(db: db, root: url, rootName: name, serverTZ: serverTZ, excluding: excluding)
                 do {
                     let r = kind == .reindex
@@ -445,10 +475,12 @@ public final class JobRunner: @unchecked Sendable {
                 WHERE a.missingSince IS NULL GROUP BY a.id ORDER BY a.takenAt DESC
                 """)
         }
-        let items: [(id: String, url: URL?, rel: String, hasBH: Bool)] = rows.map { r in
+        let items: [(id: String, url: URL?, rel: String, hasBH: Bool, remote: Bool)] = rows.map { r in
             let parts = (r["loc"] as String).split(separator: "\u{0}", maxSplits: 1).map(String.init)
-            return (r["id"], bases[parts[0]].map { $0.appendingPathComponent(parts[1]) }, parts[1], (r["blurhash"] as String?) != nil)
+            return (r["id"], bases[parts[0]].map { $0.appendingPathComponent(parts[1]) }, parts[1], (r["blurhash"] as String?) != nil,
+                    RemoteSources.isRemote(parts[0]))
         }
+        let catalog = CatalogService(db: db, settings: settings)
         let report = progressReporter(id, phase: "images")
         let counter = Counter()
         let failures = FailedDirs()
@@ -457,6 +489,14 @@ public final class JobRunner: @unchecked Sendable {
             InteractiveWork.yield()
             let item = items[i]
             do {
+                if item.remote {
+                    // a remote original is only fetched when its images are missing
+                    if item.hasBH && store.exists(id: item.id, kind: .thumb, format: .heic)
+                        && store.exists(id: item.id, kind: .preview, format: .heic) { return report(counter.increment(), items.count) }
+                    guard let source = try catalog.originals.original(id: item.id) else { throw ScanError.rootUnreadable(item.rel) }
+                    try render(assetId: item.id, source: source, store: store, needsBlurHash: !item.hasBH)
+                    return report(counter.increment(), items.count)
+                }
                 guard let source = item.url else { throw ScanError.rootUnreadable(item.rel) }
                 try render(assetId: item.id, source: source, store: store, needsBlurHash: !item.hasBH)
             } catch {

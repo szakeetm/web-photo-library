@@ -139,8 +139,47 @@ public struct Rclone: Sendable {
         let list = FileManager.default.temporaryDirectory.appendingPathComponent("rclone-files-\(UUID().uuidString).txt")
         try files.joined(separator: "\n").write(to: list, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: list) }
-        let out = try run(["lsjson", "--files-only", "--no-mimetype", "--files-from-raw", list.path] + Self.netFlags + [dir])
+        let out = try run(["lsjson", "-R", "--files-only", "--no-mimetype", "--files-from-raw", list.path] + Self.netFlags + [dir])
         return Dictionary(try JSONDecoder().decode([Entry].self, from: out).map { ($0.Path, $0.Size) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// A file in a remote folder, for scanning it.
+    public struct RemoteFile: Sendable, Equatable {
+        public let path: String
+        public let size: Int64
+        /// seconds since 1970
+        public let mtime: Double
+    }
+
+    /// Every file under `path` (recursively), in one listing.
+    public func files(_ path: String) throws -> [RemoteFile] {
+        struct E: Decodable { let Path: String; let Size: Int64; let ModTime: String }
+        let out = try run(["lsjson", "-R", "--files-only", "--no-mimetype", "--fast-list"] + Self.netFlags + [path])
+        return try JSONDecoder().decode([E].self, from: out).compactMap { e in
+            Self.date(e.ModTime).map { RemoteFile(path: e.Path, size: e.Size, mtime: $0) }
+        }
+    }
+
+    /// rclone's times ("2019-12-24T16:27:45Z", "2026-11-26T13:55:22.123456789+01:00"), to the millisecond.
+    static func date(_ s: String) -> Double? {
+        var t = s
+        if let r = t.range(of: #"\.(\d{1,9})"#, options: .regularExpression) {
+            let digits = t[r].dropFirst()
+            t.replaceSubrange(r, with: "." + String(digits.prefix(3)).padding(toLength: 3, withPad: "0", startingAt: 0))
+        }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = t.contains(".") ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
+        return f.date(from: t)?.timeIntervalSince1970
+    }
+
+    /// Copies `files` (paths relative to `from`) into `to`, keeping their paths and modification times.
+    public func copyFiles(_ files: [String], from: String, to: String, transfers: Int = 32) throws {
+        guard !files.isEmpty else { return }
+        let list = FileManager.default.temporaryDirectory.appendingPathComponent("rclone-files-\(UUID().uuidString).txt")
+        try files.joined(separator: "\n").write(to: list, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: list) }
+        try run(["copy", "--files-from-raw", list.path, "--transfers", String(transfers), "--checkers", String(transfers), "--no-traverse"]
+                + Self.netFlags + [from, to])
     }
 
     public struct Size: Decodable, Sendable {

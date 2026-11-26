@@ -61,6 +61,14 @@ public final class LibraryScanner: @unchecked Sendable {
     /// Directories never indexed (e.g. the app's own data folder if it sits under the library).
     let excluding: [String]
 
+    typealias Walk = (dirs: [String], images: [Candidate], videos: [Candidate], failed: [String], others: Int)
+    /// The files to look at, when they don't come from walking `root` (a remote source's listing,
+    /// fetched into `root`).
+    var listing: Walk?
+    /// `listing` is part of the files only (a batch of a remote source): nothing is removed, and
+    /// folders aren't pruned; `removeAbsent` does that once every batch is done.
+    var batch = false
+
     public init(db: AppDatabase, root: URL, rootName: String = Roots.library, serverTZ: TimeZone = .current,
                 excluding: [URL] = [], hasher: @escaping (URL) throws -> String = FileHasher.sha256) {
         self.db = db
@@ -81,7 +89,7 @@ public final class LibraryScanner: @unchecked Sendable {
     // MARK: - Detect changes
 
     public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> ScanReport {
-        let (dirs, images, videos, failedDirs, others) = try walk(isCancelled: isCancelled)
+        let (dirs, images, videos, failedDirs, others) = try listing ?? walk(isCancelled: isCancelled)
         var report = ScanReport()
         report.skippedOther = others
         let folderIds = try ensureFolders(dirs)
@@ -126,22 +134,10 @@ public final class LibraryScanner: @unchecked Sendable {
 
         // 2. Files that disappeared — but never those under folders we failed to read.
         for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(\(rootName) root)" : d); its photos were left untouched.") }
-        // Also keeps the uploads Trash (a hidden folder scans don't list): those photos aren't gone.
-        func underFailedDir(_ rel: String) -> Bool {
-            rel.hasPrefix(UploadTrash.dirName + "/") || failedDirs.contains { d in d.isEmpty || rel.hasPrefix(d + "/") }
+        if !batch {
+            report.removed += try removeAbsent(present: Set(images.map(\.relPath)).union(videos.map(\.relPath)),
+                                               videos: Set(videos.map(\.relPath)), failedDirs: failedDirs, existing: existing)
         }
-        let seen = Set(images.map(\.relPath)).union(videos.map(\.relPath))
-        let gone = existing.values.filter { !seen.contains($0.relPath) && !underFailedDir($0.relPath) }
-        if !gone.isEmpty {
-            try db.writer.write { d in
-                for row in gone {
-                    try row.delete(d)
-                    try self.markMissingIfOrphaned(d, assetId: row.assetId)
-                }
-            }
-            report.removed += gone.count
-        }
-        try removeVanishedMotion(present: Set(videos.map(\.relPath)), keep: underFailedDir)
 
         // 3. Videos: Live Photo motion clips attach to their still; the rest become video assets.
         try indexVideos(videos, existing: existing, probeVersions: probeVersions, folderIds: folderIds,
@@ -151,8 +147,37 @@ public final class LibraryScanner: @unchecked Sendable {
         }
         progress(total, total)
 
-        try pruneEmptyFolders(keeping: Set(dirs).union(failedDirs))
+        if !batch { try pruneEmptyFolders(keeping: Set(dirs).union(failedDirs)) }
         return report
+    }
+
+    /// Forgets the files of this root that aren't `present` any more (their photos become missing
+    /// when no other file has them), and Live Photo clips not among `videos`. Returns how many.
+    @discardableResult
+    func removeAbsent(present: Set<String>, videos: Set<String>, failedDirs: [String] = [], existing: [String: FileRow]? = nil) throws -> Int {
+        // Also keeps the uploads Trash (a hidden folder scans don't list): those photos aren't gone.
+        func underFailedDir(_ rel: String) -> Bool {
+            rel.hasPrefix(UploadTrash.dirName + "/") || failedDirs.contains { d in d.isEmpty || rel.hasPrefix(d + "/") }
+        }
+        let rows = try existing.map { Array($0.values) } ?? db.writer.read { try FileRow.filter(Column("root") == rootName).fetchAll($0) }
+        let gone = rows.filter { !present.contains($0.relPath) && !underFailedDir($0.relPath) }
+        if !gone.isEmpty {
+            try db.writer.write { d in
+                for row in gone {
+                    try row.delete(d)
+                    try self.markMissingIfOrphaned(d, assetId: row.assetId)
+                }
+            }
+        }
+        try removeVanishedMotion(present: videos, keep: underFailedDir)
+        return gone.count
+    }
+
+    /// For a remote source once every batch is scanned: forgets what's gone, prunes empty folders.
+    func finishBatches(present: Set<String>, videos: Set<String>, dirs: [String]) throws -> Int {
+        let removed = try removeAbsent(present: present, videos: videos)
+        try pruneEmptyFolders(keeping: Set(dirs))
+        return removed
     }
 
     enum IndexOutcome { case indexed(String), skipped(String) }

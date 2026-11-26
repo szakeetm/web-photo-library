@@ -3,8 +3,11 @@ import GRDB
 
 public final class AppDatabase: Sendable {
     public let writer: any DatabaseWriter
+    /// The folder the database file is in (the data location); nil in memory.
+    public let directory: URL?
 
     public init(path: String) throws {
+        directory = URL(fileURLWithPath: path).deletingLastPathComponent()
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys = ON")
@@ -16,6 +19,7 @@ public final class AppDatabase: Sendable {
 
     private init(writer: any DatabaseWriter) throws {
         self.writer = writer
+        directory = nil
         try Self.migrator.migrate(writer)
     }
 

@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
+	import { api, isRemoteRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -272,10 +272,12 @@
 			.map((fid) => app.folders.find((f) => f.id === fid))
 			.filter((f): f is NonNullable<typeof f> => !!f)
 			.map((f) => {
-				const base = f.root === 'uploads' ? '/uploads' : '/folders';
+				const remote = isRemoteRoot(f.root) ? app.folders.find((r) => r.root === f.root && r.relPath === '') : undefined;
+				const base = f.root === 'uploads' ? '/uploads' : remote ? `/sources/${f.root}` : '/folders';
 				const path = f.relPath ? '/' + f.relPath.split('/').map(encodeURIComponent).join('/') : '';
-				const name = f.relPath || (f.root === 'uploads' ? 'Uploads' : 'Library');
-				return { id: f.id, href: base + path, name: f.root === 'uploads' && f.relPath ? `Uploads/${name}` : name };
+				const name = f.relPath || (f.root === 'uploads' ? 'Uploads' : remote ? remote.name || 'Source' : 'Library');
+				const prefix = f.root === 'uploads' ? 'Uploads/' : remote ? `${remote.name || 'Source'}/` : '';
+				return { id: f.id, href: base + path, name: f.relPath ? prefix + name : name };
 			})
 	);
 	const albumLinks = $derived(asset ? app.albums.filter((al) => al.assetIds.includes(asset.id)) : []);
