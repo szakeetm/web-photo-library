@@ -62,10 +62,10 @@ export interface CatalogAsset {
 
 /** A date change for several photos: the instant moves by `shift` seconds; with `tzOffset` they get
  * that time zone, keeping their wall-clock time (`keepWallClock`) or their instant. */
-/** Photos that look like the same picture ('same') or nearly so ('similar': bursts, crops). */
+/** Copies of the same picture (re-saved, resized, converted). */
 export interface DuplicateGroup {
 	key: string;
-	kind: 'same' | 'similar';
+	kind: 'same';
 	items: DuplicateItem[];
 }
 

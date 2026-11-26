@@ -1,6 +1,6 @@
 <script lang="ts">
-	// Duplicates: photos that look like the same picture (copies: re-saved, resized, converted) or
-	// nearly so (bursts, crops). Keep one: it gets the others' albums and favourite; the other
+	// Duplicates: photos that are the same picture (copies: re-saved, resized, converted); shots that
+	// are only alike (bursts, crops) aren't listed. Keep one: it gets the others' albums and favourite; the other
 	// uploaded copies go to the Trash. The library folder is never written to, so library copies are
 	// shown in the Finder (on the Mac) for you to delete; the next scan notices.
 	import { onMount } from 'svelte';
@@ -37,7 +37,6 @@
 
 	const visible = $derived((groups ?? []).filter((g) => g.items.some((i) => app.byId.has(i.id)) || leftovers[g.key]));
 	const same = $derived(visible.filter((g) => g.kind === 'same'));
-	const similar = $derived(visible.filter((g) => g.kind === 'similar'));
 
 	async function keepOne(g: DuplicateGroup) {
 		const kept = keep[g.key] ?? best(g);
@@ -142,14 +141,7 @@
 		Keep one photo of each group: it gets the others' albums and favourite. Uploaded copies go to the Trash; copies in the
 		library folder are shown so you can delete them yourself.
 	</p>
-	{#if same.length}
-		<h2 class="section">Same Photo</h2>
-		{#each same as g (g.key)}{@render group(g)}{/each}
-	{/if}
-	{#if similar.length}
-		<h2 class="section">Very Similar</h2>
-		{#each similar as g (g.key)}{@render group(g)}{/each}
-	{/if}
+	{#each same as g (g.key)}{@render group(g)}{/each}
 {/if}
 
 <style>
@@ -163,10 +155,6 @@
 	.intro {
 		margin: 4px 16px 8px;
 		font-size: 13px;
-	}
-	.section {
-		margin: 18px 16px 6px;
-		font-size: 18px;
 	}
 	.group {
 		margin: 0 12px 14px;

@@ -70,8 +70,8 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
 - **Search** across file names, folders, descriptions, album titles, people, places, recognised
   objects and **text in photos** (signs, documents, screenshots — read on the Mac with the OCR built
   into macOS; nothing to download).
-- **Duplicates** (Collections): copies of the same photo (re-saved, resized, converted) and very
-  similar shots (bursts, crops). Keep one: it gets the others' albums and favourite; uploaded copies
+- **Duplicates** (Collections): copies of the same photo (re-saved, resized, converted); shots
+  that are only alike (bursts, crops) aren't listed. Keep one: it gets the others' albums and favourite; uploaded copies
   go to the Trash, library copies are shown in the Finder for you to delete.
 - **Trim videos** in the viewer (filmstrip with two handles). Save keeps the trim in the database
   (playback and exports use it); Save as New writes a trimmed copy, without re-encoding, into the

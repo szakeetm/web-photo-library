@@ -4,8 +4,8 @@ import Foundation
 import GRDB
 import Vision
 
-/// A set of photos that look like the same picture ("same": re-saved, resized or converted copies)
-/// or nearly so ("similar": bursts and crops taken within a couple of minutes).
+/// A set of photos that are the same picture: re-saved, resized or converted copies. Shots that are
+/// only alike (bursts, crops, the same scene moments apart) are not duplicates.
 public struct DuplicateGroup: Codable, Sendable, Equatable {
     public var key: String
     public var kind: String
@@ -35,11 +35,9 @@ public final class DuplicateService: @unchecked Sendable {
     public static let version = 1
     /// dHash bits that may differ for "same" (≤ 3: one of four 16-bit chunks always matches).
     static let sameHamming = 3
-    /// Feature print distance (Euclidean, Vision revision 2): a resized, re-compressed copy ≈ 0.25,
-    /// a crop ≈ 0.5, different photos of one trip ≥ 0.85.
-    static let sameDistance: Float = 0.4
-    static let similarDistance: Float = 0.6
-    static let similarWindow: TimeInterval = 120
+    /// Feature print distance (Euclidean, Vision revision 2): a resized copy ≈ 0.13, a re-compressed
+    /// one ≤ 0.25; consecutive shots of one scene ≥ 0.27, a crop ≈ 0.5.
+    static let sameDistance: Float = 0.25
     /// Buckets this large are flat images (black frames, blank pages), not duplicates.
     static let maxBucket = 400
 
@@ -136,7 +134,6 @@ public final class DuplicateService: @unchecked Sendable {
             }
         }
         var same = UnionFind(entries.count)
-        var similar = UnionFind(entries.count)
 
         // Same picture: candidates share one 16-bit chunk of the hash (pigeonhole for ≤ 3 differing bits).
         var checked = Set<Int64>()
@@ -158,23 +155,8 @@ public final class DuplicateService: @unchecked Sendable {
                 }
             }
         }
-        // Nearly the same, taken close together (bursts, crops): compare within a sliding time window.
-        var start = 0
-        for j in 0..<entries.count {
-            while entries[j].taken.timeIntervalSince(entries[start].taken) > Self.similarWindow { start += 1 }
-            for i in start..<j where Self.distance(entries[i].print, entries[j].print) < Self.similarDistance {
-                similar.union(i, j)
-            }
-        }
-
         let dismissed = Set(try db.writer.read { try String.fetchAll($0, sql: "SELECT groupKey FROM duplicate_dismiss") })
-        let sameSets = same.sets().map { Set($0.map { entries[$0].id }) }
-        let sameKeys = Set(sameSets)
-        var out: [(kind: String, ids: Set<String>)] = sameSets.map { ("same", $0) }
-        for s in similar.sets() {
-            let ids = Set(s.map { entries[$0].id })
-            if !sameKeys.contains(ids) { out.append(("similar", ids)) }
-        }
+        let out: [(kind: String, ids: Set<String>)] = same.sets().map { ("same", Set($0.map { entries[$0].id })) }
         let groups = out.compactMap { g -> (String, String, Set<String>)? in
             let key = Self.key(kind: g.kind, ids: g.ids)
             return dismissed.contains(key) ? nil : (key, g.kind, g.ids)
@@ -184,7 +166,7 @@ public final class DuplicateService: @unchecked Sendable {
             DuplicateGroup(key: key, kind: kind, items: ids.compactMap { details[$0] }.sorted { $0.t < $1.t || ($0.t == $1.t && $0.id < $1.id) })
         }
         .filter { $0.items.count > 1 }
-        .sorted { ($0.kind == "same" ? 0 : 1, $1.items.last?.t ?? "") < ($1.kind == "same" ? 0 : 1, $0.items.last?.t ?? "") }
+        .sorted { ($1.items.last?.t ?? "") < ($0.items.last?.t ?? "") }
     }
 
     /// Stable id of a group: its kind and members (a new member makes it a new group, shown again).

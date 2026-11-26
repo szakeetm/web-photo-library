@@ -76,6 +76,9 @@ import GRDB
         try insert(db, id("a"), a, taken: day)
         try insert(db, id("b"), scaled(a, by: 0.5), taken: day.addingTimeInterval(86400 * 300), root: "uploads")
         try insert(db, id("c"), photo(seed: 2), taken: day.addingTimeInterval(30))
+        // a crop moments later is a different shot, not a duplicate
+        try insert(db, id("d"), a.cropping(to: CGRect(x: 0, y: 0, width: a.width * 8 / 10, height: a.height * 8 / 10))!,
+                   taken: day.addingTimeInterval(5))
         let s = DuplicateService(db: db)
         let groups = try s.groups()
         #expect(groups.count == 1)
