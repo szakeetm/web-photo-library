@@ -105,8 +105,11 @@ if (want('desktop-viewer-people')) {
 	await shot(d, 'desktop-viewer-people');
 }
 if (want('desktop-objects')) {
-	await d.goto(BASE + '/objects');
+	// the Objects row in Collections (there is no page of all objects)
+	await d.goto(BASE + '/albums');
 	await settle(d, 2500);
+	await d.getByRole('heading', { name: 'Objects' }).scrollIntoViewIfNeeded();
+	await settle(d);
 	await shot(d, 'desktop-objects');
 }
 if (want('desktop-viewer-objects')) {

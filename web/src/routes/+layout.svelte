@@ -186,7 +186,6 @@
 		>
 		<a href="/people" class:active={exact('/people')}><Icon name="people" size={20} /> People</a>
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
-		<a href="/objects" class:active={page.url.pathname.startsWith('/objects')}><Icon name="tag" size={20} /> Objects</a>
 		<a href="/duplicates" class:active={exact('/duplicates')}><Icon name="duplicate" size={20} /> Duplicates</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
 		<a href="/trash" class:active={exact('/trash')}

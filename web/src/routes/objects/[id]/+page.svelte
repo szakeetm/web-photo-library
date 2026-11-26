@@ -36,7 +36,7 @@
 	);
 </script>
 
-<TitleBar title={name || 'Object'} subtitle={ids ? String(photos.length) : undefined} back="/objects">
+<TitleBar title={name || 'Object'} subtitle={ids ? String(photos.length) : undefined} back="/albums">
 	{#snippet actions()}
 		{#if photos.length}
 			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>

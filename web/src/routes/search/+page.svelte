@@ -16,6 +16,8 @@
 	let found = $state<string[]>([]);
 	const ids = $derived(found.filter((i) => app.byId.has(i)));
 	let searched = $state(false);
+	/** A search is on its way (from the moment the query changes until its results are in). */
+	let searching = $state(false);
 	let ctrl: AbortController | undefined;
 	let input: HTMLInputElement;
 
@@ -25,8 +27,10 @@
 		if (!query) {
 			found = [];
 			searched = false;
+			searching = false;
 			return;
 		}
+		searching = true;
 		const c = (ctrl = new AbortController());
 		const t = setTimeout(async () => {
 			try {
@@ -39,8 +43,10 @@
 				const url = new URL(location.href);
 				url.searchParams.set('q', query);
 				replaceState(url, page.state);
+				searching = false;
 			} catch {
-				/* aborted */
+				// aborted by a newer query (which is searching now); otherwise it failed
+				if (!c.signal.aborted) searching = false;
 			}
 		}, 200);
 		return () => clearTimeout(t);
@@ -102,7 +108,7 @@
 	}
 </script>
 
-<TitleBar title="Search" subtitle={searched ? `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'}` : undefined}>
+<TitleBar title="Search" subtitle={searching ? 'Searching…' : searched ? `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'}` : undefined}>
 	{#snippet actions()}
 		{#if ids.length}
 			<button class="btn" onclick={() => (selection.active ? selection.clear() : selection.start())}>
@@ -138,7 +144,10 @@
 	</div>
 {/if}
 
-{#if searched && ids.length === 0}
+{#if searching}
+	<div class="searching muted" role="status" aria-live="polite"><span class="spin"></span>Searching for “{q.trim()}”…</div>
+{/if}
+{#if searched && ids.length === 0 && !searching}
 	<p class="empty muted">No photos match “{q.trim()}”.</p>
 {:else if ids.length}
 	<PhotoBrowser {sections} {selection} />
@@ -218,5 +227,26 @@
 	.empty {
 		text-align: center;
 		padding: 60px 20px;
+	}
+	.searching {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 14px 20px;
+		font-size: 14px;
+	}
+	.spin {
+		width: 14px;
+		height: 14px;
+		border: 2px solid currentColor;
+		border-right-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 </style>

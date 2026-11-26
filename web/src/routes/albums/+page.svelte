@@ -14,7 +14,7 @@
 
 	/** Recognised objects, most common first (the top ones are shown here). */
 	let objects = $state<ObjectLabel[]>([]);
-	const TOP_OBJECTS = 11;
+	const TOP_OBJECTS = 12;
 	/** Duplicate groups (server only). */
 	let duplicates = $state<DuplicateGroup[]>([]);
 	onMount(() => {
@@ -219,9 +219,6 @@
 		{#each objects.slice(0, TOP_OBJECTS) as o (o.id)}
 			{@render card(`/objects/${o.id}`, objectName(o.name), o.count, o.coverId && app.byId.has(o.coverId) ? o.coverId : null, 'search')}
 		{/each}
-		{#if objects.length > TOP_OBJECTS}
-			{@render card('/objects', 'All Objects', objects.length, null, 'albums')}
-		{/if}
 	</div>
 {/if}
 
