@@ -9,6 +9,7 @@
 	import PhotoBrowser from '#lib/components/PhotoBrowser.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 	import Icon from '#lib/components/Icon.svelte';
+	import { folderHref } from '#lib/sources.ts';
 
 	const selection = new Selection();
 	let q = $state(page.url.searchParams.get('q') ?? '');
@@ -78,8 +79,6 @@
 		};
 		const people = new Map<string, number>();
 		for (const p of app.people) if (!p.hidden) add(people, p.name, p.count);
-		const perPlace = new Map<number, number>();
-		for (const a of app.assets) if (a.pl != null) perPlace.set(a.pl, (perPlace.get(a.pl) ?? 0) + 1);
 		const places = new Map<string, number>();
 		for (const p of app.places) add(places, p.name, perPlace.get(p.id) ?? 0);
 		const things = new Map<string, number>();
@@ -89,6 +88,31 @@
 		const folders = new Map<string, number>();
 		for (const f of app.folders) if (f.parentId != null) add(folders, f.name, f.count);
 		return { people: rank(people), places: rank(places), objects: rank(things), albums: rank(albums), folders: rank(folders) } as Record<Kind, string[]>;
+	});
+
+	/** Photos per place. */
+	const perPlace = $derived.by(() => {
+		const m = new Map<number, number>();
+		for (const a of app.assets) if (a.pl != null) m.set(a.pl, (m.get(a.pl) ?? 0) + 1);
+		return m;
+	});
+
+	/** Where a person, place, album or folder chip goes: its own page (the one with the most photos when
+	 *  several share the name). Other chips (things) add the word to the search instead. */
+	const pages = $derived.by(() => {
+		const out: Partial<Record<Kind, Map<string, { href: string; n: number }>>> = {};
+		const add = (k: Kind, name: string | null | undefined, href: string, n: number) => {
+			const s = name?.trim();
+			if (!s) return;
+			const m = (out[k] ??= new Map());
+			const had = m.get(s);
+			if (!had || n > had.n) m.set(s, { href, n });
+		};
+		for (const p of app.people) if (!p.hidden) add('people', p.name, `/people/${p.id}`, p.count);
+		for (const p of app.places) add('places', p.name, `/places/${p.id}`, perPlace.get(p.id) ?? 0);
+		for (const a of app.albums) add('albums', a.title, `/albums/${a.id}`, a.assetIds.length);
+		for (const f of app.folders) if (f.parentId != null) add('folders', f.name, folderHref(f.root, f.relPath), f.count);
+		return out;
 	});
 
 	/** The word being typed (the search matches the start of words). */
@@ -136,7 +160,12 @@
 				{#if !q.trim()}<div class="label muted">{r.label}</div>{/if}
 				<div class="chips">
 					{#each r.items as name (name)}
-						<button class="chip" onclick={() => pick(name)}><Icon name={r.icon} size={15} />{name}</button>
+						{@const to = pages[r.key]?.get(name)}
+						{#if to}
+							<a class="chip" href={to.href}><Icon name={r.icon} size={15} />{name}</a>
+						{:else}
+							<button class="chip" onclick={() => pick(name)}><Icon name={r.icon} size={15} />{name}</button>
+						{/if}
 					{/each}
 				</div>
 			</div>
@@ -217,6 +246,7 @@
 		font-size: 14px;
 		white-space: nowrap;
 		cursor: pointer;
+		text-decoration: none;
 	}
 	.chip :global(svg) {
 		opacity: 0.6;
