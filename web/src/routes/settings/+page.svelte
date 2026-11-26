@@ -561,7 +561,8 @@
 				<div>Back up the database and uploads</div>
 				<div class="muted small">
 					What can't be rebuilt: the database (albums, edits, adjusted dates, people, places…) and the photos uploaded from
-					devices. Thumbnails, previews and the library itself aren't copied. The same files are replaced each time; a
+					devices (kept the same as the uploads folder: deleted uploads are removed from the backup too). Thumbnails,
+					previews and the library itself aren't copied. The same files are replaced each time; a
 					destination that keeps versions (like pCloud's 30-day rewind) keeps the earlier backups.
 				</div>
 			</div>
@@ -633,7 +634,7 @@
 							<div class="muted small">
 								Database {fmtBytes(l.databaseBytes)} ({l.assets.toLocaleString()} photos and videos, {l.albums.toLocaleString()}
 								{l.albums === 1 ? 'album' : 'albums'}) · uploads {fmtBytes(l.uploadsBytes)} ({l.uploadsFiles.toLocaleString()}
-								{l.uploadsFiles === 1 ? 'file' : 'files'}, {l.uploadsCopied.toLocaleString()} new this time)
+								{l.uploadsFiles === 1 ? 'file' : 'files'}, {l.uploadsCopied.toLocaleString()} new{#if l.uploadsDeleted}, {l.uploadsDeleted.toLocaleString()} removed{/if} this time)
 							</div>
 							<div class="muted small path">To {l.destination}</div>
 						{:else}

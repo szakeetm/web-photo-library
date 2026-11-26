@@ -356,6 +356,8 @@ export interface BackupReport {
 	uploadsBytes: number;
 	/** uploads copied this time (new or changed) */
 	uploadsCopied: number;
+	/** uploads removed from the backup this time (deleted here) */
+	uploadsDeleted: number;
 }
 
 export interface BackupActivity {

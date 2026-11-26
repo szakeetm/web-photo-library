@@ -57,6 +57,11 @@ struct BackupTests {
         let r2 = try e.service.backup()
         #expect(r2.uploadsCopied == 1 && r2.uploadsFiles == 2)
         #expect(try e.settings.get(.lastBackup) == r2)
+        // an upload deleted here is deleted from the backup too
+        try FileManager.default.removeItem(at: e.uploads.appendingPathComponent("one.jpg"))
+        let r3 = try e.service.backup()
+        #expect(r3.uploadsCopied == 0 && r3.uploadsDeleted == 1)
+        #expect(!fm.fileExists(atPath: e.remote + "/uploads/one.jpg") && fm.fileExists(atPath: e.remote + "/uploads/two.jpg"))
     }
 
     @Test func aFailedBackupIsReportedAndRetriedSooner() throws {

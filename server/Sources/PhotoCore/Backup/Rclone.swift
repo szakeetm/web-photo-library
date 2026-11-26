@@ -179,6 +179,27 @@ public struct Rclone: Sendable {
         return count.value
     }
 
+    /// Makes `to` the same as `from`: copies what's missing or different and deletes what isn't in
+    /// `from` any more (hidden files and folders are left out on both sides). Returns how many files
+    /// were copied and deleted.
+    @discardableResult
+    public func syncFolder(_ from: String, to: String, transfers: Int = 8,
+                           copied: (@Sendable (String) -> Void)? = nil) throws -> (copied: Int, deleted: Int) {
+        let n = LockedBox((0, 0))
+        try run(["sync", "-v", "--transfers", String(transfers), "--exclude", ".*", "--exclude", ".*/**", "--stats", "0"]
+                + Self.netFlags + [from, to]) { line in
+            guard let r = line.range(of: "INFO  : ") else { return }
+            let rest = line[r.upperBound...]
+            if let c = rest.range(of: ": Copied (") {
+                n.mutate { $0.0 += 1 }
+                copied?(String(rest[..<c.lowerBound]))
+            } else if rest.hasSuffix(": Deleted") {
+                n.mutate { $0.1 += 1 }
+            }
+        }
+        return n.value
+    }
+
     /// Joins a remote folder and a name ("pcloud:" + "a" → "pcloud:a", "pcloud:x" + "a" → "pcloud:x/a").
     public static func join(_ dir: String, _ name: String) -> String {
         dir.hasSuffix(":") || dir.hasSuffix("/") ? dir + name : dir + "/" + name

@@ -68,6 +68,8 @@ public struct BackupReport: Codable, Sendable, Equatable {
     public var uploadsBytes: Int64
     /// uploads copied this time (new or changed since the previous backup)
     public var uploadsCopied: Int
+    /// uploads removed from the backup this time (deleted here since the previous backup)
+    public var uploadsDeleted: Int = 0
 }
 
 /// What's happening right now (a backup or a restore).
@@ -111,7 +113,8 @@ public struct BackupInspection: Codable, Sendable, Equatable {
     public var canRestore: Bool
 }
 
-/// Backs up what can't be rebuilt — the database (catalog, albums, edits, people…) and the uploads —
+/// Backs up what can't be rebuilt — the database (catalog, albums, edits, people…) and the uploads
+/// (kept the same as the uploads folder: uploads deleted here are deleted from the backup) —
 /// to an rclone destination, and restores it. Caches are left out: they're rebuilt from the
 /// originals. The same file names are written each time; a remote that keeps versions (pCloud,
 /// S3 with versioning…) keeps the history.
@@ -277,12 +280,16 @@ public final class BackupService: @unchecked Sendable {
                 let stats = Self.folderStats(URL(fileURLWithPath: uploadsPath))
                 report.uploadsFiles = stats.files
                 report.uploadsBytes = stats.bytes
+                // the backup's uploads become the same as these: deleted ones go too (a destination
+                // that keeps versions keeps them for a while)
                 phase("Uploading new uploads", files: 0)
                 let n = LockedBox(0)
-                report.uploadsCopied = try rclone.copyFolder(uploadsPath, to: Rclone.join(dest, "uploads")) { [weak self] _ in
+                let synced = try rclone.syncFolder(uploadsPath, to: Rclone.join(dest, "uploads")) { [weak self] _ in
                     n.mutate { $0 += 1 }
                     self?.phase("Uploading new uploads", files: n.value)
                 }
+                report.uploadsCopied = synced.copied
+                report.uploadsDeleted = synced.deleted
             }
 
             phase("Finishing")
