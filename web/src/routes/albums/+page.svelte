@@ -49,6 +49,14 @@
 	]);
 
 	// Selecting albums to export several at once (desktop: a phone shares one album at a time).
+	/** Phone layout: People, Places, Folders, Duplicates and Trash are tabs of their own. */
+	let phone = $state(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches);
+	onMount(() => {
+		const mq = matchMedia('(max-width: 767px)');
+		const update = () => (phone = mq.matches);
+		mq.addEventListener('change', update);
+		return () => mq.removeEventListener('change', update);
+	});
 	const desktop = typeof matchMedia !== 'undefined' && !matchMedia('(pointer: coarse)').matches;
 	let selecting = $state(false);
 	let picking = $state(new Set<number>());
@@ -149,7 +157,7 @@
 	{/each}
 </div>
 
-{#if videoCount || liveCount || duplicates.length || mediaKinds.some((k) => k.list.length)}
+{#if videoCount || liveCount || (duplicates.length && !phone) || mediaKinds.some((k) => k.list.length)}
 	<h2 class="section">Media Types</h2>
 	<div class="cards">
 		{#if videoCount}{@render card('/videos', 'Videos', videoCount, videoCover, 'video')}{/if}
@@ -157,7 +165,7 @@
 		{#each mediaKinds as k (k.key)}
 			{#if k.list.length}{@render card(`/media/${k.key}`, k.title, k.list.length, k.list.at(-1)?.id ?? null, 'photos')}{/if}
 		{/each}
-		{#if duplicates.length}{@render card('/duplicates', 'Duplicates', duplicates.length, duplicates[0].items[0]?.id ?? null, 'photos')}{/if}
+		{#if duplicates.length && !phone}{@render card('/duplicates', 'Duplicates', duplicates.length, duplicates[0].items[0]?.id ?? null, 'photos')}{/if}
 	</div>
 {/if}
 
@@ -173,6 +181,7 @@
 	</div>
 {/if}
 
+{#if !phone}
 <h2 class="section">People & Places</h2>
 <div class="cards">
 	{@render card('/people', 'People', app.people.filter((p) => !p.hidden && p.name).length, null, 'people', topFace != null ? faceThumbUrl(topFace) : null)}
@@ -186,6 +195,7 @@
 	{/if}
 	{@render card('/trash', 'Trash', app.trash.length, null, 'trash', trashCover ? thumbUrl(trashCover.id, trashCover.ev, app.fmt) : null)}
 </div>
+{/if}
 
 <style>
 

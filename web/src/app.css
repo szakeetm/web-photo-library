@@ -8,7 +8,9 @@
 	--accent: #0a84ff;
 	--danger: #ff3b30;
 	--sidebar-w: 220px;
-	--tabbar-h: 52px;
+	--tabbar-base: 52px;
+	--tabbar-h: var(--tabbar-base);
+	--subtabs-h: 46px;
 	--radius: 10px;
 	--font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
 	color-scheme: light dark;

@@ -34,8 +34,19 @@
 		href === '/'
 			? page.url.pathname === '/'
 			: href === '/albums'
-				? albumsSection.some((p) => page.url.pathname.startsWith(p))
+				? albumsSection.some((p) => page.url.pathname.startsWith(p)) || collectionTab != null
 				: page.url.pathname.startsWith(href);
+	// On the phone, Collections has its own tabs (a second bar above the main one).
+	const collectionTabs = [
+		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/favorites', '/edited', '/videos', '/live', '/media', '/objects'] },
+		{ href: '/folders', label: 'Folders', icon: 'folder', also: ['/uploads', '/sources'] },
+		{ href: '/people', label: 'People', icon: 'people', also: [] },
+		{ href: '/places', label: 'Places', icon: 'map', also: [] },
+		{ href: '/duplicates', label: 'Duplicates', icon: 'duplicate', also: [] },
+		{ href: '/trash', label: 'Trash', icon: 'trash', also: [] }
+	];
+	const under = (p: string) => page.url.pathname === p || page.url.pathname.startsWith(p + '/');
+	const collectionTab = $derived(collectionTabs.find((t) => [t.href, ...t.also].some(under)));
 	const exact = (href: string) => page.url.pathname === href || page.url.pathname.startsWith(href + '/');
 	/** Desktop sidebar filters: each shows the Library filtered (media types only when there are any). */
 	const filterLinks = $derived(
@@ -142,7 +153,7 @@
 <DeleteFlow />
 <LibraryDownload />
 
-<div class="shell">
+<div class="shell" class:with-subtabs={collectionTab != null}>
 	<nav class="sidebar" aria-label="Sections">
 		<div class="brand">
 			<span>Photos</span>
@@ -214,6 +225,15 @@
 		{/if}
 		{@render children()}
 	</main>
+	{#if collectionTab}
+		<nav class="subtabs" aria-label="Collections">
+			{#each collectionTabs as t (t.href)}
+				<a href={t.href} class:active={collectionTab === t} aria-current={collectionTab === t ? 'page' : undefined}
+					><Icon name={t.icon} size={20} /><span>{t.label}</span></a
+				>
+			{/each}
+		</nav>
+	{/if}
 	<nav class="tabbar" aria-label="Sections">
 		{#each tabs as t (t.href)}
 			<a href={t.href} class:active={active(t.href)}><Icon name={t.icon} size={24} /><span>{t.label}</span></a>
@@ -224,6 +244,38 @@
 <style>
 	.shell {
 		min-height: 100dvh;
+	}
+	/* Everything that keeps clear of the bottom bars (selection bar, scrubber, Places map…) uses
+	   --tabbar-h, so on the phone it grows by the Collections tabs while they show. */
+	.shell.with-subtabs {
+		--tabbar-h: calc(var(--tabbar-base) + var(--subtabs-h));
+	}
+	.subtabs {
+		position: fixed;
+		z-index: 20;
+		left: 0;
+		right: 0;
+		bottom: calc(var(--tabbar-base) + env(safe-area-inset-bottom));
+		height: var(--subtabs-h);
+		display: flex;
+		background: var(--bg-bar);
+		backdrop-filter: saturate(180%) blur(20px);
+		-webkit-backdrop-filter: saturate(180%) blur(20px);
+		border-top: 0.5px solid var(--separator);
+	}
+	.subtabs a {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1px;
+		font-size: 10px;
+		color: var(--fg-secondary);
+	}
+	.subtabs a.active {
+		color: var(--accent);
 	}
 	main {
 		min-height: 100dvh;
@@ -238,7 +290,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+		height: calc(var(--tabbar-base) + env(safe-area-inset-bottom));
 		padding-bottom: env(safe-area-inset-bottom);
 		display: flex;
 		background: var(--bg-bar);
@@ -299,8 +351,12 @@
 		padding-top: calc(8px + env(safe-area-inset-top));
 	}
 	@media (min-width: 768px) {
-		.tabbar {
+		.tabbar,
+		.subtabs {
 			display: none;
+		}
+		.shell.with-subtabs {
+			--tabbar-h: var(--tabbar-base);
 		}
 		main {
 			margin-left: var(--sidebar-w);

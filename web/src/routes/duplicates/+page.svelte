@@ -72,9 +72,11 @@
 		if (root === 'library') return LOCAL_FOLDERS;
 		return app.folders.find((f) => f.root === root && f.relPath === '')?.name || 'Source';
 	}
+	// On the phone Duplicates is a Collections tab: no way "back".
+	const phone = typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches;
 </script>
 
-<TitleBar title="Duplicates" subtitle={groups ? `${visible.length} ${visible.length === 1 ? 'group' : 'groups'}` : undefined} back="/albums" />
+<TitleBar title="Duplicates" subtitle={groups ? `${visible.length} ${visible.length === 1 ? 'group' : 'groups'}` : undefined} back={phone ? undefined : '/albums'} />
 
 {#if !net.online}
 	<p class="empty muted">Duplicates need the server: you're offline.</p>
