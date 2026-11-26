@@ -79,6 +79,9 @@ class AppState {
 	readonly clientVersion = version;
 	/** True when this app doesn't match the server (API or payload format): the user must update. */
 	updateRequired = $state(false);
+	/** The server has a newer web app than this one (found by the sync check, so it is noticed when
+	 *  the app comes back on screen instead of only by SvelteKit's 5-minute check). */
+	newWebVersion = $state(false);
 
 	constructor() {
 		onServerApiVersion((serverApi, refused) => {
@@ -155,6 +158,7 @@ class AppState {
 				return;
 			}
 			this.server = health;
+			if (health.webVersion && health.webVersion !== this.clientVersion) this.newWebVersion = true;
 			this.libraryConfigured = health.libraryConfigured;
 			this.uploadsConfigured = health.uploadsConfigured;
 			if (this.serverLocal !== (health.local === true)) {

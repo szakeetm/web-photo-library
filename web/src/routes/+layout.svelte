@@ -137,7 +137,7 @@
 </script>
 
 
-{#if app.updateRequired || updated.current}
+{#if app.updateRequired || updated.current || app.newWebVersion}
 	<div class="update" role="alertdialog" aria-modal="true" aria-labelledby="update-title">
 		<div class="update-card">
 			<h2 id="update-title">Update required</h2>
