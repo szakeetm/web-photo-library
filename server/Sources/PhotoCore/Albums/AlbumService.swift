@@ -33,10 +33,13 @@ public enum AlbumError: Error, CustomStringConvertible {
 public final class AlbumService: Sendable {
     let db: AppDatabase
     let settings: SettingsStore
+    /// Where rclone sources' sidecars are kept (for Takeout album titles); nil leaves those sources out.
+    let dataDir: URL?
 
-    public init(db: AppDatabase, settings: SettingsStore) {
+    public init(db: AppDatabase, settings: SettingsStore, dataDir: URL? = nil) {
         self.db = db
         self.settings = settings
+        self.dataDir = dataDir
     }
 
     // MARK: Albums
@@ -156,18 +159,37 @@ public final class AlbumService: Sendable {
 
     struct TakeoutFolder { let root: String; let relPath: String; let folderId: Int64; let title: String }
 
+    /// Folder names that hold one folder per album (Google Photos exports sorted by hand), so an album
+    /// folder there without a metadata.json is still an album, titled by its folder name.
+    static let albumParents: Set<String> = ["regular_albums", "special_albums"]
+
+    /// Album folders of Google Takeout exports in every source: on this Mac (folders, uploads) and on
+    /// rclone remotes (whose metadata.json was fetched with the folder's other sidecars when scanned).
+    /// The title is the album's title in metadata.json, else the folder name for a folder directly
+    /// inside one of `albumParents`.
     func takeoutFolders() throws -> [TakeoutFolder] {
-        let bases: [String: String] = [Roots.library: try settings.get(.libraryPath), Roots.uploads: try settings.get(.uploadsPath)]
-            .compactMapValues { $0 }
+        var bases = try LocalOriginalStore.rootURLs(settings)
+        if let dataDir {
+            for r in try RemoteSources.all(settings) { bases[r.root] = RemoteSources.mirror(r.root, dataDir: dataDir) }
+        }
+        // the name of each source's own folder (for album folders right inside it)
+        var sourceNames = bases.mapValues { $0.lastPathComponent }
+        for r in try RemoteSources.all(settings) { sourceNames[r.root] = (r.path as NSString).lastPathComponent }
         let folders = try db.writer.read { try Folder.fetchAll($0) }
         return folders.compactMap { f in
-            guard let base = bases[f.root], !f.relPath.isEmpty else { return nil }
-            let meta = URL(fileURLWithPath: base).appendingPathComponent(f.relPath).appendingPathComponent("metadata.json")
-            guard let data = try? Data(contentsOf: meta),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty
-            else { return nil }
-            return TakeoutFolder(root: f.root, relPath: f.relPath, folderId: f.id!, title: title)
+            guard let base = bases[f.root] else { return nil }
+            let dir = f.relPath.isEmpty ? base : base.appendingPathComponent(f.relPath)
+            if let data = try? Data(contentsOf: dir.appendingPathComponent("metadata.json")),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let title = (obj["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+                return TakeoutFolder(root: f.root, relPath: f.relPath, folderId: f.id!, title: title)
+            }
+            // No metadata.json: an album folder by where it is (directly inside Regular_albums etc.).
+            let parts = f.relPath.split(separator: "/").map(String.init)
+            guard let name = parts.last else { return nil }
+            let parent = parts.count >= 2 ? parts[parts.count - 2] : sourceNames[f.root]
+            guard let parent, Self.albumParents.contains(parent.lowercased()) else { return nil }
+            return TakeoutFolder(root: f.root, relPath: f.relPath, folderId: f.id!, title: name)
         }
     }
 

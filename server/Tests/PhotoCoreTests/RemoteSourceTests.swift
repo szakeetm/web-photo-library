@@ -61,6 +61,23 @@ struct RemoteSourceTests {
         #expect(again.unchanged == 2 && again.added == 0 && none.isEmpty, "\(again)")
     }
 
+    @Test func takeoutAlbumsOnARemoteBecomeAlbumsWhenAsked() throws {
+        let e = try env()
+        // a Google Photos export sorted into Library / Regular_albums / Special_albums
+        Fixtures.writeJPEG(to: e.remote.appendingPathComponent("Regular_albums/2023-04 Italy/c.jpg"), dateTimeOriginal: "2023:04:08 10:00:00", offset: "+02:00", color: (0, 0, 1))
+        try Data(#"{"title":"2023-04-08 Easter trip to Italy"}"#.utf8).write(to: e.remote.appendingPathComponent("Regular_albums/2023-04 Italy/metadata.json"))
+        Fixtures.writeJPEG(to: e.remote.appendingPathComponent("Special_albums/What I eat/d.jpg"), dateTimeOriginal: "2022:01:01 10:00:00", offset: "+02:00", color: (1, 1, 0))
+        _ = try e.scan(budget: 0)   // originals leave the Mac; the sidecars (metadata.json) stay
+        let albums = AlbumService(db: e.db, settings: e.settings, dataDir: e.dataDir)
+        #expect(try albums.pendingTakeoutAlbums() == 2)
+        #expect(try albums.list().isEmpty)   // nothing happens on its own
+        #expect(try albums.importTakeoutAlbums().created == 2)
+        let made = try albums.list()
+        #expect(Set(made.map(\.title)) == ["2023-04-08 Easter trip to Italy", "What I eat"])   // "2021" is no album
+        #expect(made.allSatisfy { $0.count == 1 })
+        #expect(try albums.importTakeoutAlbums().created == 0)
+    }
+
     @Test func originalsLeaveThisMacAndComeBackWhenNeeded() throws {
         let e = try env()
         _ = try e.scan(budget: 0)   // nothing kept after each batch

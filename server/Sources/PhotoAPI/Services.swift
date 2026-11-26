@@ -41,7 +41,7 @@ public final class Services: @unchecked Sendable {
         }
         settings = SettingsStore(db: db)
         catalog = CatalogService(db: db, settings: settings)
-        albums = AlbumService(db: db, settings: settings)
+        albums = AlbumService(db: db, settings: settings, dataDir: paths.dataDir)
         let box = StoreBox()
         edits = EditService(db: db, catalog: catalog, derivatives: { box.get() })
         var getStore: (() -> DerivativeStore)!

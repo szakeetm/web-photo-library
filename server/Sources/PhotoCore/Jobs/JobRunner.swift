@@ -262,7 +262,7 @@ public final class JobRunner: @unchecked Sendable {
             let placed = try PlaceService(db: db).geocodePending()
             if placed > 0 { notes.append("\(placed) photo\(placed == 1 ? "" : "s") placed on the map.") }
             if kind == .detectChanges { enqueueFacesIfNeeded(); enqueueObjectsIfNeeded() }
-            if kind == .detectChanges, let pending = try? AlbumService(db: db, settings: settings).pendingTakeoutAlbums(), pending > 0 {
+            if kind == .detectChanges, let pending = try? AlbumService(db: db, settings: settings, dataDir: dataDir).pendingTakeoutAlbums(), pending > 0 {
                 notes.append("\(pending) Google Takeout album\(pending == 1 ? "" : "s") can be imported (Settings → Import Takeout albums).")
             }
             _ = try? db.writer.write { try ChangeLog.compact($0) }
@@ -291,7 +291,7 @@ public final class JobRunner: @unchecked Sendable {
             let n = try FaceService(db: db).cluster()
             return "\(n) group\(n == 1 ? "" : "s") of faces found"
         case .importTakeoutAlbums:
-            let r = try AlbumService(db: db, settings: settings).importTakeoutAlbums()
+            let r = try AlbumService(db: db, settings: settings, dataDir: dataDir).importTakeoutAlbums()
             return "\(r.created) albums created, \(r.updated) updated"
         }
     }

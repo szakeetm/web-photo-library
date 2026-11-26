@@ -758,8 +758,12 @@
 			<button class="btn danger" onclick={() => start('purge-missing')}>Purge missing</button>
 		</div>
 		<div class="row actions">
-			<button class="btn" disabled={!settings?.libraryPath} onclick={() => start('import-takeout-albums')}>Import Takeout albums</button>
-			<span class="muted small">Turns Google Takeout album folders (with metadata.json) into albums. Safe to run again.</span>
+			<button class="btn" disabled={!hasSources} onclick={() => start('import-takeout-albums')}>Import Takeout albums</button>
+			<span class="muted small"
+				>Turns Google Photos album folders into albums, in every source including rclone ones: folders with a
+				metadata.json (titled from it), and every folder inside Regular_albums or Special_albums. Only runs when you press
+				it; safe to run again.</span
+			>
 		</div>
 		<p class="hint muted">
 			Detect changes picks up new, changed and removed files. Re-index re-reads dates and locations of every photo.
