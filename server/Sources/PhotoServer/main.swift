@@ -10,6 +10,7 @@ let services = try Services(paths: .resolve(), restart: {
     // Re-exec ourselves so the database is reopened at its new location.
     // Don't leak the listening socket (or the old database files) into the new process.
     for fd in 3..<getdtablesize() { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
+    RcloneProcesses.terminateAll()
     let args = CommandLine.arguments
     let cArgs = args.map { strdup($0) } + [nil]
     execv(Bundle.main.executablePath ?? args[0], cArgs)
@@ -18,3 +19,5 @@ let services = try Services(paths: .resolve(), restart: {
 print("PhotoServer \(serverVersion) [\(BuildInfo.current.label)] on http://127.0.0.1:\(port) — data \(services.paths.dataDir.path), web \(webRoot.path)")
 let app = buildApplication(services: services, webRoot: webRoot, port: port)
 try await app.runService()
+// shut down (e.g. by a deploy): a scan's rclone download must not carry on without us
+RcloneProcesses.terminateAll()

@@ -18,6 +18,20 @@ public enum RcloneError: Error, CustomStringConvertible {
     }
 }
 
+/// rclone processes running for this server, so they can be stopped when it shuts down or restarts
+/// (otherwise a scan's download carries on without it).
+public enum RcloneProcesses {
+    nonisolated(unsafe) private static var running: [ObjectIdentifier: Process] = [:]
+    private static let lock = NSLock()
+    static func add(_ p: Process) { lock.lock(); running[ObjectIdentifier(p)] = p; lock.unlock() }
+    static func remove(_ p: Process) { lock.lock(); running[ObjectIdentifier(p)] = nil; lock.unlock() }
+    /// Stops every rclone this server started.
+    public static func terminateAll() {
+        lock.lock(); let all = Array(running.values); running = [:]; lock.unlock()
+        for p in all where p.isRunning { p.terminate() }
+    }
+}
+
 /// The rclone command line (https://rclone.org), for any remote it has been set up with
 /// (`rclone config`): pCloud, S3, SFTP… A path is "remote:dir/sub", or a local path.
 public struct Rclone: Sendable {
@@ -62,6 +76,8 @@ public struct Rclone: Sendable {
         p.standardError = errW
         p.standardInput = FileHandle.nullDevice
         try p.run()
+        RcloneProcesses.add(p)
+        defer { RcloneProcesses.remove(p) }
         try? outW.close()
         try? errW.close()
 
