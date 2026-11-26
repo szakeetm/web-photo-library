@@ -277,6 +277,12 @@ public final class AppDatabase: Sendable {
                 ALTER TABLE asset ADD COLUMN printVersion INTEGER NOT NULL DEFAULT 0;
                 """)
         }
+        m.registerMigration("v13-video-trim") { db in
+            // Video trims (database only; applied when playing and exporting).
+            try db.execute(sql: """
+                CREATE TABLE video_trim (assetId TEXT PRIMARY KEY, start DOUBLE NOT NULL, "end" DOUBLE NOT NULL, createdAt DATETIME NOT NULL);
+                """)
+        }
         return m
     }
 }

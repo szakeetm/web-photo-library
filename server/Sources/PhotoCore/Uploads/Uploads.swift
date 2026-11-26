@@ -47,6 +47,8 @@ public enum UploadError: Error, Equatable, CustomStringConvertible {
 
 public enum UploadSource: String, Sendable {
     case phone, desktop
+    /// Copies the app made (a trimmed video's "Save as New").
+    case edited
 }
 
 /// Receives one uploaded file into `<uploads>/.incoming/`, hashing while writing.

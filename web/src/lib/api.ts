@@ -3,9 +3,9 @@
 export type ImageFmt = 'heic' | 'jpeg';
 
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
-export const CLIENT_API_VERSION = 7;
+export const CLIENT_API_VERSION = 8;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 8;
+export const CATALOG_FORMAT = 9;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
@@ -56,6 +56,8 @@ export interface CatalogAsset {
 	mf?: number;
 	/** date added (seconds since 1970) */
 	ad?: number;
+	/** video trim [start, end] in seconds (applied when playing and exporting) */
+	tr?: [number, number];
 }
 
 /** A date change for several photos: the instant moves by `shift` seconds; with `tzOffset` they get
@@ -80,6 +82,9 @@ export interface DuplicateItem {
 	fav: boolean;
 	albums: number;
 }
+
+/** The trim editor's filmstrip (frames side by side in one image). */
+export const framesUrl = (id: string, n = 12) => `/api/assets/${id}/frames?n=${n}`;
 
 export interface DateChange {
 	shift: number;
@@ -469,6 +474,12 @@ export const api = {
 	trash: () => call<TrashItem[]>('/api/trash'),
 	/** Recognised objects, most common first. */
 	objects: () => call<ObjectLabel[]>('/api/objects'),
+	setTrim: (id: string, start: number, end: number) =>
+		call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim`, { method: 'PUT', body: JSON.stringify({ start, end }) }),
+	revertTrim: (id: string) => call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim`, { method: 'DELETE' }),
+	/** Save as New: a trimmed copy in the uploads folder, as a new video. */
+	trimCopy: (id: string, start: number, end: number) =>
+		call<{ asset: CatalogAsset }>(`/api/assets/${id}/trim/copy`, { method: 'POST', body: JSON.stringify({ start, end }) }),
 	duplicates: () => call<DuplicateGroup[]>('/api/duplicates'),
 	dismissDuplicates: (key: string) => call<void>('/api/duplicates/dismiss', { method: 'POST', body: JSON.stringify({ key }) }),
 	/** The kept photo gets the others' albums and favourite (call before removing them). */

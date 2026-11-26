@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { gestureDebug } from '#lib/gestureDebug.svelte.ts';
 	import GestureDebug from './GestureDebug.svelte';
-	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
+	import { api, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset, TRASH_KEEP_DAYS, objectName } from '#lib/api.ts';
 	import { captureLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, deleteUploads, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -15,6 +15,7 @@
 	import FaceAvatar from './FaceAvatar.svelte';
 	import ExportSheet from './ExportSheet.svelte';
 	import AdjustDateSheet from './AdjustDateSheet.svelte';
+	import TrimBar from './TrimBar.svelte';
 	import Editor from '#lib/editor/Editor.svelte';
 	import VideoPlayer from './VideoPlayer.svelte';
 	import LiveOverlay from './LiveOverlay.svelte';
@@ -105,6 +106,34 @@
 	let editing = $state(false);
 	let exporting = $state(false);
 	let adjustingDate = $state(false);
+	/** The trim editor is open for the current video (draft range in seconds). */
+	let trimming = $state(false);
+	let trimStart = $state(0);
+	let trimEnd = $state(0);
+	let trimBusy = $state(false);
+
+	function openTrim() {
+		if (!asset || asset.dur == null || asset.live) return;
+		trimStart = asset.tr?.[0] ?? 0;
+		trimEnd = asset.tr?.[1] ?? asset.dur;
+		trimming = true;
+		infoOpen = false;
+	}
+
+	async function trimCall(work: () => Promise<{ asset: CatalogAsset }>, after?: (a: CatalogAsset) => void) {
+		trimBusy = true;
+		try {
+			const r = await work();
+			if (after) after(r.asset);
+			else app.patchAsset(r.asset);
+			trimming = false;
+			app.reload();
+		} catch (e) {
+			alert((e as Error).message);
+		} finally {
+			trimBusy = false;
+		}
+	}
 	const canEdit = typeof navigator !== 'undefined' && 'gpu' in navigator;
 	/** Displayed pixel size of loaded previews (an edit's crop changes the aspect). */
 	let dims = $state(new Map<string, { w: number; h: number }>());
@@ -768,7 +797,14 @@
 							<img class="high" src={fullSrc} alt="" draggable="false" decoding="async" />
 						{/if}
 						{#if s.o === 0 && a.dur != null}
-							<VideoPlayer bind:this={player} asset={a} active={!closing} onDownload={() => (exporting = true)} />
+							<VideoPlayer
+								bind:this={player}
+								asset={a}
+								active={!closing}
+								onDownload={() => (exporting = true)}
+								trim={trimming ? [trimStart, trimEnd] : (a.tr ?? null)}
+								editing={trimming}
+							/>
 						{/if}
 						{#if s.o === 0 && a.live && a.dur == null}
 							<LiveOverlay
@@ -827,6 +863,10 @@
 			><Icon name="info" /></button
 		>
 		{#if net.online}
+			{#if isVideo && !asset?.live}
+				<button class="icon-btn" class:on={trimming} onclick={() => (trimming ? (trimming = false) : openTrim())} title="Trim"
+					aria-label="Trim"><Icon name="trim" /></button>
+			{/if}
 			{#if !isVideo}
 				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
 					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
@@ -869,6 +909,24 @@
 	{#if editing && asset}
 		<Editor {asset} onClose={() => (editing = false)} />
 	{/if}
+	{#if trimming && asset && isVideo}
+		<TrimBar
+			{asset}
+			bind:start={trimStart}
+			bind:end={trimEnd}
+			busy={trimBusy}
+			onSeek={(t) => player?.seekTo(t)}
+			onSave={() => trimCall(() => api.setTrim(asset.id, trimStart, trimEnd))}
+			onSaveNew={() =>
+				trimCall(
+					() => api.trimCopy(asset.id, trimStart, trimEnd),
+					(a) => alert(`Saved as a new video in Uploads (${a.name}).`)
+				)}
+			onRevert={() => trimCall(() => api.revertTrim(asset.id))}
+			onCancel={() => (trimming = false)}
+		/>
+	{/if}
+
 	{#if adjustingDate && asset}
 		<AdjustDateSheet ids={[asset.id]} onClose={() => (adjustingDate = false)} />
 	{/if}
@@ -923,7 +981,10 @@
 				{/if}
 				{#if asset.dur != null}
 					<dt>Duration</dt>
-					<dd>{formatDuration(asset.dur)}</dd>
+					<dd>
+						{formatDuration(asset.tr ? asset.tr[1] - asset.tr[0] : asset.dur)}
+						{#if asset.tr}<span class="muted">· trimmed from {formatDuration(asset.dur)}</span>{/if}
+					</dd>
 					<dt>Resolution</dt>
 					<dd>{asset.w} × {asset.h}</dd>
 					{#if detail?.asset.videoCodec}

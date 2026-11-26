@@ -102,6 +102,82 @@ extension APIRoutes {
                                           ])
         }
 
+        // Trims (database only; playing and exports apply them)
+        let trims = VideoTrimService(db: services.db)
+        struct TrimBody: Decodable { let start: Double; let end: Double }
+        struct TrimmedAsset: Encodable { let asset: CatalogAsset }
+        @Sendable func trimCall(_ work: @escaping @Sendable () async throws -> Response) async throws -> Response {
+            do { return try await work() } catch let e as TrimError {
+                return errorResponse(e.description.hasPrefix("Trimming failed") ? .internalServerError : .badRequest, e.description)
+            }
+        }
+        api.put("assets/:id/trim") { req, ctx in
+            guard let id = validId(ctx), let body = try? await req.decode(as: TrimBody.self, context: ctx) else { throw HTTPError(.badRequest) }
+            return try await trimCall {
+                try await blocking { try trims.set(id: id, start: body.start, end: body.end) }
+                guard let a = try services.catalog.catalogAsset(id: id) else { throw HTTPError(.notFound) }
+                return try json(TrimmedAsset(asset: a))
+            }
+        }
+        api.delete("assets/:id/trim") { _, ctx in
+            guard let id = validId(ctx) else { throw HTTPError(.notFound) }
+            try await blocking { try trims.revert(id: id) }
+            guard let a = try services.catalog.catalogAsset(id: id) else { throw HTTPError(.notFound) }
+            return try json(TrimmedAsset(asset: a))
+        }
+        // Save as New: a losslessly trimmed copy in the uploads folder (edited-uploads/), as a new video.
+        api.post("assets/:id/trim/copy") { req, ctx in
+            guard let id = validId(ctx), let body = try? await req.decode(as: TrimBody.self, context: ctx) else { throw HTTPError(.badRequest) }
+            guard let rootPath = try services.settings.get(.uploadsPath) else {
+                return errorResponse(.conflict, UploadError.notConfigured.description)
+            }
+            let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+            return try await trimCall {
+                let (start, end) = try trims.validated(id: id, start: body.start, end: body.end)
+                guard let source = try services.catalog.sourceURL(id: id), let record = try services.catalog.record(id: id) else {
+                    throw HTTPError(.notFound)
+                }
+                let incoming = root.appendingPathComponent(".incoming", isDirectory: true)
+                try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: true)
+                let ext = source.pathExtension
+                let temp = incoming.appendingPathComponent(UUID().uuidString + "." + ext)
+                defer { try? FileManager.default.removeItem(at: temp) }
+                try await VideoCutter.cut(source: source, start: start, end: end, to: temp,
+                                          creationDate: record.takenAt.addingTimeInterval(start), tzOffset: record.tzOffset,
+                                          ffmpeg: services.ffmpeg)
+                let name = source.deletingPathExtension().lastPathComponent + " (trimmed)." + ext
+                let asset = try await blocking {
+                    let rel = try UploadPlacer.place(temp: temp, uploadsRoot: root, source: .edited, name: name,
+                                                     takenAt: record.takenAt, tzOffset: record.tzOffset)
+                    let id = try LibraryScanner(db: services.db, root: root, rootName: Roots.uploads).indexFile(relPath: rel)
+                    guard let a = try services.catalog.catalogAsset(id: id) else { throw HTTPError(.internalServerError) }
+                    return a
+                }
+                return try json(TrimmedAsset(asset: asset))
+            }
+        }
+        // The trim editor's filmstrip: `n` frames side by side in one JPEG (cached).
+        api.get("assets/:id/frames") { req, ctx in
+            guard let id = validId(ctx), let record = try services.catalog.record(id: id), record.kind == "video",
+                  let duration = record.duration, let source = try services.catalog.sourceURL(id: id) else { throw HTTPError(.notFound) }
+            let n = min(30, max(2, req.uri.queryParameters.get("n", as: Int.self) ?? 12))
+            let dir = services.paths.cacheDir.appendingPathComponent("frames", isDirectory: true)
+            let file = dir.appendingPathComponent("\(id)-\(n).jpg")
+            if !FileManager.default.fileExists(atPath: file.path) {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let data: Data
+                do { data = try await VideoCutter.filmstrip(source: source, duration: duration, count: n) } catch {
+                    // formats AVFoundation can't read: the converted preview, if there is one
+                    let preview = videos.previewURL(id: id)
+                    guard FileManager.default.fileExists(atPath: preview.path) else { throw HTTPError(.notFound) }
+                    data = try await VideoCutter.filmstrip(source: preview, duration: duration, count: n)
+                }
+                try data.write(to: file, options: .atomic)
+            }
+            return try await fileResponse(path: file.path, contentType: "image/jpeg", request: req, context: ctx,
+                                          extraHeaders: [.cacheControl: "private, max-age=86400"])
+        }
+
         api.get("videos") { _, _ in try json(try await blocking { videos.allState() }) }
         api.post("videos/convert-all") { _, _ in
             try json(try await blocking { videos.startAll(); return videos.allState() })

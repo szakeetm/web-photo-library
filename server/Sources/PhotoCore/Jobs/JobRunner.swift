@@ -213,6 +213,7 @@ public final class JobRunner: @unchecked Sendable {
                 try d.execute(sql: "DELETE FROM asset_object WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset_text WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset_print WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
+                try d.execute(sql: "DELETE FROM video_trim WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM meta_edit WHERE assetId IN (SELECT id FROM asset WHERE missingSince IS NOT NULL)")
                 try d.execute(sql: "DELETE FROM asset WHERE missingSince IS NOT NULL")
                 return ids

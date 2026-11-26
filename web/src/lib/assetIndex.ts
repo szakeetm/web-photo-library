@@ -43,7 +43,7 @@ export function buildIndex(assets: CatalogAsset[]): AssetIndex {
 	for (const a of assets) {
 		ix.pos.set(a.id, ix.pos.size);
 		if (a.fav) ix.favorites.push(a);
-		if (a.ev > 0 || a.md) ix.edited.push(a);
+		if (a.ev > 0 || a.md || a.tr) ix.edited.push(a);
 		if (a.mf) {
 			if (a.mf & 1) ix.screenshots.push(a);
 			if (a.mf & 2) ix.selfies.push(a);

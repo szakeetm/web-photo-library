@@ -29,8 +29,8 @@ export const SORTS: { key: ViewSort; label: string }[] = [
 	{ key: 'added', label: 'Recently Added' }
 ];
 
-/** Edited in any way: pixels, or the date. */
-export const isEdited = (a: CatalogAsset) => a.ev > 0 || a.md === true;
+/** Edited in any way: pixels, the date, or a video trim. */
+export const isEdited = (a: CatalogAsset) => a.ev > 0 || a.md === true || a.tr != null;
 
 export function matches(a: CatalogAsset, f: ViewFilter): boolean {
 	switch (f) {

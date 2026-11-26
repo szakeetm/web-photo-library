@@ -14,7 +14,21 @@
 	import { net } from '#lib/net.svelte.ts';
 	import { formatDuration } from '#lib/video.ts';
 
-	let { asset, active, onDownload }: { asset: CatalogAsset; active: boolean; onDownload?: () => void } = $props();
+	let {
+		asset,
+		active,
+		onDownload,
+		trim = null,
+		editing = false
+	}: {
+		asset: CatalogAsset;
+		active: boolean;
+		onDownload?: () => void;
+		/** play only this range (a saved trim, or the trim being edited) */
+		trim?: [number, number] | null;
+		/** the trim editor replaces the control bar; playback loops within the range */
+		editing?: boolean;
+	} = $props();
 
 	type Phase = 'idle' | 'probing' | 'preparing' | 'ready' | 'unplayable' | 'failed' | 'offline';
 	let phase = $state<Phase>('idle');
@@ -143,9 +157,14 @@
 		};
 	});
 
+	const full = $derived(duration || asset.dur || 0);
+	const rangeStart = $derived(trim ? trim[0] : 0);
+	const rangeEnd = $derived(trim ? Math.min(trim[1], full || trim[1]) : full);
+
 	/** Plays; a rejected autoplay (NotAllowedError) leaves the big play button showing. */
 	function play() {
 		if (!video) return void (starting = false);
+		if (trim && (video.currentTime < rangeStart - 0.05 || video.currentTime >= rangeEnd - 0.05)) video.currentTime = rangeStart;
 		starting = true;
 		video
 			.play()
@@ -170,6 +189,27 @@
 		src = null;
 	}
 
+	/** Shows the frame at `t` (the trim editor's handles). */
+	export function seekTo(t: number) {
+		if (!video) return;
+		video.pause();
+		video.currentTime = t;
+		time = t;
+	}
+
+	/** Keeps playback inside the trimmed range: stops at its end (loops while editing). */
+	function onTime() {
+		if (!video) return;
+		if (trim && video.currentTime >= rangeEnd - 0.03 && !video.paused) {
+			if (editing) video.currentTime = rangeStart;
+			else {
+				video.pause();
+				video.currentTime = rangeEnd;
+			}
+		}
+		if (!scrubbing) time = video.currentTime;
+	}
+
 	function seek(e: Event) {
 		const t = Number((e.currentTarget as HTMLInputElement).value);
 		time = t;
@@ -192,10 +232,11 @@
 		onloadeddata={() => (shown = true)}
 		onplaying={() => (shown = true)}
 		onseeked={() => (shown = true)}
-		onloadedmetadata={() => (duration = video?.duration || asset.dur || 0)}
-		ontimeupdate={() => {
-			if (!scrubbing && video) time = video.currentTime;
+		onloadedmetadata={() => {
+			duration = video?.duration || asset.dur || 0;
+			if (video && trim && video.currentTime < trim[0]) video.currentTime = trim[0];
 		}}
+		ontimeupdate={onTime}
 		onerror={onVideoError}
 	></video>
 {/if}
@@ -206,17 +247,18 @@
 			<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor" /></svg>
 		</button>
 	{/if}
+	{#if !editing}
 	<div class="video-controls">
 		<button class="icon-btn" onclick={toggle} aria-label={paused ? 'Play' : 'Pause'}>
 			<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="currentColor">
 				<path d={paused ? 'M7 4.5v15l12.5-7.5z' : 'M6.5 4.5h4v15h-4z M13.5 4.5h4v15h-4z'} />
 			</svg>
 		</button>
-		<span class="time">{formatDuration(time)}</span>
+		<span class="time">{formatDuration(Math.max(0, time - rangeStart))}</span>
 		<input
 			type="range"
-			min="0"
-			max={duration || asset.dur || 0}
+			min={rangeStart}
+			max={rangeEnd}
 			step="any"
 			value={time}
 			aria-label="Position"
@@ -228,7 +270,7 @@
 			}}
 			onpointercancel={() => (scrubbing = false)}
 		/>
-		<span class="time">{formatDuration(duration || asset.dur || 0)}</span>
+		<span class="time">{formatDuration(rangeEnd - rangeStart)}</span>
 		<button class="icon-btn" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
 			<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor"
 				stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -237,6 +279,7 @@
 			</svg>
 		</button>
 	</div>
+	{/if}
 {:else if phase === 'preparing'}
 	<div class="note">Preparing video…{pct}</div>
 {:else if phase === 'offline'}

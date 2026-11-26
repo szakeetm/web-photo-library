@@ -84,7 +84,7 @@
 		/>
 	{/if}
 	{#if asset?.fav}<span class="fav">♥</span>{/if}
-	{#if asset?.dur != null && !selecting}<span class="dur">{formatDuration(asset.dur)}</span>{/if}
+	{#if asset?.dur != null && !selecting}<span class="dur">{formatDuration(asset.tr ? asset.tr[1] - asset.tr[0] : asset.dur)}</span>{/if}
 	{#if selecting}
 		<span class="check" class:on={selected} aria-hidden="true">{selected ? '✓' : ''}</span>
 	{/if}

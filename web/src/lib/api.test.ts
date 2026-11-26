@@ -15,8 +15,8 @@ describe('video urls', () => {
 		expect(videoUrl('ab')).toBe('/api/assets/ab/video');
 		expect(videoStatusUrl('ab')).toBe('/api/assets/ab/video/status');
 		expect(motionUrl('ab')).toBe('/api/assets/ab/motion');
-		expect(CLIENT_API_VERSION).toBe(7);
-		expect(CATALOG_FORMAT).toBe(8);
+		expect(CLIENT_API_VERSION).toBe(8);
+		expect(CATALOG_FORMAT).toBe(9);
 	});
 });
 
