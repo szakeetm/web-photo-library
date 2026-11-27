@@ -83,7 +83,7 @@ describe('page orders', () => {
 		expect(w.active).toBe(true);
 	});
 
-	it('folders, people and places open in their own order every time', () => {
+	it('folders, people and places keep a change for the session only', () => {
 		const v = new GridView();
 		v.natural = 'oldest';
 		v.attach('/people/1', true, { initial: 'newest' })();
@@ -93,7 +93,14 @@ describe('page orders', () => {
 		const again = new GridView();
 		again.natural = 'oldest';
 		again.attach('/people/1', true, { initial: 'newest' });
-		expect(again.sort).toBe('newest');
+		expect(again.sort).toBe('oldest'); // same session
+		expect(localStorage.getItem('sort:people')).toBeNull(); // nothing kept for good
+
+		// a new session (fresh sessionStorage) opens with the page's order
+		Object.assign(globalThis, { sessionStorage: (() => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }; })() });
+		const later = new GridView();
+		later.attach('/people/1', true, { initial: 'newest' });
+		expect(later.sort).toBe('newest');
 
 		const f = new GridView();
 		f.natural = 'oldest';
@@ -101,7 +108,21 @@ describe('page orders', () => {
 		f.set('all', 'newest');
 		const f2 = new GridView();
 		f2.attach('/folders/x', true, { initial: 'oldest' });
-		expect(f2.sort).toBe('oldest');
+		expect(f2.sort).toBe('newest');
+		const otherFolder = new GridView();
+		otherFolder.attach('/folders/y', true, { initial: 'oldest' });
+		expect(otherFolder.sort).toBe('oldest');
+	});
+
+	it('albums remember a change for good, across sessions', () => {
+		const v = new GridView();
+		v.natural = 'oldest';
+		v.attach('/albums/1', true, { initial: 'oldest', remember: 'albums' })();
+		v.set('all', 'newest');
+		Object.assign(globalThis, { sessionStorage: (() => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }; })() });
+		const w = new GridView();
+		w.attach('/albums/3', true, { initial: 'oldest', remember: 'albums' });
+		expect(w.sort).toBe('newest');
 	});
 
 	it('other pages keep the choice for the session', () => {

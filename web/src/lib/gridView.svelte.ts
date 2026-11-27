@@ -1,6 +1,6 @@
 // Filter and sort for photo grids. One grid is shown at a time: its PhotoBrowser registers here and
-// the title bar shows the menu. The filter is kept per page for the browser session; so is the order,
-// unless the page has an order of its own (`SortPolicy`).
+// the title bar shows the menu. Both are kept per page for the browser session; a page with an order
+// of its own (`SortPolicy`) opens with it in a new session, or with the one remembered on the device.
 import type { CatalogAsset } from './api';
 import { groupByMonth, localTime, monthLabel } from './dates';
 import type { Section } from './gridLayout';
@@ -117,8 +117,8 @@ interface Saved {
 	sort: ViewSort | null;
 }
 
-/** A page's own order: what it opens with, and whether a change is remembered on this device (under
- *  `remember`, shared by every page given the same name) or forgotten when the page is left. */
+/** A page's own order: what it opens with in a new session, and whether a change is also remembered on
+ *  this device for good (under `remember`, shared by every page given the same name). */
 export interface SortPolicy {
 	initial: ViewSort;
 	remember?: string;
@@ -154,8 +154,8 @@ export class GridView {
 		}
 		this.filter = saved?.filter ?? 'all';
 		if (!sortable) this.sort = null;
-		else if (policy?.remember) this.sort = rememberedSort(policy.remember) ?? policy.initial;
-		else if (policy) this.sort = policy.initial;
+		else if (policy?.remember) this.sort = rememberedSort(policy.remember) ?? saved?.sort ?? policy.initial;
+		else if (policy) this.sort = saved?.sort ?? policy.initial;
 		else this.sort = saved?.sort ?? null;
 		this.enabled = true;
 		return () => {
@@ -167,9 +167,10 @@ export class GridView {
 		this.filter = filter;
 		this.sort = sort;
 		try {
-			// a page with an order of its own doesn't keep a choice for the session
-			sessionStorage.setItem(`view:${this.key}`, JSON.stringify({ filter, sort: this.policy ? null : sort } satisfies Saved));
-			if (this.policy?.remember) localStorage.setItem(`sort:${this.policy.remember}`, sort ?? this.natural);
+			// a page with an order of its own keeps the actual choice ("none" would mean its own order)
+			const kept = this.policy ? (sort ?? this.natural) : sort;
+			sessionStorage.setItem(`view:${this.key}`, JSON.stringify({ filter, sort: kept } satisfies Saved));
+			if (this.policy?.remember) localStorage.setItem(`sort:${this.policy.remember}`, kept!);
 		} catch {
 			/* private mode */
 		}
