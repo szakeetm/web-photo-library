@@ -7,7 +7,7 @@
 // to the network. A new worker waits until the app's "Update now" activates it.
 import { immutable, assets } from '$app/manifest';
 import { version } from '$app/env';
-import { IMAGE_CACHE, imageKey, isCacheableImage, recordImage, touchImages, evictToLimit, getLimit } from '#lib/imageCache.ts';
+import { LEGACY_IMAGE_CACHE, imageKey, isCacheableImage, cachedImage, storeImage, touchImages, evictToLimit, getLimit } from '#lib/imageCache.ts';
 import { isStreamedMedia } from '#lib/video.ts';
 import { db } from '#lib/db.ts';
 
@@ -36,6 +36,8 @@ sw.addEventListener('activate', (event) => {
 		(async () => {
 			for (const key of await caches.keys()) {
 				if (key.startsWith('shell-') && key !== SHELL) await caches.delete(key);
+				// images are kept in IndexedDB now (see imageCache.ts)
+				if (key === LEGACY_IMAGE_CACHE) await caches.delete(key);
 			}
 			await sw.clients.claim();
 		})()
@@ -81,8 +83,7 @@ function scheduleTrim() {
 
 async function image(request: Request): Promise<Response> {
 	const key = imageKey(request.url);
-	const cache = await caches.open(IMAGE_CACHE);
-	const hit = await cache.match(request.url);
+	const hit = await cachedImage(key).catch(() => null);
 	if (hit) {
 		touch(key);
 		return hit;
@@ -90,10 +91,10 @@ async function image(request: Request): Promise<Response> {
 	try {
 		const res = await fetch(request);
 		if (res.ok) {
-			const blob = await res.clone().blob();
-			await cache.put(request.url, res.clone());
-			await recordImage(key, blob.size);
-			scheduleTrim();
+			const body = await res.clone().blob();
+			const blob = body.type ? body : new Blob([body], { type: res.headers.get('content-type') ?? '' });
+			// stored after answering: the image shows without waiting for the database
+			storeImage(key, blob).then(scheduleTrim, () => {});
 		}
 		return res;
 	} catch {

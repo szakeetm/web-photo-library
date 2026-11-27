@@ -1,9 +1,12 @@
-// Device image cache: bytes live in Cache Storage, bookkeeping (size, last access, pins) in IndexedDB.
-// Used by both the service worker (caching what the app views) and the page (downloads, eviction).
+// Device image cache, all in IndexedDB: the bytes in `blobs`, the bookkeeping (size, last access, pins)
+// in `images`. Used by both the service worker (caching what the app views) and the page (downloads,
+// eviction). Not Cache Storage: WebKit loads the index of every cache before answering the first
+// lookup, so with tens of thousands of thumbnails a cold launch stayed black for many seconds.
 import type { IDBPTransaction } from 'idb';
 import { db, type ImageEntry, type PhotosSchema } from './db';
 
-export const IMAGE_CACHE = 'images-v1';
+/** Where image bytes were kept before (Cache Storage): deleted by the service worker. */
+export const LEGACY_IMAGE_CACHE = 'images-v1';
 export const DEFAULT_LIMIT = 2 * 1024 ** 3;
 
 /** Thumbnails and previews are cacheable; originals and exports are not. */
@@ -15,10 +18,6 @@ export function isCacheableImage(pathname: string) {
 export function imageKey(url: string | URL) {
 	const u = typeof url === 'string' ? new URL(url, 'http://x') : url;
 	return u.pathname + u.search;
-}
-
-function absolute(key: string) {
-	return new URL(key, self.location.origin).href;
 }
 
 /** The server couldn't be reached (as opposed to refusing one photo). */
@@ -37,7 +36,7 @@ export type CacheTotals = Record<CacheKind, number>;
 const TOTALS = 'cacheTotals';
 const zero = (): CacheTotals => ({ thumb: 0, preview: 0, clip: 0 });
 
-type ImagesTx = IDBPTransaction<PhotosSchema, ('images' | 'meta')[], 'readwrite'>;
+type ImagesTx = IDBPTransaction<PhotosSchema, ('images' | 'meta' | 'blobs')[], 'readwrite'>;
 /** The stored totals; read them before changing entries in the same transaction. */
 async function loadTotals(tx: ImagesTx): Promise<CacheTotals> {
 	return ((await tx.objectStore('meta').get(TOTALS)) as CacheTotals | undefined) ?? (await countTotals(tx));
@@ -57,18 +56,30 @@ async function countTotals(tx: ImagesTx): Promise<CacheTotals> {
 
 export async function cacheTotals(): Promise<CacheTotals> {
 	const d = await db();
-	const tx = d.transaction(['images', 'meta'], 'readwrite');
+	const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 	const t = await loadTotals(tx);
 	await tx.objectStore('meta').put(t, TOTALS);
 	await tx.done;
 	return t;
 }
 
-/** Records a freshly cached image (keeps existing pins). */
-export async function recordImage(key: string, bytes: number, pin?: number) {
+/** Keeps an image on the device (keeps existing pins). */
+export async function storeImage(key: string, blob: Blob, pin?: number) {
+	await recordImage(key, blob.size, pin, blob);
+}
+
+/** The cached image as a response, or null (doesn't mark it as used). */
+export async function cachedImage(key: string): Promise<Response | null> {
+	const blob = await (await db()).get('blobs', key);
+	return blob ? new Response(blob, { headers: { 'content-type': blob.type } }) : null;
+}
+
+/** Records a cached image, with its bytes when given (keeps existing pins). */
+export async function recordImage(key: string, bytes: number, pin?: number, blob?: Blob) {
 	const d = await db();
-	const tx = d.transaction(['images', 'meta'], 'readwrite');
+	const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 	const store = tx.objectStore('images');
+	if (blob) await tx.objectStore('blobs').put(blob, key);
 	const totals = await loadTotals(tx);
 	const prev = await store.get(key);
 	const pins = new Set(prev?.pins ?? []);
@@ -96,9 +107,8 @@ export async function touchImages(keys: Iterable<string>) {
  */
 export async function cacheAndPin(key: string, albumId: number): Promise<number> {
 	const d = await db();
-	const cache = await caches.open(IMAGE_CACHE);
 	const existing = await d.get('images', key);
-	if (existing && (await cache.match(absolute(key)))) {
+	if (existing && (await d.getKey('blobs', key)) != null) {
 		if (!existing.pins.includes(albumId)) await d.put('images', { ...existing, pins: [...existing.pins, albumId] });
 		return existing.bytes;
 	}
@@ -111,9 +121,9 @@ export async function cacheAndPin(key: string, albumId: number): Promise<number>
 	// 502–504 without our version header: Tailscale reached the Mac but not the server.
 	if (res.status >= 502 && res.status <= 504 && !res.headers.get('X-API-Version')) throw new NetworkError();
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	const blob = await res.blob();
-	await cache.put(absolute(key), new Response(blob, { headers: { 'content-type': res.headers.get('content-type') ?? '' } }));
-	await recordImage(key, blob.size, albumId);
+	const body = await res.blob();
+	const blob = body.type ? body : new Blob([body], { type: res.headers.get('content-type') ?? '' });
+	await storeImage(key, blob, albumId);
 	return blob.size;
 }
 
@@ -194,24 +204,22 @@ export function chooseEvictions(entries: ImageEntry[], limit: number): string[] 
 /** Deletes unpinned entries among `keys` (pins are re-checked: an album may have pinned one meanwhile). */
 async function deleteEntries(keys: string[]) {
 	if (!keys.length) return;
-	const cache = await caches.open(IMAGE_CACHE);
 	const d = await db();
-	const tx = d.transaction(['images', 'meta'], 'readwrite');
+	const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 	const store = tx.objectStore('images');
+	const blobs = tx.objectStore('blobs');
 	const totals = await loadTotals(tx);
-	const deleted: string[] = [];
 	const changes: [string, number][] = [];
 	for (const k of keys) {
 		const e = await store.get(k);
 		if (e && e.pins.length === 0) {
 			store.delete(k);
-			deleted.push(k);
+			blobs.delete(k);
 			changes.push([k, -e.bytes]);
 		}
 	}
 	await saveTotals(tx, totals, changes);
 	await tx.done;
-	await Promise.all(deleted.map((k) => cache.delete(absolute(k))));
 }
 
 /** Trims the cache to `limit`: O(1) when under it, else walks entries from the least recently used. */
@@ -243,22 +251,20 @@ export const motionKey = (id: string) => `/api/assets/${id}/motion`;
 
 /** Whether the clip is cached (doesn't read it). */
 export async function hasClip(key: string): Promise<boolean> {
-	return !!(await (await caches.open(IMAGE_CACHE)).match(absolute(key)));
+	return (await (await db()).getKey('blobs', key)) != null;
 }
 
 /** The cached clip, or null (marks it as just used). */
 export async function cachedClip(key: string): Promise<Blob | null> {
-	const hit = await (await caches.open(IMAGE_CACHE)).match(absolute(key));
-	if (!hit) return null;
+	const blob = await (await db()).get('blobs', key);
+	if (!blob) return null;
 	touchImages([key]).catch(() => {});
-	return hit.blob();
+	return blob;
 }
 
 /** Keeps a downloaded clip on the device, then trims the cache to its limit. */
 export async function storeClip(key: string, blob: Blob) {
-	const cache = await caches.open(IMAGE_CACHE);
-	await cache.put(absolute(key), new Response(blob, { headers: { 'content-type': blob.type || 'video/quicktime' } }));
-	await recordImage(key, blob.size);
+	await storeImage(key, blob.type ? blob : new Blob([blob], { type: 'video/quicktime' }));
 	await evictToLimit(await getLimit());
 }
 
@@ -304,9 +310,11 @@ export async function deleteImages(keys: string[]) {
 export async function clearImages(keepPinned: boolean) {
 	const d = await db();
 	if (!keepPinned) {
-		await d.clear('images');
-		await d.put('meta', zero(), TOTALS);
-		await caches.delete(IMAGE_CACHE);
+		const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
+		await tx.objectStore('images').clear();
+		await tx.objectStore('blobs').clear();
+		await tx.objectStore('meta').put(zero(), TOTALS);
+		await tx.done;
 		return;
 	}
 	await deleteEntries((await d.getAll('images')).filter((e) => e.pins.length === 0).map((e) => e.url));

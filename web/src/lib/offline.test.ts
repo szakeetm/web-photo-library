@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogAsset, CatalogSnapshot } from './api';
 import { db, resetDbForTests } from './db';
-import { cacheTotals, chooseEvictions, imageKey, isCacheableImage, recordImage, releasePins, summarize } from './imageCache';
+import { cachedImage, cacheTotals, chooseEvictions, clearImages, deleteImages, imageKey, isCacheableImage, recordImage, releasePins, storeImage, summarize } from './imageCache';
 import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 
 const asset = (id: string, ev = 0, fav = false): CatalogAsset => ({
@@ -111,6 +111,48 @@ describe('image cache bookkeeping', () => {
 		const all = await (await db()).getAll('images');
 		const pinsOf = Object.fromEntries(all.map((e) => [e.url, e.pins]));
 		expect(pinsOf).toEqual({ '/api/thumb/a?e=0': [2], '/api/thumb/b?e=0': [1], '/api/thumb/c?e=0': [] });
+	});
+});
+
+describe('image bytes in IndexedDB', () => {
+	it('stores, reads back, and deletes them with their entries', async () => {
+		await storeImage('/api/thumb/a', new Blob(['abc'], { type: 'image/jpeg' }));
+		await storeImage('/api/thumb/b', new Blob(['de'], { type: 'image/heic' }), 7);
+		const hit = await cachedImage('/api/thumb/a');
+		expect(hit?.headers.get('content-type')).toBe('image/jpeg');
+		expect(await hit?.text()).toBe('abc');
+		expect((await cacheTotals()).thumb).toBe(5);
+		// a pinned one stays
+		await deleteImages(['/api/thumb/a', '/api/thumb/b']);
+		expect(await cachedImage('/api/thumb/a')).toBeNull();
+		expect(await cachedImage('/api/thumb/b')).not.toBeNull();
+		expect((await cacheTotals()).thumb).toBe(2);
+		await clearImages(false);
+		expect(await cachedImage('/api/thumb/b')).toBeNull();
+		expect((await cacheTotals()).thumb).toBe(0);
+	});
+
+	it('upgrading from version 1 empties the old index (its bytes were in Cache Storage)', async () => {
+		await resetDbForTests();
+		await new Promise((r) => {
+			const req = indexedDB.open('photos', 1);
+			req.onupgradeneeded = () => {
+				const d = req.result;
+				d.createObjectStore('meta');
+				d.createObjectStore('assets', { keyPath: 'id' });
+				d.createObjectStore('images', { keyPath: 'url' }).createIndex('lastAccess', 'lastAccess');
+				d.createObjectStore('pins', { keyPath: 'albumId' });
+				req.transaction!.objectStore('images').put({ url: '/api/thumb/old', bytes: 9, lastAccess: 1, pins: [3] });
+				req.transaction!.objectStore('meta').put({ thumb: 9, preview: 0, clip: 0 }, 'cacheTotals');
+			};
+			req.onsuccess = () => {
+				req.result.close();
+				r(null);
+			};
+		});
+		const d = await db();
+		expect(await d.count('images')).toBe(0);
+		expect((await cacheTotals()).thumb).toBe(0);
 	});
 });
 
