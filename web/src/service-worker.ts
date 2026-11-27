@@ -109,6 +109,12 @@ async function navigate(request: Request): Promise<Response> {
 	return fetch(request);
 }
 
+/** A file of the app shell (scripts, styles, icons): the cached copy, else the network. */
+async function shellFile(request: Request): Promise<Response> {
+	const hit = await (await caches.open(SHELL)).match(request);
+	return hit ?? fetch(request);
+}
+
 let tileWrites = 0;
 async function tile(request: Request): Promise<Response> {
 	const cache = await caches.open(TILES);
@@ -146,7 +152,9 @@ sw.addEventListener('fetch', (event) => {
 		if (request.headers.has('X-Client-Cache') || localMode) return;
 		event.respondWith(image(request));
 	} else if (shellSet.has(url.pathname) && url.pathname !== '/') {
-		event.respondWith(caches.match(request).then((hit) => hit ?? fetch(request)));
+		// From the shell's own cache: caches.match() would search the older caches first (tens of
+		// thousands of thumbnails), which on a cold launch on iOS kept the app black for seconds.
+		event.respondWith(shellFile(request));
 	}
 	// Everything else (API, version.json) goes straight to the network.
 });
