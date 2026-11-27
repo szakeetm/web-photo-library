@@ -1226,7 +1226,7 @@
 						{@const l = backup.last}
 						<div class="small" class:warn={!l.ok}>
 							{l.ok ? 'Done' : 'Failed'}
-							{ago(l.finishedAt)} ({isoDateTime(l.finishedAt)}, took {took(l.startedAt, l.finishedAt)})
+							{ago(l.finishedAt)} ({isoDateTime(l.finishedAt)}, took {took(l.startedAt, l.finishedAt)}){#if l.ok && l.verified}{` · verified (${l.verified === 'size' ? 'by size' : l.verified})`}{/if}
 						</div>
 						{#if l.ok}
 							<div class="muted small">

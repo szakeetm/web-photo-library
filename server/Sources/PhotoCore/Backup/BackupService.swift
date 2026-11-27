@@ -107,6 +107,9 @@ public struct BackupReport: Codable, Sendable, Equatable {
     public var uploadsDeleted: Int = 0
     /// the database's size in the backup (compressed; nil before format 2)
     public var databaseStoredBytes: Int64? = nil
+    /// how the uploaded backup was checked against the destination's copy ("SHA-256", "SHA-1", "MD5",
+    /// or "size" where it has no hashes); nil when it wasn't (failed, or before checking existed)
+    public var verified: String? = nil
 
     public init(startedAt: Date, finishedAt: Date, ok: Bool, error: String? = nil, destination: String, databaseBytes: Int64,
                 assets: Int, albums: Int, uploadsFiles: Int, uploadsBytes: Int64, uploadsCopied: Int, uploadsDeleted: Int = 0) {
@@ -117,7 +120,7 @@ public struct BackupReport: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case startedAt, finishedAt, ok, error, destination, databaseBytes, assets, albums, uploadsFiles, uploadsBytes, uploadsCopied, uploadsDeleted
-        case databaseStoredBytes
+        case databaseStoredBytes, verified
     }
 
     /// Reports saved by earlier versions lack the newer fields.
@@ -136,6 +139,7 @@ public struct BackupReport: Codable, Sendable, Equatable {
         uploadsCopied = try c.decodeIfPresent(Int.self, forKey: .uploadsCopied) ?? 0
         uploadsDeleted = try c.decodeIfPresent(Int.self, forKey: .uploadsDeleted) ?? 0
         databaseStoredBytes = try c.decodeIfPresent(Int64.self, forKey: .databaseStoredBytes)
+        verified = try c.decodeIfPresent(String.self, forKey: .verified)
     }
 }
 
@@ -150,13 +154,16 @@ public struct BackupActivity: Codable, Sendable, Equatable {
 
 public enum BackupError: Error, CustomStringConvertible {
     case busy, noUploadsFolder, cannotRestore([String]), newerDatabase, notADatabase
+    /// the uploaded backup didn't check out against the destination's own copy
+    case notVerified(String)
     public var description: String {
         switch self {
         case .busy: "A backup or restore is already running."
-        case .noUploadsFolder: "Choose an uploads folder first (Settings → Library): restored uploads go there."
+        case .noUploadsFolder: "Choose an uploads folder first (Settings → Photo sources on server → Uploads): restored uploads go there."
         case .cannotRestore(let p): "Can't restore: " + p.joined(separator: " ")
         case .newerDatabase: "This backup was made by a newer version of the server: update it first."
         case .notADatabase: "The backup's database can't be opened."
+        case .notVerified(let why): "The backup didn't arrive whole: \(why) It is tried again in an hour."
         }
     }
 }
@@ -389,6 +396,12 @@ public final class BackupService: @unchecked Sendable {
             if try rclone.stat(Rclone.join(dest, Self.plainDatabase)) != nil {
                 _ = try? rclone.run(["deletefile"] + Rclone.netFlags + [Rclone.join(dest, Self.plainDatabase)])
             }
+
+            // what arrived is what was sent: the destination's own hashes of the database and the
+            // manifest against ours, and every upload compared
+            phase("Verifying the backup")
+            report.verified = try verify(rclone, dest: dest, files: [(packed, Self.compressedDatabase), (mf, "manifest.json")],
+                                         uploads: uploadsPath)
             report.ok = true
         } catch {
             report.error = (error as? CustomStringConvertible)?.description ?? error.localizedDescription

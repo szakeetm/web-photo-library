@@ -412,6 +412,8 @@ export interface BackupReport {
 	uploadsDeleted: number;
 	/** the database's size in the backup, compressed (backups before format 2: absent) */
 	databaseStoredBytes?: number | null;
+	/** how the upload was checked against the destination's copy: "SHA-256", "SHA-1", "MD5" or "size" */
+	verified?: string | null;
 }
 
 export interface BackupActivity {

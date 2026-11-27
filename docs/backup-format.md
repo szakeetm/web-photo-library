@@ -13,6 +13,11 @@ At the backup destination (any rclone path, e.g. `pcloud:Photos/webLibrary_backu
 | `uploads/…` | The uploads folder, kept the same (`rclone sync`; hidden files and folders left out) |
 | `manifest.json` | Written last: a backup with a manifest is complete |
 
+After uploading, the backup is checked against the destination's own copy: the database and the
+manifest by the destination's hash (SHA-256 where it has one, as pCloud does; SHA-1 or MD5 otherwise; by
+size where it has none), and every upload with `rclone check`. A backup that doesn't match is reported as
+failed and tried again an hour later.
+
 The same names are written each time; a destination that keeps versions (pCloud's 30-day rewind,
 S3 versioning…) keeps the earlier backups.
 

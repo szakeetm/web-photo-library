@@ -41,6 +41,7 @@ struct BackupTests {
         try e.settings.set(.backupDestination, e.remote)
         let r = try e.service.backup()
         #expect(r.ok && r.assets == 2 && r.albums == 1)
+        #expect(r.verified == "SHA-256")   // checked against the destination's own hashes
         #expect(r.uploadsFiles == 1 && r.uploadsCopied == 1)
         let fm = FileManager.default
         // the database is compressed (about half the size); photos aren't
@@ -147,6 +148,28 @@ struct BackupTests {
         try again.backup()
         #expect(FileManager.default.fileExists(atPath: packed.path))
         #expect(!FileManager.default.fileExists(atPath: e.remote + "/library.sqlite"))
+    }
+
+    @Test func aBackupThatDidntArriveWholeIsCaught() throws {
+        let e = try env()
+        try e.settings.set(.backupDestination, e.remote)
+        try e.service.backup()
+        let rclone = try #require(Rclone.locate())
+        // what was sent, kept here to compare with
+        let sent = Fixtures.tempDir().appendingPathComponent("library.sqlite.lzfse")
+        try FileManager.default.copyItem(atPath: e.remote + "/library.sqlite.lzfse", toPath: sent.path)
+        #expect(try e.service.verify(rclone, dest: e.remote, files: [(sent, "library.sqlite.lzfse")], uploads: e.uploads.path) == "SHA-256")
+        // the destination's copy got cut short
+        let damaged = try Data(contentsOf: sent).prefix(100)
+        try damaged.write(to: URL(fileURLWithPath: e.remote + "/library.sqlite.lzfse"))
+        #expect(throws: BackupError.self) { try e.service.verify(rclone, dest: e.remote, files: [(sent, "library.sqlite.lzfse")], uploads: nil) }
+        // an upload is missing there
+        try FileManager.default.copyItem(at: sent, to: URL(fileURLWithPath: e.remote + "/library.sqlite.lzfse.ok"))
+        try FileManager.default.removeItem(atPath: e.remote + "/uploads/one.jpg")
+        #expect(try rclone.differences(e.uploads.path, in: e.remote + "/uploads") == 1)
+        // the next backup puts both right, and says so
+        let r = try e.service.backup()
+        #expect(r.ok && r.verified == "SHA-256")
     }
 
     @Test func aBackupFromANewerServerIsRefused() throws {
