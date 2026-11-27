@@ -96,7 +96,7 @@
 {:else if album && items.length === 0}
 	<p class="empty muted">No photos yet. Select photos in the Library and choose “Add to album”.</p>
 {:else}
-	<PhotoBrowser {sections} {selection} albumId={id} />
+	<PhotoBrowser {sections} {selection} albumId={id} order={{ initial: 'oldest', remember: 'albums' }} />
 {/if}
 
 <style>

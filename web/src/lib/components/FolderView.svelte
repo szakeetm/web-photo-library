@@ -213,7 +213,7 @@
 	{/if}
 	{#if photos.length}
 		{#if children.length}<h2 class="section">Photos <span class="muted">{photos.length}</span></h2>{/if}
-		<PhotoBrowser {sections} {selection} />
+		<PhotoBrowser {sections} {selection} order={{ initial: 'oldest' }} />
 	{/if}
 {/if}
 

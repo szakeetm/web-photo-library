@@ -23,4 +23,4 @@
 		{/if}
 	{/snippet}
 </TitleBar>
-<PhotoBrowser {sections} {selection} />
+<PhotoBrowser {sections} {selection} order={{ initial: 'newest' }} />

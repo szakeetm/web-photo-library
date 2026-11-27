@@ -29,7 +29,7 @@
 {#if app.loaded && !place}
 	<p class="empty muted">No photos here any more.</p>
 {:else}
-	<PhotoBrowser {sections} {selection} />
+	<PhotoBrowser {sections} {selection} order={{ initial: 'newest' }} />
 {/if}
 
 <style>

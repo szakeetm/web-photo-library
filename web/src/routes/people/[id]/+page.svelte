@@ -155,7 +155,7 @@
 			{/each}
 		</div>
 	{:else}
-		<PhotoBrowser {sections} {selection} />
+		<PhotoBrowser {sections} {selection} order={{ initial: 'newest' }} />
 	{/if}
 {/if}
 

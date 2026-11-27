@@ -61,7 +61,8 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
   to select a range), reorder-safe membership by content hash, ♥ in the viewer (or press F).
   Albums show oldest to newest. Google Takeout album folders become albums with one click.
 - **Filter and sort** any grid from the title bar: Favourites, Photos, Videos, Live Photos, Edited,
-  Screenshots, Selfies, Portraits; Newest/Oldest First or Recently Added (albums keep their order).
+  Screenshots, Selfies, Portraits; Newest/Oldest First or Recently Added. Albums open oldest first and remember
+  a change on the device; folders always open oldest first, people and places newest first.
   Screenshots, selfies (front camera) and Portrait-mode photos also get Media Types collections.
 - **Adjust Date & Time** for one photo (info panel) or a selection: shift them all (spacing kept),
   set them all to one time, or change the time zone. Kept in the database only — the files never

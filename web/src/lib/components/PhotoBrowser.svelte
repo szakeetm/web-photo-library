@@ -3,7 +3,7 @@
 	import { pushState, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Section } from '#lib/gridLayout.ts';
-	import { applyView, FILTERS, gridView, naturalOrder, SORTS } from '#lib/gridView.svelte.ts';
+	import { applyView, FILTERS, gridView, naturalOrder, SORTS, type SortPolicy } from '#lib/gridView.svelte.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import { Selection, SELECT_ALL_MAX, selectAllRefused } from '#lib/selection.svelte.ts';
 	import { hint } from '#lib/hint.svelte.ts';
@@ -18,21 +18,24 @@
 		albumId,
 		selection = new Selection(),
 		trash = false,
-		sortable = albumId == null
+		sortable = true,
+		order = null
 	}: {
 		sections: Section[];
 		startAtEnd?: boolean;
 		albumId?: number;
 		selection?: Selection;
 		trash?: boolean;
-		/** the order can be changed (albums: always oldest to newest) */
+		/** the order can be changed */
 		sortable?: boolean;
+		/** the page's own order (see SortPolicy); otherwise the choice is kept for the session */
+		order?: SortPolicy | null;
 	} = $props();
 
 	// Filter and sort (title bar menu); not in the Trash.
 	$effect(() => {
 		if (trash) return;
-		return gridView.attach(page.url.pathname, sortable);
+		return gridView.attach(page.url.pathname, sortable, order);
 	});
 	$effect(() => {
 		gridView.natural = naturalOrder(sections, app.byId);
@@ -42,7 +45,7 @@
 	const filterLabel = $derived(
 		[
 			gridView.filter !== 'all' ? FILTERS.find((f) => f.key === gridView.filter)?.label : '',
-			gridView.sort && gridView.sort !== gridView.natural ? SORTS.find((s) => s.key === gridView.sort)?.label : ''
+			(gridView.sort ?? gridView.natural) !== gridView.baseline ? SORTS.find((s) => s.key === (gridView.sort ?? gridView.natural))?.label : ''
 		]
 			.filter(Boolean)
 			.join(' · ')

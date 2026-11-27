@@ -1,5 +1,6 @@
 // Filter and sort for photo grids. One grid is shown at a time: its PhotoBrowser registers here and
-// the title bar shows the menu. The choice is kept per page for the browser session.
+// the title bar shows the menu. The filter is kept per page for the browser session; so is the order,
+// unless the page has an order of its own (`SortPolicy`).
 import type { CatalogAsset } from './api';
 import { groupByMonth, localTime, monthLabel } from './dates';
 import type { Section } from './gridLayout';
@@ -89,6 +90,12 @@ export function applyView(
 		.flatMap((s) => s.items)
 		.filter(keep)
 		.map((id) => byId.get(id)!);
+	// one grid without headings (an album, a folder) stays one, just turned around
+	if (sort !== 'added' && sections.length === 1 && sections[0].label == null) {
+		const sorted = assets.slice().sort((x, y) => localTime(x) - localTime(y));
+		if (sort === 'newest') sorted.reverse();
+		return [{ ...sections[0], items: sorted.map((a) => a.id) }];
+	}
 	if (sort === 'added') {
 		const sorted = assets.slice().sort((x, y) => (y.ad ?? 0) - (x.ad ?? 0) || localTime(y) - localTime(x));
 		const groups = new Map<string, string[]>();
@@ -110,6 +117,13 @@ interface Saved {
 	sort: ViewSort | null;
 }
 
+/** A page's own order: what it opens with, and whether a change is remembered on this device (under
+ *  `remember`, shared by every page given the same name) or forgotten when the page is left. */
+export interface SortPolicy {
+	initial: ViewSort;
+	remember?: string;
+}
+
 export class GridView {
 	/** A grid is on screen that can be filtered. */
 	enabled = $state(false);
@@ -118,12 +132,20 @@ export class GridView {
 	natural = $state<'newest' | 'oldest'>('newest');
 	filter = $state<ViewFilter>('all');
 	sort = $state<ViewSort | null>(null);
+	/** The page's own order, when it has one. */
+	policy = $state<SortPolicy | null>(null);
 	private key = '';
 
+	/** What the page shows without a choice: its own order, or the order its photos come in. */
+	get baseline(): ViewSort {
+		return this.policy?.initial ?? this.natural;
+	}
+
 	/** Called by the grid's PhotoBrowser; returns the cleanup. */
-	attach(key: string, sortable: boolean): () => void {
+	attach(key: string, sortable: boolean, policy: SortPolicy | null = null): () => void {
 		this.key = key;
 		this.sortable = sortable;
+		this.policy = sortable ? policy : null;
 		let saved: Saved | null = null;
 		try {
 			saved = JSON.parse(sessionStorage.getItem(`view:${key}`) ?? 'null');
@@ -131,7 +153,10 @@ export class GridView {
 			/* ignore */
 		}
 		this.filter = saved?.filter ?? 'all';
-		this.sort = sortable ? (saved?.sort ?? null) : null;
+		if (!sortable) this.sort = null;
+		else if (policy?.remember) this.sort = rememberedSort(policy.remember) ?? policy.initial;
+		else if (policy) this.sort = policy.initial;
+		else this.sort = saved?.sort ?? null;
 		this.enabled = true;
 		return () => {
 			if (this.key === key) this.enabled = false;
@@ -142,14 +167,25 @@ export class GridView {
 		this.filter = filter;
 		this.sort = sort;
 		try {
-			sessionStorage.setItem(`view:${this.key}`, JSON.stringify({ filter, sort } satisfies Saved));
+			// a page with an order of its own doesn't keep a choice for the session
+			sessionStorage.setItem(`view:${this.key}`, JSON.stringify({ filter, sort: this.policy ? null : sort } satisfies Saved));
+			if (this.policy?.remember) localStorage.setItem(`sort:${this.policy.remember}`, sort ?? this.natural);
 		} catch {
 			/* private mode */
 		}
 	}
 
 	get active() {
-		return this.filter !== 'all' || (this.sort != null && this.sort !== this.natural);
+		return this.filter !== 'all' || (this.sort ?? this.natural) !== this.baseline;
+	}
+}
+
+function rememberedSort(name: string): ViewSort | null {
+	try {
+		const v = localStorage.getItem(`sort:${name}`);
+		return SORTS.some((s) => s.key === v) ? (v as ViewSort) : null;
+	} catch {
+		return null;
 	}
 }
 

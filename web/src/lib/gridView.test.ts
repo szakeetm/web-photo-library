@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogAsset } from './api';
-import { applyView, matches, naturalOrder } from './gridView.svelte';
+import { applyView, GridView, matches, naturalOrder } from './gridView.svelte';
 
 const mk = (id: string, t: string, extra: Partial<CatalogAsset> = {}): CatalogAsset => ({
 	id,
@@ -51,5 +51,65 @@ describe('grid view', () => {
 		const v = applyView(sections, byId, 'photos', 'added');
 		expect(v.map((s) => s.items)).toEqual([['c', 'a']]);
 		expect(v[0].label).toMatch(/^Added /);
+	});
+});
+
+describe('page orders', () => {
+	const storage = () => {
+		const m = new Map<string, string>();
+		return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
+	};
+	beforeEach(() => {
+		Object.assign(globalThis, { localStorage: storage(), sessionStorage: storage() });
+	});
+
+	it('turns a grid without headings around as one grid', () => {
+		const album = [{ key: 'album-1', label: null, items: ['a', 'b', 'c'] }];
+		expect(applyView(album, byId, 'all', 'newest')).toEqual([{ key: 'album-1', label: null, items: ['c', 'b', 'a'] }]);
+	});
+
+	it('albums open oldest first and remember a change on this device', () => {
+		const v = new GridView();
+		v.natural = 'oldest';
+		v.attach('/albums/1', true, { initial: 'oldest', remember: 'albums' })();
+		expect(v.sort).toBe('oldest');
+		expect(v.active).toBe(false);
+		v.set('all', 'newest');
+		// another album, later
+		const w = new GridView();
+		w.natural = 'oldest';
+		w.attach('/albums/2', true, { initial: 'oldest', remember: 'albums' });
+		expect(w.sort).toBe('newest');
+		expect(w.active).toBe(true);
+	});
+
+	it('folders, people and places open in their own order every time', () => {
+		const v = new GridView();
+		v.natural = 'oldest';
+		v.attach('/people/1', true, { initial: 'newest' })();
+		expect(v.sort).toBe('newest');
+		expect(v.active).toBe(false); // newest first is this page's normal order
+		v.set('all', null); // oldest first (the photos' own order)
+		const again = new GridView();
+		again.natural = 'oldest';
+		again.attach('/people/1', true, { initial: 'newest' });
+		expect(again.sort).toBe('newest');
+
+		const f = new GridView();
+		f.natural = 'oldest';
+		f.attach('/folders/x', true, { initial: 'oldest' })();
+		f.set('all', 'newest');
+		const f2 = new GridView();
+		f2.attach('/folders/x', true, { initial: 'oldest' });
+		expect(f2.sort).toBe('oldest');
+	});
+
+	it('other pages keep the choice for the session', () => {
+		const v = new GridView();
+		v.attach('/favorites', true)();
+		v.set('all', 'oldest');
+		const w = new GridView();
+		w.attach('/favorites', true);
+		expect(w.sort).toBe('oldest');
 	});
 });
