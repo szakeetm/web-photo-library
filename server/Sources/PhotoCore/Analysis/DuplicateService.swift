@@ -107,10 +107,12 @@ public final class DuplicateService: @unchecked Sendable {
         let aspect: Double
     }
 
-    /// Two copies both carrying a real capture date can't be the same picture when those dates differ
-    /// (by more than rounding): they're two shots that look alike.
+    /// Two copies both carrying a real capture date can't be the same picture when they were taken more
+    /// than `maxApart` seconds apart: they're two shots that look alike. (A file's date says nothing:
+    /// a copy that lost its capture date has the time it was copied.)
+    static let maxApart: TimeInterval = 5
     static func datesAllow(_ a: Entry, _ b: Entry) -> Bool {
-        !(a.dated && b.dated) || abs(a.taken.timeIntervalSince(b.taken)) <= 1
+        !(a.dated && b.dated) || abs(a.taken.timeIntervalSince(b.taken)) <= maxApart
     }
 
     private let lock = NSLock()

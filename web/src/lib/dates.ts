@@ -69,6 +69,12 @@ export function captureLabel(t: string, tz: number | null, locale?: string): str
 	});
 }
 
+/** "2026-02-15 14:32": the local date and time where the photo was taken. */
+export function isoLabel(t: string, tz: number | null): string {
+	const d = new Date(Date.parse(t) + (tz ?? 0) * 1000);
+	return d.toISOString().slice(0, 16).replace('T', ' ');
+}
+
 export function offsetLabel(tz: number | null): string {
 	if (tz == null) return '';
 	const sign = tz < 0 ? '−' : '+';

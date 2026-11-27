@@ -9,7 +9,7 @@
 	import GestureDebug from './GestureDebug.svelte';
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset } from '#lib/api.ts';
-	import { captureLabel, offsetLabel } from '#lib/dates.ts';
+	import { captureLabel, isoLabel, offsetLabel } from '#lib/dates.ts';
 	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow, deleteKey } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -916,7 +916,7 @@
 		{/if}
 		<div class="title">
 			{#if asset}
-				<div class="date">{captureLabel(asset.t, asset.tz)}</div>
+				<div class="date">{isoLabel(asset.t, asset.tz)}</div>
 				<div class="sub muted">
 					{index + 1} of {ids.length}{#if trashItem?.virtual} · hidden (its file is untouched){:else if trashItem} · upload (can be deleted from disk){/if}
 				</div>

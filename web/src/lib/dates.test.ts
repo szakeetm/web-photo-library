@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localParts, groupByMonth, monthLabel, sortByLocalTime, localInput, instantOf, dateChangeFor, shiftLabel } from './dates';
+import { isoLabel, localParts, groupByMonth, monthLabel, sortByLocalTime, localInput, instantOf, dateChangeFor, shiftLabel } from './dates';
 
 const a = (id: string, t: string, tz: number | null) => ({ id, w: 1, h: 1, t, tz, fav: false, bh: null, ev: 0, folders: [], name: id });
 
@@ -74,5 +74,13 @@ describe('date edits', () => {
 		expect(shiftLabel(30)).toBe('no change');
 		expect(shiftLabel(4800)).toBe('+1 h 20 min');
 		expect(shiftLabel(-(3 * 86400 + 7200))).toBe('−3 days 2 h');
+	});
+});
+
+describe('isoLabel', () => {
+	it('shows the local date and time where the photo was taken', () => {
+		// 13:30 UTC taken at UTC+02:00
+		expect(isoLabel('2024-07-04T13:30:00Z', 7200)).toBe('2024-07-04 15:30');
+		expect(isoLabel('2024-12-31T23:59:00Z', null)).toBe('2024-12-31 23:59');
 	});
 });

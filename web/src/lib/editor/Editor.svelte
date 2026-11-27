@@ -3,7 +3,7 @@
 	// a row of adjustment buttons with a ruler dial, and a Crop tab. Both render with the shared WebGPU
 	// pipeline on the unedited 2048 px preview; Done sends the recipe to the server, which renders the
 	// same recipe for the saved previews and full-resolution exports.
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { api, previewUrl, type CatalogAsset, type EditHistory } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import { shortcut } from '#lib/platform.ts';
@@ -395,6 +395,99 @@
 		showOriginal = false;
 	}
 
+	// ---- zoom: pinch (phone), double-tap or double-click; one finger moves a zoomed photo. Not while
+	// cropping (the crop box has its own drags). The canvas has the preview's pixels, so up to 5× stays sharp.
+	const MAX_ZOOM = 5;
+	let zoom = $state(1);
+	let pan = $state({ x: 0, y: 0 });
+	const pointers = new Map<number, { x: number; y: number }>();
+	let pinch: { d: number; z: number; ux: number; uy: number } | null = null;
+	let drag: { x: number; y: number; px: number; py: number } | null = null;
+	let lastTap = 0;
+	const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+	/** The stage's centre: the unzoomed photo's centre (it is centred in the stage). */
+	function centre() {
+		const r = stage!.getBoundingClientRect();
+		return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+	}
+	function setZoom(z: number, x: number, y: number) {
+		zoom = clamp(z, 1, MAX_ZOOM);
+		const mx = (display.w * (zoom - 1)) / 2;
+		const my = (display.h * (zoom - 1)) / 2;
+		pan = zoom === 1 ? { x: 0, y: 0 } : { x: clamp(x, -mx, mx), y: clamp(y, -my, my) };
+	}
+	/** Zooms to `z` keeping the photo point under the screen point (px, py) where it is. */
+	function zoomAround(z: number, px: number, py: number) {
+		const c = centre();
+		const ux = (px - c.x - pan.x) / zoom;
+		const uy = (py - c.y - pan.y) / zoom;
+		const nz = clamp(z, 1, MAX_ZOOM);
+		setZoom(nz, px - c.x - ux * nz, py - c.y - uy * nz);
+	}
+	// cropping, rotating or a new size: back to the whole photo
+	$effect(() => {
+		void display.w;
+		void display.h;
+		void mode;
+		untrack(() => setZoom(1, 0, 0));
+	});
+	const twoPoints = () => [...pointers.values()].slice(0, 2);
+	function zoomDown(e: PointerEvent): boolean {
+		if (mode === 'crop' || status !== 'ready' || !stage) return false;
+		if ((e.target as HTMLElement).closest('button, input, .overlay')) return false;
+		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+		if (pointers.size === 2) {
+			holdEnd();
+			const [a, b] = twoPoints();
+			const c = centre();
+			const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+			pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: zoom, ux: (mx - c.x - pan.x) / zoom, uy: (my - c.y - pan.y) / zoom };
+			drag = null;
+			return true;
+		}
+		if (pointers.size !== 1) return true;
+		const now = Date.now();
+		if (now - lastTap < 300) {
+			lastTap = 0;
+			if (zoom > 1) setZoom(1, 0, 0);
+			else zoomAround(2.5, e.clientX, e.clientY);
+			return true;
+		}
+		lastTap = now;
+		if (zoom > 1) {
+			// zoomed: one finger moves the photo (no hold-to-compare)
+			drag = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+			return true;
+		}
+		return false;
+	}
+	function zoomMove(e: PointerEvent): boolean {
+		if (!pointers.has(e.pointerId)) return false;
+		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+		if (pinch && pointers.size >= 2) {
+			const [a, b] = twoPoints();
+			const c = centre();
+			const z = clamp(pinch.z * (Math.hypot(a.x - b.x, a.y - b.y) / pinch.d), 1, MAX_ZOOM);
+			const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+			setZoom(z, mx - c.x - pinch.ux * z, my - c.y - pinch.uy * z);
+			return true;
+		}
+		if (drag) {
+			setZoom(zoom, drag.px + e.clientX - drag.x, drag.py + e.clientY - drag.y);
+			return true;
+		}
+		return false;
+	}
+	function zoomUp(e: PointerEvent) {
+		pointers.delete(e.pointerId);
+		if (pointers.size < 2) pinch = null;
+		if (pointers.size === 1 && zoom > 1) {
+			// one finger left after a pinch: it carries on moving the photo
+			const [p] = [...pointers.values()];
+			drag = { x: p.x, y: p.y, px: pan.x, py: pan.y };
+		} else if (pointers.size === 0) drag = null;
+	}
+
 	const selectedInfo = $derived(ADJUSTMENTS.find((a) => a.key === selected)!);
 	const groups = [
 		{ id: 'light', title: 'Light' },
@@ -456,10 +549,10 @@
 			bind:this={stage}
 			role="presentation"
 			class:spinnable={mode === 'crop' && wide}
-			onpointerdown={(e) => spinStart(e) || holdStart(e)}
-			onpointermove={spinMove}
-			onpointerup={() => (spinEnd(), holdEnd())}
-			onpointercancel={() => (spinEnd(), holdEnd())}
+			onpointerdown={(e) => zoomDown(e) || spinStart(e) || holdStart(e)}
+			onpointermove={(e) => zoomMove(e) || spinMove(e)}
+			onpointerup={(e) => (zoomUp(e), spinEnd(), holdEnd())}
+			onpointercancel={(e) => (zoomUp(e), spinEnd(), holdEnd())}
 			onpointerleave={holdEnd}
 		>
 			{#if status === 'loading'}
@@ -470,7 +563,8 @@
 					<button class="tb" onclick={() => onClose(false)}>Close</button>
 				</div>
 			{/if}
-			<div class="canvaswrap" style="width: {display.w}px; height: {display.h}px" hidden={status !== 'ready'}>
+			<div class="canvaswrap" style="width: {display.w}px; height: {display.h}px; transform: translate({pan.x}px, {pan.y}px) scale({zoom})"
+				hidden={status !== 'ready'}>
 				<canvas bind:this={canvas} style="width: {display.w}px; height: {display.h}px"></canvas>
 				{#if mode === 'crop' && !showOriginal && status === 'ready'}
 					<CropOverlay
