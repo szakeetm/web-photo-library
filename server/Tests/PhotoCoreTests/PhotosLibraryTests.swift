@@ -110,6 +110,32 @@ import Testing
         #expect(try e.db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM album") } == 1)
     }
 
+    @Test func aPhotoDeletedInPhotosLaterLeavesTheAppAndItsAlbumsOnTheNextScan() throws {
+        let e = try env()
+        _ = try e.scan()
+        let rows = try e.db.writer.read { try FileRow.filter(Column("root") == e.source.root).order(Column("relPath")).fetchAll($0) }
+        let gone = rows[1].assetId   // BBBB-2, in the album "Japan"
+        // deleted on the iPhone: Photos on the Mac moves it to Recently Deleted
+        let q = try DatabaseQueue(path: e.library.appendingPathComponent("database/Photos.sqlite").path)
+        try q.write { try $0.execute(sql: "UPDATE ZASSET SET ZTRASHEDSTATE = 1 WHERE ZUUID = 'BBBB-2'") }
+        try q.close()
+        let (r, _) = try e.scan()
+        #expect(r.removed == 1, "\(r)")
+        let catalog = CatalogService(db: e.db, settings: e.settings)
+        // not shown anywhere (library, folders, albums) without Purge missing
+        #expect(try catalog.catalog().assets.map(\.id) == [rows[0].assetId])
+        #expect(try e.db.writer.read { try Asset.fetchOne($0, key: gone) }?.missingSince != nil)
+        // its album keeps the membership (apps show only photos in the catalog), so a photo restored
+        // from Recently Deleted comes back where it was
+        let album = try #require(try e.db.writer.read { try Int64.fetchOne($0, sql: "SELECT id FROM album WHERE source = 'photos'") })
+        #expect(try AlbumService(db: e.db, settings: e.settings).members(id: album).contains(gone))
+        let q2 = try DatabaseQueue(path: e.library.appendingPathComponent("database/Photos.sqlite").path)
+        try q2.write { try $0.execute(sql: "UPDATE ZASSET SET ZTRASHEDSTATE = 0 WHERE ZUUID = 'BBBB-2'") }
+        try q2.close()
+        _ = try e.scan()
+        #expect(Set(try catalog.catalog().assets.map(\.id)) == Set(rows.map(\.assetId)))
+    }
+
     /// Rewrites the test library's database with `edited` assets marked as edited in Photos.
     func markEdited(_ e: Env, _ edited: Set<String>) throws {
         let url = e.library.appendingPathComponent("database/Photos.sqlite")
