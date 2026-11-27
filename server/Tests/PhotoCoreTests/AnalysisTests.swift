@@ -91,6 +91,16 @@ import GRDB
         #expect(try s.groups().isEmpty)
     }
 
+    @Test func twoRealCaptureDatesThatDifferAreNotTheSamePicture() {
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        func e(_ taken: Date, dated: Bool) -> DuplicateService.Entry {
+            .init(id: "x", dhash: 0, print: [], taken: taken, dated: dated, aspect: 1)
+        }
+        #expect(DuplicateService.datesAllow(e(t, dated: true), e(t.addingTimeInterval(1), dated: true)))     // rounding
+        #expect(!DuplicateService.datesAllow(e(t, dated: true), e(t.addingTimeInterval(60), dated: true)))   // another shot
+        #expect(DuplicateService.datesAllow(e(t, dated: true), e(t.addingTimeInterval(86_400), dated: false))) // a file's date says nothing
+    }
+
     @Test func mergeCarriesAlbumsAndFavourite() throws {
         let db = try AppDatabase.inMemory()
         let day = Date(timeIntervalSince1970: 1_700_000_000)

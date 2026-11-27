@@ -102,7 +102,15 @@ public final class DuplicateService: @unchecked Sendable {
         let dhash: UInt64
         let print: [Float16]
         let taken: Date
+        /// The date is when the picture was taken (camera, Takeout or Photos), not a file's date.
+        let dated: Bool
         let aspect: Double
+    }
+
+    /// Two copies both carrying a real capture date can't be the same picture when those dates differ
+    /// (by more than rounding): they're two shots that look alike.
+    static func datesAllow(_ a: Entry, _ b: Entry) -> Bool {
+        !(a.dated && b.dated) || abs(a.taken.timeIntervalSince(b.taken)) <= 1
     }
 
     private let lock = NSLock()
@@ -122,15 +130,16 @@ public final class DuplicateService: @unchecked Sendable {
     func compute() throws -> [DuplicateGroup] {
         let entries: [Entry] = try db.writer.read { d in
             try Row.fetchAll(d, sql: """
-                SELECT a.id, p.dhash, p.print, a.takenAt, a.width, a.height FROM asset_print p JOIN asset a ON a.id = p.assetId
+                SELECT a.id, p.dhash, p.print, a.takenAt, a.dateSource, a.width, a.height FROM asset_print p JOIN asset a ON a.id = p.assetId
                 WHERE a.missingSince IS NULL AND a.kind = 'photo' AND NOT EXISTS (SELECT 1 FROM trash tr WHERE tr.assetId = a.id)
                 ORDER BY a.takenAt
                 """).map { r in
                 let data: Data = r["print"]
                 let print = data.withUnsafeBytes { Array($0.bindMemory(to: Float16.self)) }
                 let w: Int = r["width"], h: Int = r["height"]
+                let source: String = r["dateSource"]
                 return Entry(id: r["id"], dhash: UInt64(bitPattern: r["dhash"]), print: print, taken: r["takenAt"],
-                             aspect: h > 0 ? Double(w) / Double(h) : 1)
+                             dated: source != "file", aspect: h > 0 ? Double(w) / Double(h) : 1)
             }
         }
         var same = UnionFind(entries.count)
@@ -146,7 +155,8 @@ public final class DuplicateService: @unchecked Sendable {
                         let i = list[x], j = list[y]
                         guard checked.insert(Int64(i) << 32 | Int64(j)).inserted else { continue }
                         let a = entries[i], b = entries[j]
-                        if (a.dhash ^ b.dhash).nonzeroBitCount <= Self.sameHamming,
+                        if Self.datesAllow(a, b),
+                           (a.dhash ^ b.dhash).nonzeroBitCount <= Self.sameHamming,
                            abs(a.aspect - b.aspect) / max(a.aspect, b.aspect) < 0.03,
                            Self.distance(a.print, b.print) < Self.sameDistance {
                             same.union(i, j)

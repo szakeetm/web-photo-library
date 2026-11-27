@@ -4,7 +4,7 @@
 	// other copies go to the Trash (uploads are moved there; copies in folders, Photos libraries and rclone
 	// folders are only hidden — their files are never touched).
 	import { onMount } from 'svelte';
-	import { api, thumbUrl, type DuplicateGroup } from '#lib/api.ts';
+	import { api, previewUrl, thumbUrl, type DuplicateGroup, type DuplicateItem } from '#lib/api.ts';
 	import { app, deletePhotos } from '#lib/state.svelte.ts';
 	import { captureLabel } from '#lib/dates.ts';
 	import { formatBytes } from '#lib/video.ts';
@@ -87,6 +87,35 @@
 		if (root === 'library') return LOCAL_FOLDERS;
 		return app.folders.find((f) => f.root === root && f.relPath === '')?.name || 'Source';
 	}
+	// ---- full screen: the copies of one group side by side, swiped through (arrows on desktop)
+	let comparing = $state<{ g: DuplicateGroup; i: number } | null>(null);
+	let strip = $state<HTMLDivElement>();
+	function openCompare(g: DuplicateGroup, i: number) {
+		comparing = { g, i };
+	}
+	function startAt(node: HTMLDivElement, i: number) {
+		node.scrollLeft = i * node.clientWidth;
+	}
+	function onStrip() {
+		if (!comparing || !strip) return;
+		const i = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth));
+		if (i !== comparing.i) comparing = { ...comparing, i };
+	}
+	function step(d: number) {
+		if (!comparing || !strip) return;
+		const i = Math.max(0, Math.min(comparing.g.items.length - 1, comparing.i + d));
+		strip.scrollTo({ left: i * strip.clientWidth, behavior: 'smooth' });
+	}
+	function onKey(e: KeyboardEvent) {
+		if (!comparing) return;
+		if (e.key === 'Escape') comparing = null;
+		else if (e.key === 'ArrowRight') step(1);
+		else if (e.key === 'ArrowLeft') step(-1);
+		else return;
+		e.preventDefault();
+	}
+	const details = (it: DuplicateItem) => `${it.w} × ${it.h} · ${formatBytes(it.bytes)} · ${format(it.mime)}`;
+
 	// On the phone Duplicates is a Collections tab: no way "back".
 	const phone = typeof matchMedia !== 'undefined' && matchMedia('(max-width: 767px)').matches;
 </script>
@@ -104,27 +133,28 @@
 {:else}
 	{#snippet group(g: DuplicateGroup)}
 		<section class="group">
+			<div class="ghead muted">
+				{captureLabel(g.items[0].t, g.items[0].tz)} · {g.items.length} copies
+			</div>
 			<div class="items">
-				{#each g.items as it (it.id)}
+				{#each g.items as it, i (it.id)}
 					{@const a = app.byId.get(it.id)}
-					<label class="item" class:kept={keep[g.key] === it.id}>
-						<div class="thumb">
+					{@const kept = keep[g.key] === it.id}
+					<div class="item" class:kept>
+						<button class="thumb" onclick={() => openCompare(g, i)} aria-label="Show full screen">
 							{#if a}<img src={thumbUrl(a.id, a.ev, app.fmt)} alt="" loading="lazy" />{/if}
-							<input type="radio" name={g.key} value={it.id} bind:group={keep[g.key]} />
-						</div>
+							{#if it.fav}<span class="fav" title="Favourite">♥</span>{/if}
+						</button>
+						<button class="pick" aria-pressed={kept} onclick={() => (keep[g.key] = it.id)}>
+							<span class="dot"></span>{kept ? 'Keep' : 'Keep this'}
+						</button>
 						<div class="meta">
-							<div>
-								<b>{it.w} × {it.h}</b> · {formatBytes(it.bytes)} · {format(it.mime)}
-								{#if it.fav}<span title="Favourite">♥</span>{/if}
+							<div><b>{it.w}×{it.h}</b> · {formatBytes(it.bytes)}</div>
+							<div class="muted">
+								{format(it.mime)} · <span class="root">{sourceName(it.root)}</span>{#if it.albums}{` · ${it.albums} ${it.albums === 1 ? 'album' : 'albums'}`}{/if}
 							</div>
-							<div class="muted">{captureLabel(it.t, it.tz)}</div>
-							<div class="muted path" title={it.path}>
-								<span class="root">{sourceName(it.root)}</span>
-								{it.path}
-							</div>
-							{#if it.albums}<div class="muted">In {it.albums} {it.albums === 1 ? 'album' : 'albums'}</div>{/if}
 						</div>
-					</label>
+					</div>
 				{/each}
 			</div>
 			<div class="actions">
@@ -143,6 +173,37 @@
 		<!-- re-created after each batch, so the observer fires again if it's still in view -->
 		{#key shown}<div class="more muted" use:more>Showing {rendered.length} of {same.length} groups…</div>{/key}
 	{/if}
+{/if}
+
+<svelte:window onkeydown={onKey} />
+{#if comparing}
+	{@const g = comparing.g}
+	{@const it = g.items[comparing.i]}
+	<div class="compare" role="dialog" aria-modal="true" aria-label="Copies of this photo">
+		<div class="cbar">
+			<span>{comparing.i + 1} of {g.items.length}</span>
+			<button class="cclose" onclick={() => (comparing = null)} aria-label="Close">✕</button>
+		</div>
+		<div class="strip" bind:this={strip} use:startAt={comparing.i} onscroll={onStrip}>
+			{#each g.items as c (c.id)}
+				{@const a = app.byId.get(c.id)}
+				<div class="slide">{#if a}<img src={previewUrl(a.id, a.ev, app.fmt)} alt="" />{/if}</div>
+			{/each}
+		</div>
+		{#if g.items.length > 1}
+			<button class="nav prev" disabled={comparing.i === 0} onclick={() => step(-1)} aria-label="Previous copy">‹</button>
+			<button class="nav next" disabled={comparing.i === g.items.length - 1} onclick={() => step(1)} aria-label="Next copy">›</button>
+		{/if}
+		<div class="cinfo">
+			<div><b>{details(it)}</b>{#if it.fav} · ♥{/if}</div>
+			<div class="muted">{captureLabel(it.t, it.tz)}</div>
+			<div class="muted cpath"><span class="root">{sourceName(it.root)}</span> {it.path}</div>
+			{#if it.albums}<div class="muted">In {it.albums} {it.albums === 1 ? 'album' : 'albums'}</div>{/if}
+			<button class="btn primary keep" disabled={keep[g.key] === it.id} onclick={() => (keep[g.key] = it.id)}>
+				{keep[g.key] === it.id ? 'Kept ✓' : 'Keep This One'}
+			</button>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -164,67 +225,183 @@
 		background: var(--bg-elevated);
 		/* groups off screen aren't laid out or painted */
 		content-visibility: auto;
-		contain-intrinsic-size: auto 330px;
+		contain-intrinsic-size: auto 300px;
 	}
 	.more {
 		text-align: center;
 		padding: 16px 0 32px;
 		font-size: 13px;
 	}
+	.ghead {
+		font-size: 12px;
+		margin: 0 2px 8px;
+	}
+	/* two side by side on a phone, more on wider screens */
 	.items {
-		display: flex;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
 		gap: 10px;
-		overflow-x: auto;
 	}
 	.item {
-		flex: 0 0 200px;
-		border-radius: 10px;
-		padding: 6px;
-		border: 2px solid transparent;
-		cursor: pointer;
-		font-size: 13px;
-	}
-	.item.kept {
-		border-color: var(--accent);
+		min-width: 0;
+		font-size: 12px;
 	}
 	.thumb {
 		position: relative;
-		aspect-ratio: 1;
-		border-radius: 8px;
+		display: block;
+		width: 100%;
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 10px;
 		overflow: hidden;
 		background: var(--bg);
+		cursor: zoom-in;
+	}
+	.item.kept .thumb {
+		border-color: var(--accent);
 	}
 	.thumb img {
+		display: block;
 		width: 100%;
-		height: 100%;
+		aspect-ratio: 1;
 		object-fit: cover;
 	}
-	.thumb input {
+	.fav {
 		position: absolute;
-		right: 8px;
-		bottom: 8px;
-		width: 20px;
-		height: 20px;
-		accent-color: var(--accent);
+		left: 6px;
+		bottom: 4px;
+		color: white;
+		text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+	}
+	.pick {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 6px 0 2px;
+		padding: 2px 0;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.dot {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 2px solid var(--fg-secondary);
+		flex: none;
+	}
+	.pick[aria-pressed='true'] {
+		color: var(--accent);
+	}
+	.pick[aria-pressed='true'] .dot {
+		border-color: var(--accent);
+		background: radial-gradient(var(--accent) 45%, transparent 50%);
 	}
 	.meta {
-		margin-top: 6px;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 1px;
 	}
-	.path {
+	.meta > div {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	.root {
-		font-size: 11px;
 		font-weight: 600;
-		padding: 0 5px;
-		border-radius: 4px;
-		background: color-mix(in srgb, var(--accent) 14%, transparent);
 		color: var(--accent);
+	}
+	.compare {
+		position: fixed;
+		inset: 0;
+		z-index: 300;
+		background: #000;
+		color: #fff;
+		display: flex;
+		flex-direction: column;
+	}
+	.cbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: calc(env(safe-area-inset-top) + 8px) 14px 8px;
+		font-size: 14px;
+	}
+	.cclose {
+		border: none;
+		background: rgba(255, 255, 255, 0.15);
+		color: #fff;
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		font-size: 15px;
+		cursor: pointer;
+	}
+	.strip {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		overflow-x: auto;
+		scroll-snap-type: x mandatory;
+		scrollbar-width: none;
+	}
+	.strip::-webkit-scrollbar {
+		display: none;
+	}
+	.slide {
+		flex: 0 0 100%;
+		scroll-snap-align: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.slide img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+	}
+	.nav {
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		border: none;
+		background: rgba(255, 255, 255, 0.15);
+		color: #fff;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		font-size: 26px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.nav:disabled {
+		opacity: 0.25;
+	}
+	.nav.prev {
+		left: 10px;
+	}
+	.nav.next {
+		right: 10px;
+	}
+	.cinfo {
+		padding: 10px 16px calc(env(safe-area-inset-bottom) + 14px);
+		font-size: 13px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.cinfo .muted {
+		color: rgba(255, 255, 255, 0.65);
+	}
+	.cpath {
+		overflow-wrap: anywhere;
+	}
+	.keep {
+		margin-top: 8px;
+		width: 100%;
 	}
 	.actions {
 		display: flex;
