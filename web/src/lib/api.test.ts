@@ -19,7 +19,7 @@ describe('video urls', () => {
 		expect(videoStatusUrl('ab')).toBe('/api/assets/ab/video/status');
 		expect(motionUrl('ab')).toBe('/api/assets/ab/motion');
 		expect(CLIENT_API_VERSION).toBe(8);
-		expect(CATALOG_FORMAT).toBe(9);
+		expect(CATALOG_FORMAT).toBe(10);
 		vi.doUnmock('./platform');
 	});
 

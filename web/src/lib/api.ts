@@ -6,7 +6,7 @@ export type ImageFmt = 'heic' | 'jpeg';
 /** API contract version this client was built against. Must equal the server's `apiVersion`; otherwise the app must update. */
 export const CLIENT_API_VERSION = 8;
 /** Catalog payload format this client understands. */
-export const CATALOG_FORMAT = 9;
+export const CATALOG_FORMAT = 10;
 
 /** Called with the server's API version from every response. */
 let versionListener: ((serverApi: number, updateRequired: boolean) => void) | undefined;
