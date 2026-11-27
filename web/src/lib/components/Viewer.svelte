@@ -358,21 +358,25 @@
 		if (asset && mayChange([asset.id])) setFavorite([asset.id], !asset.fav).catch((e) => reportError(e));
 	}
 
-	/** Takes the shown photo out of this list (delete, restore…), then shows its neighbour or closes. */
-	async function leave(work: (id: string) => Promise<unknown>) {
-		if (!asset || !mayChange([asset.id])) return;
+	/** Takes the shown photo out of this list (delete, restore…), then shows its neighbour or closes.
+	 *  False when it failed (and said so). */
+	async function leave(work: (id: string) => Promise<unknown>): Promise<boolean> {
+		if (!asset || !mayChange([asset.id])) return false;
 		const gone = asset.id;
 		const neighbour = ids[index + 1] ?? ids[index - 1];
 		try {
 			stopLive();
 			resetZoom();
 			if (neighbour) onChange(neighbour);
-			await work(gone);
+			// closing (the last photo) doesn't wait for the server
 			if (!neighbour) onClose();
+			await work(gone);
+			return true;
 		} catch (e) {
 			// back to it, unless another photo was opened meanwhile
 			if (neighbour && id === neighbour) onChange(gone);
 			reportError(e);
+			return false;
 		}
 	}
 

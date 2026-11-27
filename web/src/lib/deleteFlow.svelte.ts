@@ -41,8 +41,10 @@ class DeleteFlow {
 
 	/**
 	 * Puts photos in the Trash after asking; `run` does the deleting (defaults to deletePhotos), e.g. one
-	 * that also leaves the viewer. `immediate` (⌘⌫ / Ctrl+Delete): no question, Undo instead. Returns
-	 * whether they were deleted.
+	 * that also leaves the viewer (it may return false when it failed and said so itself). `immediate`
+	 * (⌘⌫ / Ctrl+Delete): no question, Undo instead. Undo shows at once, while the deleting may still
+	 * wait for earlier changes to these photos (an Undo then waits for the deleting). Returns whether
+	 * they were deleted.
 	 */
 	async remove(
 		ids: string[],
@@ -52,15 +54,27 @@ class DeleteFlow {
 		immediate = false
 	) {
 		if (!ids.length || (!immediate && !(await this.ask(title, message)))) return false;
-		await run();
-		if (this.skip || immediate) this.offerUndo(ids);
+		const undo = this.skip || immediate ? this.offerUndo(ids) : null;
+		// a failed delete takes its Undo away (unless another delete's is shown by now)
+		const withdraw = () => undo && this.undo === undo && this.dismissUndo();
+		try {
+			if ((await run()) === false) {
+				withdraw();
+				return false;
+			}
+		} catch (e) {
+			withdraw();
+			throw e;
+		}
 		return true;
 	}
 
 	offerUndo(ids: string[]) {
 		clearTimeout(this.timer);
-		this.undo = { text: `Deleted ${ids.length === 1 ? 'the photo' : `${ids.length} photos`}`, ids };
+		const undo = { text: `Deleted ${ids.length === 1 ? 'the photo' : `${ids.length} photos`}`, ids };
+		this.undo = undo;
 		this.timer = setTimeout(() => (this.undo = null), UNDO_MS);
+		return this.undo;
 	}
 
 	async undoLast() {
