@@ -12,6 +12,7 @@
 	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
 
 	import { dragSelect, type Selection } from '#lib/selection.svelte.ts';
+	import { scroller } from '#lib/scroller.ts';
 	import { gridZoom } from '#lib/gridView.svelte.ts';
 
 	let {
@@ -89,7 +90,7 @@
 	function jumpTo(m: MonthMark) {
 		jumping = false;
 		// leave room for the sticky title bar
-		window.scrollTo(0, Math.max(0, containerTop + m.y - TOP_BAR));
+		scroller.to(Math.max(0, containerTop + m.y - TOP_BAR));
 	}
 
 	// Arrow keys select the photo next to the selected one (desktop; not after Select was pressed),
@@ -121,7 +122,7 @@
 
 	/** The top-left photo whose row is (at least partly) below the title bar. */
 	function firstOnScreen(): string | null {
-		const top = window.scrollY - containerTop + TOP_BAR;
+		const top = scroller.top - containerTop + TOP_BAR;
 		for (const b of layout.blocks) if (b.kind === 'row' && b.y + b.h > top) return b.items[0];
 		return null;
 	}
@@ -132,14 +133,14 @@
 		if (!b) return;
 		const rowTop = containerTop + b.y;
 		const rowBottom = rowTop + b.h;
-		if (rowTop < window.scrollY + TOP_BAR) window.scrollTo(0, rowTop - TOP_BAR - GAP);
-		else if (rowBottom > window.scrollY + viewport) window.scrollTo(0, rowBottom - viewport + GAP);
+		if (rowTop < scroller.top + TOP_BAR) scroller.to(rowTop - TOP_BAR - GAP);
+		else if (rowBottom > scroller.top + viewport) scroller.to(rowBottom - viewport + GAP);
 	}
 
 	function measure() {
 		viewport = window.innerHeight;
-		scrollTop = window.scrollY;
-		if (container) containerTop = container.getBoundingClientRect().top + window.scrollY;
+		scrollTop = scroller.top;
+		if (container) containerTop = container.getBoundingClientRect().top + scroller.top;
 	}
 
 	// While the grid flies past (a fling), thumbnails show their blurred placeholder and load once it
@@ -160,7 +161,7 @@
 		if (raf) return;
 		raf = requestAnimationFrame((t) => {
 			raf = 0;
-			const y = window.scrollY;
+			const y = scroller.top;
 			const speed = lastT ? Math.abs(y - lastY) / Math.max(1, t - lastT) : 0; // px per ms
 			lastY = y;
 			lastT = t;
@@ -182,7 +183,7 @@
 	async function setDensity(next: number) {
 		next = Math.max(0, Math.min(targets.length - 1, next));
 		if (next === density) return;
-		const centerY = window.scrollY + viewport / 2 - containerTop;
+		const centerY = scroller.top + viewport / 2 - containerTop;
 		const [i] = visibleRange(layout.blocks, centerY, 1, 0);
 		const anchorBlock = layout.blocks[i];
 		const anchorId = anchorBlock?.kind === 'row' ? anchorBlock.items[0] : undefined;
@@ -195,7 +196,7 @@
 		}
 		await tick();
 		const pos = anchorId ? layout.indexOf.get(anchorId) : undefined;
-		if (pos) window.scrollTo(0, containerTop + layout.blocks[pos.block].y - offset - viewport / 2);
+		if (pos) scroller.to(containerTop + layout.blocks[pos.block].y - offset - viewport / 2);
 	}
 
 	onMount(() => {
@@ -230,14 +231,14 @@
 			if (gestureScale > 1.15) setDensity(density + 1);
 			else if (gestureScale < 0.87) setDensity(density - 1);
 		};
-		window.addEventListener('scroll', onScroll, { passive: true });
+		const offScroll = scroller.onScroll(onScroll);
 		window.addEventListener('resize', measure);
 		window.addEventListener('wheel', onWheel, { passive: false });
 		document.addEventListener('gesturestart', onGestureStart, { passive: false });
 		document.addEventListener('gesturechange', onGestureChange, { passive: false });
 		document.addEventListener('gestureend', onGestureEnd, { passive: false });
 		return () => {
-			window.removeEventListener('scroll', onScroll);
+			offScroll();
 			clearTimeout(settleTimer);
 			window.removeEventListener('resize', measure);
 			window.removeEventListener('wheel', onWheel);
@@ -286,12 +287,12 @@
 		autoRaf = 0;
 		if (!drag?.active) return;
 		const edge = 80;
-		const top = Math.max(edge, containerTop - window.scrollY + edge);
+		const top = Math.max(edge, containerTop - scroller.top + edge);
 		let v = 0;
 		if (drag.lastY < top) v = -Math.min(20, (top - drag.lastY) / 3);
 		else if (drag.lastY > window.innerHeight - edge) v = Math.min(20, (drag.lastY - (window.innerHeight - edge)) / 3);
 		if (v) {
-			window.scrollBy(0, v);
+			scroller.by(v);
 			update();
 			autoRaf = requestAnimationFrame(autoScroll);
 		}
@@ -358,7 +359,7 @@
 			scrolledToEnd = true;
 			tick().then(() => {
 				measure();
-				window.scrollTo(0, document.documentElement.scrollHeight);
+				scroller.to(scroller.scrollHeight);
 			});
 		}
 	});
