@@ -241,6 +241,16 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 /** Rotations of one photo run one after another (a second click waits for the first save). */
 const rotating = new Map<string, Promise<unknown>>();
 
+/** Waits until the rotations of these photos still being saved are done (failed ones too), so a
+ *  delete, restore or edit never reaches the server between two of them. */
+export async function rotationsSettled(ids: string[]) {
+	for (;;) {
+		const busy = ids.map((i) => rotating.get(i)).filter((p): p is Promise<unknown> => !!p);
+		if (!busy.length) return;
+		await Promise.allSettled(busy);
+	}
+}
+
 /** Quarter turns (clockwise +) shown on screen ahead of the server: the thumbnail and the viewer
  *  turn the picture they have at once, and the turn is dropped when the new rendition is loaded. */
 export const pendingTurns = new SvelteMap<string, number>();
@@ -337,6 +347,7 @@ function applyAssets(list: CatalogAsset[]) {
 /** The Trash: deleted uploads (deleted from disk only by hand) and hidden photos (restorable). */
 /** Puts photos in the Trash: uploads are moved there, the others only hidden (their files stay). */
 export async function deletePhotos(ids: string[]) {
+	await rotationsSettled(ids);
 	const set = new Set(ids);
 	const before = app.assets;
 	app.assets = app.assets.filter((a) => !set.has(a.id));
@@ -350,6 +361,7 @@ export async function deletePhotos(ids: string[]) {
 }
 
 export async function restoreFromTrash(ids: string[]) {
+	await rotationsSettled(ids);
 	const set = new Set(ids);
 	const before = app.trash;
 	app.trash = app.trash.filter((t) => !set.has(t.asset.id));
@@ -364,6 +376,7 @@ export async function restoreFromTrash(ids: string[]) {
 
 /** Deletes Trash uploads for good (all of them without ids); hidden photos stay in the Trash. */
 export async function deleteForever(ids?: string[]) {
+	await rotationsSettled(ids ?? [...rotating.keys()]);
 	const set = ids && new Set(ids);
 	const before = app.trash;
 	// only uploads are deleted for good; hidden photos stay in the Trash

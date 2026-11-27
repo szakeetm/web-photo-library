@@ -327,7 +327,7 @@
 	}
 
 	function openEditor() {
-		if (!asset || !net.online || !canEdit || isVideo) return;
+		if (!asset || !net.online || !canEdit || isVideo || rotations > 0) return;
 		resetZoom();
 		editing = true;
 	}
@@ -954,7 +954,7 @@
 					aria-label="Rotate left"><Icon name="rotate" /></button>
 				<button class="icon-btn rot right" class:busy={rotations > 0} onclick={() => rotate(true)} title="Rotate right (R)"
 					aria-label="Rotate right"><span class="mirror"><Icon name="rotate" /></span></button>
-				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
+				<button class="icon-btn" onclick={openEditor} disabled={!canEdit || rotations > 0}
 					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
 					aria-label="Edit"><Icon name="edit" /></button>
 			{/if}
