@@ -18,7 +18,14 @@ const shellSet = new Set(SHELL_FILES);
 const NAV_TIMEOUT_MS = 2500;
 /** Map tiles/styles/fonts already seen stay available offline (capped). */
 const TILES = 'tiles-v1';
-const TILE_HOSTS = ['tiles.openfreemap.org'];
+// the map styles offered in Settings → Map (a custom style's tiles aren't kept offline)
+const TILE_HOSTS = [
+	'tiles.openfreemap.org',
+	'tiles.versatiles.org',
+	'basemaps.cartocdn.com',
+	'tiles.basemaps.cartocdn.com',
+	...['a', 'b', 'c', 'd'].map((x) => `tiles-${x}.basemaps.cartocdn.com`)
+];
 const MAX_TILES = 4000;
 
 sw.addEventListener('install', (event) => {

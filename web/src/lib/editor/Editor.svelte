@@ -18,6 +18,7 @@
 	import Dial from './Dial.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 	import CurveEditor from './CurveEditor.svelte';
+	import { isoDateTime } from '#lib/dates.ts';
 
 	let { asset, onClose }: { asset: CatalogAsset; onClose: (saved: boolean) => void } = $props();
 
@@ -504,7 +505,7 @@
 		{ id: 'color', title: 'Color' },
 		{ id: 'effects', title: 'Effects' }
 	] as const;
-	const when = (s: string) => new Date(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+	const when = (s: string) => isoDateTime(s);
 	/** Ring fill for the phone's adjustment buttons. */
 	const ring = (a: AdjustmentInfo) => {
 		const v = value(a.key);

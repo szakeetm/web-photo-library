@@ -13,6 +13,7 @@
 	import { applyUpdate } from '#lib/sw.ts';
 	import { isIOS } from '#lib/download.ts';
 	import { isFirefox } from '#lib/platform.ts';
+	import { isoDateTime } from '#lib/dates.ts';
 
 	let settings = $state<Settings | null>(null);
 	let current = $state<Job | null>(null);
@@ -258,7 +259,7 @@
 	}
 	let removing = $state<number | null>(null);
 	async function removeSource(id: number, path: string, stopsScan = false) {
-		const what = 'Its originals kept on the Mac are deleted. Nothing on the remote is touched.';
+		const what = 'Its originals kept on the server are deleted. Nothing on the remote is touched.';
 		if (!confirm(removeWarning(path, stopsScan ? `Its scan is stopped first. ${what}` : what))) return;
 		removing = id;
 		try {
@@ -284,7 +285,6 @@
 			message = { text: (e as Error).message, error: true };
 		}
 	}
-	const cacheSizes = [5, 10, 20, 50, 100, 200, 500];
 
 	/** A job's phase in words; a source's scan names the source ("remote:remote-2" → Fetching from Chicago to Seattle). */
 	function phaseLabel(phase: string | null) {
@@ -334,7 +334,7 @@
 		if (!lastScan && files > 0)
 			return { text: `First scan not finished: ${files.toLocaleString()} photos and videos are in so far. Scan to continue.` };
 		if (!lastScan) return { text: 'Not scanned yet' };
-		const when = new Date(lastScan.at).toLocaleString();
+		const when = isoDateTime(lastScan.at);
 		if (!lastScan.ok) return { text: `Last scan failed (${when}): ${lastScan.note ?? ''}`, error: true };
 		const parts = [
 			lastScan.added && `${lastScan.added.toLocaleString()} added`,
@@ -432,7 +432,7 @@
 					await new Promise<void>((r) => setTimeout(r, 1000));
 				}
 			}
-			if (!back) throw new Error("The server didn't come back within a minute. Check the Mac.");
+			if (!back) throw new Error("The server didn't come back within a minute. Check the server.");
 			await loadSettings();
 			await app.reload();
 			message = { text: 'The server restarted.' };
@@ -525,6 +525,30 @@
 		}
 	}
 
+	/** Map styles offered (free, no key); "custom" is any other style URL. */
+	const MAP_STYLES = [
+		{ url: 'https://tiles.openfreemap.org/styles/liberty', label: 'OpenFreeMap Liberty (default)' },
+		{ url: 'https://tiles.openfreemap.org/styles/bright', label: 'OpenFreeMap Bright' },
+		{ url: 'https://tiles.openfreemap.org/styles/positron', label: 'OpenFreeMap Positron (light)' },
+		{ url: 'https://tiles.openfreemap.org/styles/dark', label: 'OpenFreeMap Dark' },
+		{ url: 'https://tiles.openfreemap.org/styles/fiord', label: 'OpenFreeMap Fiord (dark blue)' },
+		{ url: 'https://tiles.versatiles.org/assets/styles/colorful/style.json', label: 'VersaTiles Colorful' },
+		{ url: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json', label: 'CARTO Voyager' },
+		{ url: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json', label: 'CARTO Positron (light)' },
+		{ url: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', label: 'CARTO Dark Matter' }
+	];
+	let customMap = $state(false);
+	const currentMap = $derived(settings?.mapStyleURL || settings?.defaultMapStyleURL || MAP_STYLES[0].url);
+	const mapChoice = $derived(customMap || !MAP_STYLES.some((m) => m.url === currentMap) ? 'custom' : currentMap);
+	async function pickMapStyle(v: string) {
+		if (v === 'custom') {
+			customMap = true;
+			return;
+		}
+		customMap = false;
+		mapStyle = v === settings?.defaultMapStyleURL ? '' : v;
+		await saveMapStyle();
+	}
 	async function saveMapStyle() {
 		try {
 			settings = await api.saveSettings({ mapStyleURL: mapStyle.trim() });
@@ -538,7 +562,7 @@
 	/** "abc1234 · 25 Nov 2026, 15:20" (+ a note when built from uncommitted changes). */
 	function buildLabel(commit: string | null | undefined, date: string | null | undefined, dirty: boolean | undefined) {
 		if (!commit) return 'unknown build';
-		const when = date ? new Date(date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+		const when = date ? isoDateTime(date) : '';
 		return [commit + (dirty ? ' + local changes' : ''), when].filter(Boolean).join(' · ');
 	}
 	const appBuild = buildLabel(__APP_COMMIT__, __APP_COMMIT_DATE__, __APP_DIRTY__);
@@ -579,7 +603,7 @@
 	const fmtBytes = (n: number) =>
 		n < 1e6 ? `${(n / 1e3).toFixed(0)} KB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`;
 	const pct = (j: Job) => (j.total ? Math.round((j.progress / j.total) * 100) : 0);
-	const when = (s: string | null) => (s ? new Date(s).toLocaleString() : '');
+	const when = (s: string | null) => (s ? isoDateTime(s) : '');
 
 	/** Names of the cache's folders on the server. */
 	const cacheLabels: Record<string, string> = {
@@ -602,10 +626,10 @@
 	{#if !app.libraryConfigured}
 		<div class="welcome">
 			<h2>Welcome</h2>
-			<p>Add a folder on this Mac that holds your photos. It is only ever read, never modified.</p>
+			<p>Add a folder on the server that holds your photos. It is only ever read, never modified.</p>
 			<button class="btn primary" onclick={() => (picker = 'folder')}>Add folder…</button>
 			<p class="muted small">
-				No photos on this Mac yet? Choose an uploads folder instead and upload from your devices, or add an Apple Photos
+				No photos on the server yet? Choose an uploads folder instead and upload from your devices, or add an Apple Photos
 				library or an rclone folder below.
 			</p>
 			<button class="btn" onclick={() => (picker = 'uploads')}>Choose uploads folder…</button>
@@ -664,7 +688,7 @@
 				<div class="label">
 					<div>Use local mode</div>
 					<div class="muted small">
-						This browser runs on the Mac that hosts the library, so photos and videos are read straight from its disk:
+						This browser runs on the same computer as the server, so photos and videos are read straight from its disk:
 						nothing is cached or downloaded for offline use here, videos play from the original file when the browser
 						can, zooming loads full resolution right away, and photos and folders can be revealed in the Finder.
 					</div>
@@ -744,9 +768,9 @@
 	{/snippet}
 
 	<div class="part">
-		<h2><Icon name="folder" size={20} /> Photo sources</h2>
+		<h2><Icon name="folder" size={20} /> Photo sources on server</h2>
 		<p class="muted">
-			Where the photos come from, on the Mac that hosts the library (these settings apply to every device). Each source is
+			Where the photos come from, on the server (these settings apply to every device). Each source is
 			read where it is and never changed. Refresh one to pick up what changed in it, or turn on its auto-refresh.
 		</p>
 	</div>
@@ -768,7 +792,7 @@
 	</section>
 
 	<section>
-		<h3>Folders on this Mac</h3>
+		<h3>Folders on the server</h3>
 		{#if settings?.libraryPath}
 			<div class="row">
 				<div class="label">
@@ -802,7 +826,7 @@
 		<div class="row">
 			<div class="label">
 				<div class="muted small">
-					Folders of photos and videos on the Mac or its drives, read where they are (never changed). Add as many as you
+					Folders of photos and videos on the server or its drives, read where they are (never changed). Add as many as you
 					like, or none. The same photo in several folders is shown once. Moved a folder? Locate… points the app at its new
 					place, keeping everything done to its photos.
 				</div>
@@ -840,7 +864,7 @@
 					<div class="muted path">{lib.path}</div>
 					{#if lib.stats}
 						<div class="muted small">
-							{lib.stats.onDisk.toLocaleString()} of {lib.stats.items.toLocaleString()} photos and videos on the Mac{#if lib.stats.onDisk < lib.stats.items}
+							{lib.stats.onDisk.toLocaleString()} of {lib.stats.items.toLocaleString()} photos and videos on the server{#if lib.stats.onDisk < lib.stats.items}
 								(the rest have no original in the library){/if} · {lib.stats.albums} albums · {fmtBytes(lib.bytes)}
 						</div>
 					{/if}
@@ -871,7 +895,7 @@
 					<div class="muted small">{settings.rclone.version} · {settings.rclone.path}</div>
 				{:else if settings}
 					<div class="muted small warn">
-						Not found. On the Mac run <code>brew install rclone</code>, then set up your cloud storage with <code>rclone config</code>.
+						Not found. On the server run <code>brew install rclone</code>, then set up your cloud storage with <code>rclone config</code>.
 					</div>
 				{/if}
 			</div>
@@ -901,7 +925,7 @@
 				<div class="muted small">
 					Folders on pCloud or any other rclone remote, read-only. Scans list them in one go and fetch new photos (many at a
 					time) to make their thumbnails and previews; originals are fetched again when needed — to zoom, edit, play or
-					export. Moved one? Locate… points the app at its new place, keeping everything.{#if !settings?.rclone} Needs rclone on the Mac (above).{/if}
+					export. Moved one? Locate… points the app at its new place, keeping everything.{#if !settings?.rclone} Needs rclone on the server (above).{/if}
 				</div>
 			</div>
 			<button class="btn" disabled={!settings?.rclone} onclick={() => (pickingSource = true)}>Add rclone Folder…</button>
@@ -910,7 +934,7 @@
 
 	<div class="part">
 		<h2><Icon name="server" size={20} /> Server</h2>
-		<p class="muted">What the Mac does with the photos, where it keeps its data, and its upkeep.</p>
+		<p class="muted">What the server does with the photos, where it keeps its data, and its upkeep.</p>
 	</div>
 
 	{#if current || recent.length}
@@ -965,7 +989,7 @@
 		<div class="row">
 			<div class="label">
 				<div class="muted small">
-					Done on this Mac (Apple Vision and the Neural Engine) after each scan; nothing leaves the Mac. Turning one off
+					Done on the server (Apple Vision and the Neural Engine) after each scan; nothing leaves it. Turning one off
 					stops it right away (what it found stays), so sources can be removed or located without waiting for it.
 				</div>
 			</div>
@@ -976,7 +1000,7 @@
 				<div class="muted small">Finds faces and groups them into people.</div>
 				{#if settings && !settings.faceModelInstalled}
 					<div class="muted small warn">
-						The recognition model isn't installed. On the Mac run <code>tools/face-model/make.sh</code> (once), then Find faces.
+						The recognition model isn't installed. On the server run <code>tools/face-model/make.sh</code> (once), then Find faces.
 					</div>
 				{/if}
 			</div>
@@ -1087,15 +1111,19 @@
 		{#if settings?.remoteSources.length}
 			<div class="row">
 				<div class="label">
-					<div>Originals kept on the Mac</div>
+					<div>Originals kept on the server</div>
 					<div class="muted small">
-						The most recently used originals from rclone folders stay on the Mac, up to this size: {fmtBytes(settings.originalsCacheBytes)} now.
+						The most recently used originals from rclone folders stay on the server, up to this size: {fmtBytes(settings.originalsCacheBytes)} now.
 					</div>
 				</div>
-				<select value={settings.originalsCacheGB} onchange={(e) => setCacheGB(Number((e.target as HTMLSelectElement).value))}>
-					{#each cacheSizes as gb (gb)}<option value={gb}>{gb} GB</option>{/each}
-					{#if !cacheSizes.includes(settings.originalsCacheGB)}<option value={settings.originalsCacheGB}>{settings.originalsCacheGB} GB</option>{/if}
-				</select>
+				<label class="gb"
+					><input type="number" min="1" max="10000" step="1" value={settings.originalsCacheGB}
+						onchange={(e) => {
+							const v = Math.round(Number((e.target as HTMLInputElement).value));
+							if (v >= 1 && v <= 10000) setCacheGB(v);
+							else (e.target as HTMLInputElement).value = String(settings?.originalsCacheGB ?? '');
+						}} /> GB</label
+				>
 			</div>
 		{/if}
 	</section>
@@ -1140,7 +1168,7 @@
 				<div class="label">
 					<div>How often</div>
 					{#if backup.enabled && backup.nextAt && !backup.activity}
-						<div class="muted small">Next backup {new Date(backup.nextAt) <= new Date() ? 'within a few minutes' : new Date(backup.nextAt).toLocaleString()}</div>
+						<div class="muted small">Next backup {new Date(backup.nextAt) <= new Date() ? 'within a few minutes' : isoDateTime(backup.nextAt)}</div>
 					{/if}
 				</div>
 				<select
@@ -1180,7 +1208,7 @@
 						{@const l = backup.last}
 						<div class="small" class:warn={!l.ok}>
 							{l.ok ? 'Done' : 'Failed'}
-							{ago(l.finishedAt)} ({new Date(l.finishedAt).toLocaleString()}, took {took(l.startedAt, l.finishedAt)})
+							{ago(l.finishedAt)} ({isoDateTime(l.finishedAt)}, took {took(l.startedAt, l.finishedAt)})
 						</div>
 						{#if l.ok}
 							<div class="muted small">
@@ -1207,7 +1235,7 @@
 	</section>
 
 	<section>
-		<h3>Access &amp; map</h3>
+		<h3>Access</h3>
 		<div class="row">
 			<div class="label">
 				<div>Owner Tailscale login</div>
@@ -1226,25 +1254,35 @@
 			<input class="text" placeholder="you@example.com" bind:value={owner} autocapitalize="off" spellcheck="false" />
 			<button class="btn">Save</button>
 		</form>
+	</section>
+
+	<section>
+		<h3>Map</h3>
 		<div class="row">
 			<div class="label">
 				<div>Map style</div>
 				<div class="muted small">
-					Photo locations are turned into place names on this Mac. The map itself loads tiles from the style's server
-					(default {settings?.defaultMapStyleURL ?? 'OpenFreeMap'}); tiles you have seen keep working offline.
+					Photo locations are turned into place names on the server. The map itself loads its tiles from the style's
+					provider; tiles you have seen keep working offline. Custom: any MapLibre style URL.
 				</div>
 			</div>
+			<select value={mapChoice} onchange={(e) => pickMapStyle((e.target as HTMLSelectElement).value)}>
+				{#each MAP_STYLES as m (m.url)}<option value={m.url}>{m.label}</option>{/each}
+				<option value="custom">Custom…</option>
+			</select>
 		</div>
-		<form
-			class="row"
-			onsubmit={(e) => {
-				e.preventDefault();
-				saveMapStyle();
-			}}
-		>
-			<input class="text" placeholder={settings?.defaultMapStyleURL ?? ''} bind:value={mapStyle} autocapitalize="off" spellcheck="false" />
-			<button class="btn">Save</button>
-		</form>
+		{#if mapChoice === 'custom'}
+			<form
+				class="row"
+				onsubmit={(e) => {
+					e.preventDefault();
+					saveMapStyle();
+				}}
+			>
+				<input class="text" placeholder="https://…/style.json" bind:value={mapStyle} autocapitalize="off" spellcheck="false" />
+				<button class="btn">Save</button>
+			</form>
+		{/if}
 	</section>
 
 	<section>
@@ -1274,7 +1312,7 @@
 			<div class="label">
 				<div>Restart server</div>
 				<div class="muted small">
-					Starts the server on the Mac again, e.g. when it's stuck. Running jobs carry on afterwards.
+					Starts the server again, e.g. when it's stuck. Running jobs carry on afterwards.
 				</div>
 			</div>
 			<button class="btn danger restart" disabled={restartingServer} onclick={restartServer}
@@ -1573,5 +1611,15 @@
 		border: 1px solid var(--separator);
 		border-radius: 6px;
 		padding: 2px 4px;
+	}
+	.gb input {
+		width: 6em;
+		font: inherit;
+		color: var(--fg);
+		background: var(--bg-elevated);
+		border: 1px solid var(--separator);
+		border-radius: 6px;
+		padding: 4px 6px;
+		text-align: right;
 	}
 </style>

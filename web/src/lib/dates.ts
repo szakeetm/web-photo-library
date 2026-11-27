@@ -56,17 +56,16 @@ export function monthLabel(key: string, locale?: string): string {
 }
 
 /** e.g. "Sunday, 4 July 2021 at 15:30" in the capture's local time. */
-export function captureLabel(t: string, tz: number | null, locale?: string): string {
-	const d = new Date(Date.parse(t) + (tz ?? 0) * 1000);
-	return d.toLocaleString(locale, {
-		weekday: 'long',
-		day: 'numeric',
-		month: 'long',
-		year: 'numeric',
-		hour: '2-digit',
-		minute: '2-digit',
-		timeZone: 'UTC'
-	});
+export function captureLabel(t: string, tz: number | null): string {
+	// ISO style everywhere in the app: 2026-02-15 14:32 (24-hour), local time where it was taken
+	return isoLabel(t, tz);
+}
+
+/** "2026-02-15 14:32" in this device's time zone: when something happened (a scan, a backup, an edit). */
+export function isoDateTime(d: Date | string | number): string {
+	const x = new Date(d);
+	const p = (n: number) => String(n).padStart(2, '0');
+	return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())} ${p(x.getHours())}:${p(x.getMinutes())}`;
 }
 
 /** "2026-02-15 14:32": the local date and time where the photo was taken. */

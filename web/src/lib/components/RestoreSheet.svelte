@@ -5,6 +5,7 @@
 	import { onDestroy } from 'svelte';
 	import { api, type BackupInspection, type BackupStatus } from '#lib/api.ts';
 	import RemotePicker from './RemotePicker.svelte';
+	import { isoDateTime } from '#lib/dates.ts';
 
 	let { start, onClose }: { start: string; onClose: () => void } = $props();
 
@@ -21,7 +22,7 @@
 	onDestroy(() => clearTimeout(timer));
 
 	const fmtBytes = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.round(n / 1e3)} KB`);
-	const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+	const when = (iso: string) => isoDateTime(iso);
 
 	async function inspect() {
 		checking = true;

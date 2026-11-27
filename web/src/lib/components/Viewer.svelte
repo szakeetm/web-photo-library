@@ -9,7 +9,7 @@
 	import GestureDebug from './GestureDebug.svelte';
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset } from '#lib/api.ts';
-	import { captureLabel, isoLabel, offsetLabel } from '#lib/dates.ts';
+	import { captureLabel, isoLabel, offsetLabel, isoDateTime } from '#lib/dates.ts';
 	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
 	import { deleteFlow, deleteKey } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
@@ -1091,7 +1091,7 @@
 					<dd>
 						Yes
 						{#if editedAt}<span class="muted"
-								>· {new Date(editedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span
+								>· {isoDateTime(editedAt)}</span
 							>{/if}
 					</dd>
 				{/if}
