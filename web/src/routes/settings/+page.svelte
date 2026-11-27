@@ -467,6 +467,37 @@
 		}
 	}
 
+	// ---- refreshing one source now, or on its own every few minutes to every week
+	/** A scan of this source (or of every source) is waiting or running. */
+	function scanQueued(root: string) {
+		const scans = [current, ...recent].filter((j) => j && (j.state === 'running' || j.state === 'queued'));
+		return scans.some((j) => j!.kind === 'reindex' || j!.kind === 'rebuild-caches' || (j!.kind === 'detect-changes' && (!j!.target || j!.target === root)));
+	}
+	async function refreshSource(root: string) {
+		try {
+			await api.refreshSource(root);
+			wasRunning = true;
+			poll();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	async function setRefresh(root: string, value: string) {
+		try {
+			settings = await api.saveSettings({ sourceRefresh: { root, minutes: value ? Number(value) : null } });
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		}
+	}
+	function every(minutes: number) {
+		if (minutes < 60) return `Every ${minutes} min`;
+		if (minutes === 60) return 'Every hour';
+		if (minutes < 1440) return `Every ${minutes / 60} hours`;
+		if (minutes === 1440) return 'Every day';
+		if (minutes === 10080) return 'Every week';
+		return `Every ${minutes / 1440} days`;
+	}
+
 	let mapStyle = $state('');
 	$effect(() => {
 		if (settings) mapStyle = settings.mapStyleURL ?? '';
@@ -683,6 +714,19 @@
 	{#if !net.online}
 		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are above.</p>
 	{:else}
+	{#snippet refresh(root: string)}
+		<div class="refresh">
+			<button class="btn small" disabled={scanQueued(root)} onclick={() => refreshSource(root)}
+				title="Look for new and changed photos in this source now">{scanQueued(root) ? 'Refreshing…' : 'Refresh'}</button>
+			<label class="small muted"
+				>Auto-refresh
+				<select value={String(settings?.sourceRefreshMinutes?.[root] ?? '')} onchange={(e) => setRefresh(root, (e.target as HTMLSelectElement).value)}>
+					<option value="">Off</option>
+					{#each settings?.refreshChoices ?? [] as m (m)}<option value={String(m)}>{every(m)}</option>{/each}
+				</select></label
+			>
+		</div>
+	{/snippet}
 	{#snippet status(root: string, lastScan: SourceScan | null, files = 0)}
 		{#each [sourceStatus(root, lastScan, files)] as st, i (i)}
 			<div class="small" class:muted={!st.busy} class:warn={st.error}>{st.text}</div>
@@ -700,6 +744,7 @@
 				{#if settings?.uploadsPath}
 					<div class="muted small">{settings.uploadsFiles.toLocaleString()} photo and video files · {fmtBytes(settings.uploadsBytes)}</div>
 					{@render status('uploads', settings.uploadsLastScan)}
+					{@render refresh('uploads')}
 				{/if}
 				<div class="muted small">
 					Photos uploaded from your devices go here (phone-uploads/, desktop-uploads/), never into the other folders. It is
@@ -715,6 +760,7 @@
 					<div class="muted path">{settings.libraryPath}</div>
 					<div class="muted small">{settings.libraryFiles.toLocaleString()} photo and video files</div>
 					{@render status('library', settings.libraryLastScan)}
+					{@render refresh('library')}
 				</div>
 				<div class="btns">
 					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'library', id: 0, path: settings!.libraryPath! })}>Locate…</button>
@@ -729,6 +775,7 @@
 					<div class="muted path">{f.path}</div>
 					<div class="muted small">{f.files.toLocaleString()} photo and video files · {fmtBytes(f.bytes)}</div>
 					{@render status(f.root, f.lastScan)}
+					{@render refresh(f.root)}
 				</div>
 				<div class="btns">
 					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'folder', id: f.id, path: f.path })}>Locate…</button>
@@ -762,6 +809,7 @@
 						</div>
 					{/if}
 					{@render status(lib.root, lib.lastScan)}
+					{@render refresh(lib.root)}
 				</div>
 				<button class="btn" disabled={!!current} title={busyTitle} onclick={() => removePhotosLibrary(lib.id, lib.title)}>Remove</button>
 			</div>
@@ -788,13 +836,11 @@
 					<div class="muted path">{src.path}</div>
 					<div class="muted small">{filesLine(src.root, src.lastScan, src.files, src.bytes)}</div>
 					{@render status(src.root, src.lastScan, src.files)}
+					{@render refresh(src.root)}
 				</div>
 				<div class="btns">
 					{#if scanningThis && current}
 						<button class="btn" onclick={() => stopJob(current!.id)} title="Stop this scan; what was fetched stays">Stop</button>
-					{:else}
-						<button class="btn" disabled={!!current} title={current ? busyTitle : 'Look for new and changed photos (all sources are scanned; what is in already is skipped)'}
-							onclick={() => start('detect-changes')}>Scan</button>
 					{/if}
 					<button class="btn" disabled={!!current} title={busyTitle} onclick={() => (relocating = { kind: 'remote', id: src.id, path: src.path })}>Locate…</button>
 					<button class="btn" disabled={!!current && !scanningThis} title={scanningThis ? 'Stop the scan and remove this folder' : busyTitle}
@@ -1438,5 +1484,26 @@
 	}
 	.btn.restart {
 		flex: none;
+	}
+	/* a source's Refresh button and auto-refresh interval */
+	.refresh {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px 12px;
+		margin-top: 6px;
+	}
+	.refresh .btn.small {
+		padding: 3px 10px;
+		font-size: 13px;
+	}
+	.refresh select {
+		margin-left: 4px;
+		font: inherit;
+		color: var(--fg);
+		background: var(--bg-elevated);
+		border: 1px solid var(--separator);
+		border-radius: 6px;
+		padding: 2px 4px;
 	}
 </style>

@@ -112,6 +112,8 @@ public struct JobRow: Codable, Sendable, Equatable, FetchableRecord, MutablePers
     public var endedAt: Date?
     /// what the job is doing right now, in words (e.g. which folder it is downloading)
     public var detail: String? = nil
+    /// The one source (root) a Detect changes job scans; nil for every source.
+    public var target: String? = nil
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

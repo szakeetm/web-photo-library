@@ -66,7 +66,10 @@ struct APIRoutes {
         var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String?
         var facesEnabled: Bool?; var objectsEnabled: Bool?; var mapStyleURL: String?
         var originalsCacheGB: Int?
+        /// A source's auto-refresh: minutes between scans (one of SourceRefresh.choices), or nil for off.
+        var sourceRefresh: SourceRefreshBody?
     }
+    struct SourceRefreshBody: Codable { var root: String; var minutes: Int? }
     struct LocalFolderInfo: Encodable {
         let id: Int; let path: String; let root: String; let title: String
         let files: Int
@@ -118,6 +121,9 @@ struct APIRoutes {
         /// remote originals kept on this Mac: the limit, and what they take now
         let originalsCacheGB: Int
         let originalsCacheBytes: Int64
+        /// each source's auto-refresh (root → minutes; not listed = off), and the intervals offered
+        let sourceRefreshMinutes: [String: Int]
+        let refreshChoices: [Int]
     }
     static let defaultMapStyle = "https://tiles.openfreemap.org/styles/liberty"
     struct PersonPatch: Decodable { var name: String??; var hidden: Bool?; var coverFaceId: Int64? }
@@ -228,6 +234,13 @@ struct APIRoutes {
                 try services.settings.set(.objectsEnabled, o)
                 if o { services.jobs.enqueueObjectsIfNeeded() } else { services.jobs.cancelAll(.objects) }
             }
+            if let r = body.sourceRefresh {
+                guard try services.jobs.sourceRoots().contains(r.root) else { return errorResponse(.badRequest, "Unknown source") }
+                if let m = r.minutes, !SourceRefresh.choices.contains(m) { return errorResponse(.badRequest, "Unsupported interval") }
+                var all = try services.settings.get(.sourceRefreshMinutes)
+                all[r.root] = r.minutes
+                try services.settings.set(.sourceRefreshMinutes, all)
+            }
             if let g = body.originalsCacheGB {
                 guard (1...10_000).contains(g) else { return errorResponse(.badRequest, "Keep between 1 GB and 10 TB of originals.") }
                 try services.settings.set(.originalsCacheGB, g == RemoteSources.defaultCacheGB ? nil : g)
@@ -289,9 +302,16 @@ struct APIRoutes {
             }
         }
 
-        api.post("jobs/:kind") { _, ctx in
+        api.post("jobs/:kind") { req, ctx in
             guard let kind = ctx.parameters.get("kind").flatMap(JobKind.init(rawValue:)) else {
                 return errorResponse(.badRequest, "Unknown job kind")
+            }
+            // ?root=: Detect changes of that one source (its Refresh button)
+            if let root = req.uri.queryParameters.get("root") {
+                guard kind == .detectChanges, try services.jobs.sourceRoots().contains(root) else {
+                    return errorResponse(.badRequest, "Unknown source")
+                }
+                return try json(Enqueued(id: services.jobs.enqueue(kind, target: root)))
             }
             return try json(Enqueued(id: services.jobs.enqueue(kind)))
         }
@@ -821,7 +841,8 @@ struct APIRoutes {
                                          uploadsFiles: counts[Roots.uploads]?.0 ?? 0, uploadsBytes: counts[Roots.uploads]?.1 ?? 0,
                                          uploadsLastScan: try s.get(.sourceScans).first { $0.root == Roots.uploads },
                                          originalsCacheGB: try s.get(.originalsCacheGB) ?? RemoteSources.defaultCacheGB,
-                                         originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir)))
+                                         originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir),
+                                         sourceRefreshMinutes: try s.get(.sourceRefreshMinutes), refreshChoices: SourceRefresh.choices))
     }
 
     func localFolderInfos() throws -> [LocalFolderInfo] {

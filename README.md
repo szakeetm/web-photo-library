@@ -74,7 +74,9 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
 - **Sources**: the library folder, more folders on the Mac, Apple Photos libraries (originals read in
   place, edited photos as Photos renders them, albums imported) and folders on any rclone remote
   (pCloud…; originals fetched when needed, a size-limited cache on the Mac). The same photo in several
-  sources is shown once.
+  sources is shown once. Each source has a **Refresh** button (Settings) to look for new and changed
+  photos in it alone, and an optional **auto-refresh**, off by default: every 5 minutes (say, a Photos
+  library synced with iCloud) to every week.
 - **Backup** (Settings): the database and the uploads to any rclone destination, daily by default;
   Restore checks the backup's format and the sources first. Format and compatibility rules:
   [docs/backup-format.md](docs/backup-format.md).

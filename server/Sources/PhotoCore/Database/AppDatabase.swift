@@ -329,6 +329,10 @@ public final class AppDatabase: Sendable {
                 DELETE FROM setting WHERE key = 'searchIndexSeq';
                 """)
         }
+        m.registerMigration("v20-job-target") { db in
+            // a job for one source only (Refresh of a source, its auto-refresh); null = every source
+            try db.execute(sql: "ALTER TABLE job ADD COLUMN target TEXT")
+        }
         return m
     }
 }

@@ -345,6 +345,10 @@ export interface Settings {
 	/** remote originals kept on the Mac: the limit (GB), and what they take now */
 	originalsCacheGB: number;
 	originalsCacheBytes: number;
+	/** Each source's auto-refresh: root → minutes between scans (not listed = off). */
+	sourceRefreshMinutes?: Record<string, number>;
+	/** The auto-refresh intervals offered, in minutes. */
+	refreshChoices?: number[];
 }
 
 export interface PhotosLibraryInfo {
@@ -473,6 +477,8 @@ export interface Job {
 	endedAt: string | null;
 	/** what it is doing right now, in words (e.g. which folder is downloading) */
 	detail?: string | null;
+	/** the one source a Detect changes scans (its Refresh); null for every source */
+	target?: string | null;
 }
 
 export interface DirListing {
@@ -692,6 +698,8 @@ export const api = {
 		objectsEnabled?: boolean;
 		mapStyleURL?: string;
 		originalsCacheGB?: number;
+		/** a source's auto-refresh: minutes, or null for off */
+		sourceRefresh?: { root: string; minutes: number | null };
 	}) =>
 		call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 	moveData: (path: string) =>
@@ -702,6 +710,8 @@ export const api = {
 	listDir: (path?: string) => call<DirListing>(`/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ''}`),
 	jobs: () => call<{ current: Job | null; recent: Job[] }>('/api/jobs'),
 	startJob: (kind: JobKind) => call<{ id: number }>(`/api/jobs/${kind}`, { method: 'POST' }),
+	/** Looks for new and changed photos in one source only. */
+	refreshSource: (root: string) => call<{ id: number }>(`/api/jobs/detect-changes?root=${encodeURIComponent(root)}`, { method: 'POST' }),
 	cancelJob: (id: number) => call<void>(`/api/jobs/${id}`, { method: 'DELETE' }),
 	createAlbum: (title: string, assetIds: string[] = []) =>
 		call<AlbumSummary>('/api/albums', { method: 'POST', body: JSON.stringify({ title, assetIds }) }),

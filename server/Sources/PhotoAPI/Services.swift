@@ -61,6 +61,7 @@ public final class Services: @unchecked Sendable {
                 _ = jobs.enqueue(.detectChanges)
             }
             backup.startScheduler()
+            jobs.startRefreshScheduler()
             videos.startCleanupScheduler(settings: settings)
         }
     }

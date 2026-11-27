@@ -71,10 +71,11 @@ public final class JobRunner: @unchecked Sendable {
         for k in kinds { enqueue(k) }
     }
 
+    /// `target`: a Detect changes of that one source (root) only.
     @discardableResult
-    public func enqueue(_ kind: JobKind) -> Int64 {
+    public func enqueue(_ kind: JobKind, target: String? = nil) -> Int64 {
         var row = JobRow(id: nil, kind: kind.rawValue, state: "queued", phase: nil, progress: 0, total: 0,
-                         message: nil, error: nil, startedAt: nil, endedAt: nil)
+                         message: nil, error: nil, startedAt: nil, endedAt: nil, target: kind == .detectChanges ? target : nil)
         try? db.writer.write { try row.insert($0) }
         let id = row.id ?? 0
         group.enter()
@@ -170,7 +171,7 @@ public final class JobRunner: @unchecked Sendable {
 
     /// Configured roots, library first; remote sources' roots are their mirrors on this Mac. Every
     /// source is optional (the uploads folder is one too), as long as there is at least one.
-    private func roots() throws -> [(String, URL)] {
+    func roots() throws -> [(String, URL)] {
         var out: [(String, URL)] = []
         if let lib = try settings.get(.libraryPath), !lib.isEmpty { out.append((Roots.library, URL(fileURLWithPath: lib))) }
         out += try LocalFolders.all(settings).map { ($0.root, $0.url) }
@@ -193,7 +194,8 @@ public final class JobRunner: @unchecked Sendable {
             // The library must be readable; the uploads folder is optional and its problems are only reported.
             var total = ScanReport()
             var notes: [String] = []
-            for (name, url) in try roots() {
+            let target = job(id: id)?.target
+            for (name, url) in try roots() where target == nil || name == target {
                 if PhotosLibraries.isPhotos(name) {
                     // an Apple Photos library: its own photos' originals, their names and its albums
                     guard let source = try PhotosLibraries.source(root: name, settings) else { continue }
