@@ -6,6 +6,7 @@
 	import { net } from '#lib/net.svelte.ts';
 	import type { PinRecord } from '#lib/db.ts';
 	import { app } from '#lib/state.svelte.ts';
+	import { folderHref } from '#lib/sources.ts';
 
 	const LIMITS = [0.5, 1, 2, 5, 10, 20].map((gb) => gb * 1024 ** 3);
 	let u = $state<CacheUsage | null>(null);
@@ -75,10 +76,8 @@
 	}
 
 	const downloaded = $derived(Object.values(pins.records));
-	const pinHref = (p: PinRecord) =>
-		p.folder
-			? `/${p.folder.root === 'uploads' ? 'uploads' : 'folders'}/${p.folder.relPath.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
-			: `/albums/${p.albumId}`;
+	// a folder of any source: local folders, uploads, a Photos library, an rclone folder (pCloud…)
+	const pinHref = (p: PinRecord) => (p.folder ? folderHref(p.folder.root, p.folder.relPath) : `/albums/${p.albumId}`);
 	const pct = $derived(u ? Math.min(100, (u.total / limit) * 100) : 0);
 </script>
 
