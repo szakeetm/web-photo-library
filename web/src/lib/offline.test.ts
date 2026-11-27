@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CatalogAsset, CatalogSnapshot } from './api';
-import { db, resetDbForTests } from './db';
+import { db, imagesDb, resetDbForTests } from './db';
 import { cachedImage, cacheTotals, chooseEvictions, clearImages, deleteImages, imageKey, isCacheableImage, recordImage, releasePins, storeImage, summarize } from './imageCache';
 import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 
@@ -20,10 +20,11 @@ const asset = (id: string, ev = 0, fav = false): CatalogAsset => ({
 
 beforeEach(async () => {
 	await resetDbForTests();
-	await new Promise((r) => {
-		const req = indexedDB.deleteDatabase('photos');
-		req.onsuccess = req.onerror = r;
-	});
+	for (const name of ['photos', 'photos-images'])
+		await new Promise((r) => {
+			const req = indexedDB.deleteDatabase(name);
+			req.onsuccess = req.onerror = r;
+		});
 });
 
 describe('replica', () => {
@@ -108,7 +109,7 @@ describe('image cache bookkeeping', () => {
 		await recordImage('/api/thumb/b?e=0', 7, 1);
 		await recordImage('/api/thumb/c?e=0', 9);
 		await releasePins(1, new Set(['/api/thumb/b?e=0']));
-		const all = await (await db()).getAll('images');
+		const all = await (await imagesDb()).getAll('images');
 		const pinsOf = Object.fromEntries(all.map((e) => [e.url, e.pins]));
 		expect(pinsOf).toEqual({ '/api/thumb/a?e=0': [2], '/api/thumb/b?e=0': [1], '/api/thumb/c?e=0': [] });
 	});
@@ -132,7 +133,7 @@ describe('image bytes in IndexedDB', () => {
 		expect((await cacheTotals()).thumb).toBe(0);
 	});
 
-	it('upgrading from version 1 empties the old index (its bytes were in Cache Storage)', async () => {
+	it('upgrading from version 1 drops the old index (its bytes were in Cache Storage)', async () => {
 		await resetDbForTests();
 		await new Promise((r) => {
 			const req = indexedDB.open('photos', 1);
@@ -151,7 +152,8 @@ describe('image bytes in IndexedDB', () => {
 			};
 		});
 		const d = await db();
-		expect(await d.count('images')).toBe(0);
+		expect([...d.objectStoreNames].sort()).toEqual(['assets', 'meta', 'pins']);
+		expect(await d.get('meta', 'cacheTotals')).toBeUndefined();
 		expect((await cacheTotals()).thumb).toBe(0);
 	});
 });

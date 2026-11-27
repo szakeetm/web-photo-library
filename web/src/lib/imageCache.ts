@@ -1,9 +1,9 @@
-// Device image cache, all in IndexedDB: the bytes in `blobs`, the bookkeeping (size, last access, pins)
-// in `images`. Used by both the service worker (caching what the app views) and the page (downloads,
+// Device image cache, in an IndexedDB database of its own (imagesDb): the bytes in `blobs`, the
+// bookkeeping (size, last access, pins) in `images`. Used by both the service worker (caching what the app views) and the page (downloads,
 // eviction). Not Cache Storage: WebKit loads the index of every cache before answering the first
 // lookup, so with tens of thousands of thumbnails a cold launch stayed black for many seconds.
 import type { IDBPTransaction } from 'idb';
-import { db, type ImageEntry, type PhotosSchema } from './db';
+import { db, imagesDb, type ImageEntry, type ImagesSchema } from './db';
 
 /** Where image bytes were kept before (Cache Storage): deleted by the service worker. */
 export const LEGACY_IMAGE_CACHE = 'images-v1';
@@ -36,7 +36,7 @@ export type CacheTotals = Record<CacheKind, number>;
 const TOTALS = 'cacheTotals';
 const zero = (): CacheTotals => ({ thumb: 0, preview: 0, clip: 0 });
 
-type ImagesTx = IDBPTransaction<PhotosSchema, ('images' | 'meta' | 'blobs')[], 'readwrite'>;
+type ImagesTx = IDBPTransaction<ImagesSchema, ('images' | 'meta' | 'blobs')[], 'readwrite'>;
 /** The stored totals; read them before changing entries in the same transaction. */
 async function loadTotals(tx: ImagesTx): Promise<CacheTotals> {
 	return ((await tx.objectStore('meta').get(TOTALS)) as CacheTotals | undefined) ?? (await countTotals(tx));
@@ -55,7 +55,7 @@ async function countTotals(tx: ImagesTx): Promise<CacheTotals> {
 }
 
 export async function cacheTotals(): Promise<CacheTotals> {
-	const d = await db();
+	const d = await imagesDb();
 	const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 	const t = await loadTotals(tx);
 	await tx.objectStore('meta').put(t, TOTALS);
@@ -70,13 +70,13 @@ export async function storeImage(key: string, blob: Blob, pin?: number) {
 
 /** The cached image as a response, or null (doesn't mark it as used). */
 export async function cachedImage(key: string): Promise<Response | null> {
-	const blob = await (await db()).get('blobs', key);
+	const blob = await (await imagesDb()).get('blobs', key);
 	return blob ? new Response(blob, { headers: { 'content-type': blob.type } }) : null;
 }
 
 /** Records a cached image, with its bytes when given (keeps existing pins). */
 export async function recordImage(key: string, bytes: number, pin?: number, blob?: Blob) {
-	const d = await db();
+	const d = await imagesDb();
 	const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 	const store = tx.objectStore('images');
 	if (blob) await tx.objectStore('blobs').put(blob, key);
@@ -91,7 +91,7 @@ export async function recordImage(key: string, bytes: number, pin?: number, blob
 
 /** Marks images as just used. */
 export async function touchImages(keys: Iterable<string>) {
-	const d = await db();
+	const d = await imagesDb();
 	const tx = d.transaction('images', 'readwrite');
 	const now = Date.now();
 	for (const key of keys) {
@@ -106,7 +106,7 @@ export async function touchImages(keys: Iterable<string>) {
  * Returns the image's size, or throws when the network fails.
  */
 export async function cacheAndPin(key: string, albumId: number): Promise<number> {
-	const d = await db();
+	const d = await imagesDb();
 	const existing = await d.get('images', key);
 	if (existing && (await d.getKey('blobs', key)) != null) {
 		if (!existing.pins.includes(albumId)) await d.put('images', { ...existing, pins: [...existing.pins, albumId] });
@@ -129,7 +129,7 @@ export async function cacheAndPin(key: string, albumId: number): Promise<number>
 
 /** Removes `albumId` from every image except those in `keep`. */
 export async function releasePins(albumId: number, keep: Set<string> = new Set()) {
-	const d = await db();
+	const d = await imagesDb();
 	const tx = d.transaction('images', 'readwrite');
 	let cursor = await tx.store.openCursor();
 	while (cursor) {
@@ -204,7 +204,7 @@ export function chooseEvictions(entries: ImageEntry[], limit: number): string[] 
 /** Deletes unpinned entries among `keys` (pins are re-checked: an album may have pinned one meanwhile). */
 async function deleteEntries(keys: string[]) {
 	if (!keys.length) return;
-	const d = await db();
+	const d = await imagesDb();
 	const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 	const store = tx.objectStore('images');
 	const blobs = tx.objectStore('blobs');
@@ -226,7 +226,7 @@ async function deleteEntries(keys: string[]) {
 export async function evictToLimit(limit: number) {
 	const plan = new EvictionPlan(await cacheTotals(), limit);
 	if (plan.done) return 0;
-	const d = await db();
+	const d = await imagesDb();
 	const victims = new Set<string>();
 	for (const thumbsToo of [false, true]) {
 		if (thumbsToo ? !plan.needsThumbs : plan.done) continue;
@@ -251,12 +251,12 @@ export const motionKey = (id: string) => `/api/assets/${id}/motion`;
 
 /** Whether the clip is cached (doesn't read it). */
 export async function hasClip(key: string): Promise<boolean> {
-	return (await (await db()).getKey('blobs', key)) != null;
+	return (await (await imagesDb()).getKey('blobs', key)) != null;
 }
 
 /** The cached clip, or null (marks it as just used). */
 export async function cachedClip(key: string): Promise<Blob | null> {
-	const blob = await (await db()).get('blobs', key);
+	const blob = await (await imagesDb()).get('blobs', key);
 	if (!blob) return null;
 	touchImages([key]).catch(() => {});
 	return blob;
@@ -293,12 +293,12 @@ export function summarize(entries: ImageEntry[]): CacheUsage {
 }
 
 export async function usage(): Promise<CacheUsage> {
-	return summarize(await (await db()).getAll('images'));
+	return summarize(await (await imagesDb()).getAll('images'));
 }
 
 /** Keys of the images some download (album or folder) holds. */
 export async function pinnedKeys(): Promise<string[]> {
-	return (await (await db()).getAll('images')).filter((e) => e.pins.length > 0).map((e) => e.url);
+	return (await (await imagesDb()).getAll('images')).filter((e) => e.pins.length > 0).map((e) => e.url);
 }
 
 /** Deletes these images unless a download still holds them. */
@@ -308,7 +308,7 @@ export async function deleteImages(keys: string[]) {
 
 /** Empties the cache; with `keepPinned`, downloaded albums stay. */
 export async function clearImages(keepPinned: boolean) {
-	const d = await db();
+	const d = await imagesDb();
 	if (!keepPinned) {
 		const tx = d.transaction(['images', 'meta', 'blobs'], 'readwrite');
 		await tx.objectStore('images').clear();

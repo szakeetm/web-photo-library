@@ -38,35 +38,41 @@ export interface PinRecord {
 export interface PhotosSchema extends DBSchema {
 	meta: { key: string; value: unknown };
 	assets: { key: string; value: CatalogAsset };
-	images: { key: string; value: ImageEntry; indexes: { lastAccess: number } };
-	/** The bytes of the cached images, by the same key as `images` (kept apart so listing entries doesn't read them). */
-	blobs: { key: string; value: Blob };
 	pins: { key: number; value: PinRecord };
 }
 
 export type DB = IDBPDatabase<PhotosSchema>;
 
+/** The image cache: a database of its own. In WebKit a database is one SQLite file, and with a gigabyte
+ *  of images beside it the catalog's 80,000 small records took a minute to read on a cold launch. */
+export interface ImagesSchema extends DBSchema {
+	/** what is cached, its size, last use and pins (small: eviction and usage read all of it) */
+	images: { key: string; value: ImageEntry; indexes: { lastAccess: number } };
+	/** the bytes, by the same key (apart, so listing entries doesn't read them) */
+	blobs: { key: string; value: Blob };
+	/** bytes per kind (`cacheTotals`) */
+	meta: { key: string; value: unknown };
+}
+
+export type ImagesDB = IDBPDatabase<ImagesSchema>;
+
 let dbPromise: Promise<DB> | undefined;
 
 export function db(): Promise<DB> {
-	dbPromise ??= openDB<PhotosSchema>('photos', 2, {
+	dbPromise ??= openDB<PhotosSchema>('photos', 3, {
 		upgrade(d, oldVersion, _newVersion, tx) {
 			if (oldVersion < 1) {
 				d.createObjectStore('meta');
 				d.createObjectStore('assets', { keyPath: 'id' });
-				d.createObjectStore('images', { keyPath: 'url' }).createIndex('lastAccess', 'lastAccess');
 				d.createObjectStore('pins', { keyPath: 'albumId' });
 			}
-			if (oldVersion < 2) {
-				// Version 2: image bytes moved from Cache Storage (whose index iOS loads whole before a cold
-				// launch can draw) to IndexedDB. The old ones aren't copied: they download again as needed,
-				// and downloaded albums and folders fill up again on their next check.
-				d.createObjectStore('blobs');
-				if (oldVersion >= 1) {
-					tx.objectStore('images').clear();
-					tx.objectStore('meta').delete('cacheTotals');
-				}
-			}
+			// Version 3: the image cache moved to its own database (imagesDb), and its bytes from Cache
+			// Storage (whose index WebKit loads whole before a cold launch can draw) into it. The old ones
+			// aren't copied: they download again as needed, downloaded albums and folders on their next check.
+			// (Version 2 had them in this database.)
+			const untyped = d as unknown as IDBPDatabase;
+			for (const store of ['images', 'blobs']) if (untyped.objectStoreNames.contains(store)) untyped.deleteObjectStore(store);
+			if (oldVersion >= 1) void tx.objectStore('meta').delete('cacheTotals');
 		},
 		// A newer app version wants to upgrade the database: let it (this one reloads on "Update now").
 		blocking() {
@@ -78,11 +84,29 @@ export function db(): Promise<DB> {
 	return dbPromise;
 }
 
-/** Tests: forget the open connection (fake-indexeddb is reset between tests). */
+let imagesPromise: Promise<ImagesDB> | undefined;
+
+export function imagesDb(): Promise<ImagesDB> {
+	imagesPromise ??= openDB<ImagesSchema>('photos-images', 1, {
+		upgrade(d) {
+			d.createObjectStore('images', { keyPath: 'url' }).createIndex('lastAccess', 'lastAccess');
+			d.createObjectStore('blobs');
+			d.createObjectStore('meta');
+		},
+		blocking() {
+			const open = imagesPromise;
+			imagesPromise = undefined;
+			open?.then((d) => d.close());
+		}
+	});
+	return imagesPromise;
+}
+
+/** Tests: forget the open connections (fake-indexeddb is reset between tests). */
 export async function resetDbForTests() {
-	const open = dbPromise;
-	dbPromise = undefined;
-	(await open)?.close();
+	const open = [dbPromise, imagesPromise];
+	dbPromise = imagesPromise = undefined;
+	for (const p of open) (await p)?.close();
 }
 
 export type { CatalogAsset, CatalogAlbum, FolderNode };
