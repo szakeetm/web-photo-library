@@ -1,6 +1,15 @@
 <script lang="ts">
 	// The delete confirmation (with "Don't ask again") and the Undo overlay after a deletion.
 	import { deleteFlow } from '#lib/deleteFlow.svelte.ts';
+	import { page } from '$app/state';
+
+	// another page: the last deletion's Undo goes
+	let lastPath = '';
+	$effect(() => {
+		const path = page.url.pathname;
+		if (lastPath && path !== lastPath) deleteFlow.dismissUndo();
+		lastPath = path;
+	});
 
 	function onkey(e: KeyboardEvent) {
 		// ⌘Z / Ctrl+Z: undo the last deletion while its Undo bar shows (not in a field or the editor)

@@ -21,6 +21,12 @@ export class OfflineError extends Error {
 	}
 }
 
+/** Called whenever a change is given (e.g. the last deletion's Undo goes away then). */
+const givenListeners = new Set<() => void>();
+export function onChangeGiven(fn: () => void) {
+	givenListeners.add(fn);
+}
+
 /** True when these photos take another change now; else says why in a bubble (offline, or too many
  *  changes still being saved) and returns false. */
 export function mayChange(ids: string[]): boolean {
@@ -32,6 +38,7 @@ export function mayChange(ids: string[]): boolean {
 		hint.show('Still saving the previous changes… try again in a moment.');
 		return false;
 	}
+	for (const fn of givenListeners) fn();
 	return true;
 }
 

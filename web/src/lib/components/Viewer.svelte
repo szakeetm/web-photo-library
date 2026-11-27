@@ -331,6 +331,7 @@
 	function openEditor() {
 		if (!asset || !net.online || !canEdit || isVideo) return;
 		if (changing) return hint.show('Waiting for the changes to this photo to be saved…');
+		deleteFlow.dismissUndo();
 		resetZoom();
 		editing = true;
 	}
@@ -361,7 +362,7 @@
 	/** Takes the shown photo out of this list (delete, restore…), then shows its neighbour or closes.
 	 *  False when it failed (and said so). */
 	async function leave(work: (id: string) => Promise<unknown>): Promise<boolean> {
-		if (!asset || !mayChange([asset.id])) return false;
+		if (!asset) return false;
 		const gone = asset.id;
 		const neighbour = ids[index + 1] ?? ids[index - 1];
 		try {
@@ -393,6 +394,7 @@
 	}
 
 	function deletePermanently() {
+		if (!asset || !mayChange([asset.id])) return;
 		if (!confirm("Delete this photo permanently? The file is deleted from disk; this can't be undone.")) return;
 		leave((id) => deleteForever([id]));
 	}
@@ -420,6 +422,7 @@
 			if (dx !== 0) await animateTo(() => (dx = 0));
 			return;
 		}
+		deleteFlow.dismissUndo(); // another photo: the last deletion's Undo goes
 		if (slide) await animateTo(() => (dx = -delta * pitch));
 		dx = 0;
 		resetZoom();
@@ -488,6 +491,7 @@
 	async function close() {
 		if (closing) return;
 		closing = true;
+		deleteFlow.dismissUndo();
 		stopLive();
 		const r = scale === 1 ? thumbRect(id) : null;
 		if (r) {
@@ -938,7 +942,7 @@
 					<button class="icon-btn" onclick={() => reveal({ asset: asset.id })} title="Reveal in Finder" aria-label="Reveal in Finder"
 						><Icon name="finder" /></button>
 				{/if}
-				<button class="btn" onclick={() => leave((id) => restoreFromTrash([id]))}>Restore</button>
+				<button class="btn" onclick={() => asset && mayChange([asset.id]) && leave((id) => restoreFromTrash([id]))}>Restore</button>
 				{#if trashItem && !trashItem.virtual}
 					<button class="icon-btn danger" onclick={deletePermanently} title="Delete permanently" aria-label="Delete permanently"
 						><Icon name="trash" /></button>

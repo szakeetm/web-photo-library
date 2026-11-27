@@ -2,10 +2,10 @@
 // and, once it isn't asked any more, an Undo overlay after each deletion. Deleting for good (uploads,
 // from the Trash) always asks: it can't be undone.
 import { deletePhotos, restoreFromTrash, reportError } from './state.svelte.ts';
+import { onChangeGiven } from './changeQueue.svelte.ts';
 import { hint } from './hint.svelte.ts';
 
 const SKIP_KEY = 'skipDeleteConfirm';
-const UNDO_MS = 8000;
 
 class DeleteFlow {
 	/** Don't ask before deleting (show Undo instead). */
@@ -16,7 +16,11 @@ class DeleteFlow {
 	/** The Undo overlay after a deletion. */
 	undo = $state<{ text: string; ids: string[] } | null>(null);
 	undoing = $state(false);
-	private timer: ReturnType<typeof setTimeout> | undefined;
+
+	constructor() {
+		// Undo stays until something else is done (another change, another photo, closing the viewer…)
+		onChangeGiven(() => this.dismissUndo());
+	}
 
 	setSkip(v: boolean) {
 		this.skip = v;
@@ -70,10 +74,8 @@ class DeleteFlow {
 	}
 
 	offerUndo(ids: string[]) {
-		clearTimeout(this.timer);
 		const undo = { text: `Deleted ${ids.length === 1 ? 'the photo' : `${ids.length} photos`}`, ids };
 		this.undo = undo;
-		this.timer = setTimeout(() => (this.undo = null), UNDO_MS);
 		return this.undo;
 	}
 
@@ -81,7 +83,6 @@ class DeleteFlow {
 		const u = this.undo;
 		if (!u) return;
 		if (this.undoing) return hint.show('Still undoing…');
-		clearTimeout(this.timer);
 		this.undoing = true;
 		try {
 			await restoreFromTrash(u.ids);
@@ -94,7 +95,6 @@ class DeleteFlow {
 	}
 
 	dismissUndo() {
-		clearTimeout(this.timer);
 		this.undo = null;
 	}
 }
