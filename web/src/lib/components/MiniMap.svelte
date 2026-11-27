@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte';
 	import type { Map as MlMap, Marker } from 'maplibre-gl';
 	import { app } from '#lib/state.svelte.ts';
+	import { mapPinElement } from '#lib/mapPin.ts';
 
 	let { lat, lon }: { lat: number; lon: number } = $props();
 
@@ -36,9 +37,7 @@
 					interactive: false,
 					attributionControl: false
 				});
-				const dot = document.createElement('div');
-				dot.className = 'minimap-pin';
-				marker = new ml.Marker({ element: dot }).setLngLat([lon, lat]).addTo(map);
+				marker = new ml.Marker({ element: mapPinElement(), anchor: 'bottom' }).setLngLat([lon, lat]).addTo(map);
 			} catch {
 				failed = true;
 			}
@@ -97,12 +96,5 @@
 		color: var(--accent);
 		font-size: 13px;
 	}
-	:global(.minimap-pin) {
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		background: var(--accent, #0a84ff);
-		border: 2.5px solid #fff;
-		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.4);
-	}
+
 </style>

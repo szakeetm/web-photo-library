@@ -12,6 +12,7 @@
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 	import { thumbUrl, type CatalogAsset } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
+	import { mapPinElement } from '#lib/mapPin.ts';
 
 	let { assets, onOpen, focus }: { assets: CatalogAsset[]; onOpen: (ids: string[]) => void; focus?: MapFocus | null } = $props();
 
@@ -145,10 +146,9 @@
 		focusMarker?.remove();
 		focusMarker = undefined;
 		if (!map || !focus) return;
-		const ring = document.createElement('div');
-		ring.className = 'focus-pin';
-		ring.setAttribute('aria-hidden', 'true');
-		focusMarker = new maplibregl.Marker({ element: ring }).setLngLat([focus.lon, focus.lat]).addTo(map);
+		const pin = mapPinElement();
+		pin.style.zIndex = '3'; // over the photo pins
+		focusMarker = new maplibregl.Marker({ element: pin, anchor: 'bottom' }).setLngLat([focus.lon, focus.lat]).addTo(map);
 	}
 
 	onMount(() => {
@@ -367,37 +367,7 @@
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 		font-weight: 600;
 	}
-	/* The linked spot: an accent dot in a pulsing ring, over the pins but never catching taps. */
-	:global(.focus-pin) {
-		width: 18px;
-		height: 18px;
-		border-radius: 50%;
-		background: var(--accent);
-		border: 3px solid white;
-		box-shadow:
-			0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent),
-			0 1px 4px rgba(0, 0, 0, 0.4);
-		pointer-events: none;
-		z-index: 3;
-		animation: focus-pulse 1.8s ease-out infinite;
-	}
-	@keyframes -global-focus-pulse {
-		0% {
-			box-shadow:
-				0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent),
-				0 1px 4px rgba(0, 0, 0, 0.4);
-		}
-		100% {
-			box-shadow:
-				0 0 0 16px color-mix(in srgb, var(--accent) 0%, transparent),
-				0 1px 4px rgba(0, 0, 0, 0.4);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		:global(.focus-pin) {
-			animation: none;
-		}
-	}
+
 	/* no `position` here: MapLibre positions markers absolutely (which also anchors the badge) */
 	:global(.photo-pin) {
 		width: 52px;
