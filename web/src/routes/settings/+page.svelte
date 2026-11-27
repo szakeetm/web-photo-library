@@ -278,6 +278,17 @@
 			message = { text: (e as Error).message, error: true };
 		}
 	}
+	let trimming = $state(false);
+	async function trimOriginals() {
+		trimming = true;
+		try {
+			settings = await api.trimOriginals();
+		} catch (e) {
+			message = { text: (e as Error).message, error: true };
+		} finally {
+			trimming = false;
+		}
+	}
 	async function setCacheGB(gb: number) {
 		try {
 			settings = await api.saveSettings({ originalsCacheGB: gb });
@@ -1115,6 +1126,13 @@
 					<div class="muted small">
 						The most recently used originals from rclone folders stay on the server, up to this size: {fmtBytes(settings.originalsCacheBytes)} now.
 					</div>
+					{#if settings.originalsCacheBytes > settings.originalsCacheGB * 1e9}
+						<div class="small warn over">
+							Over the limit: the least recently used originals are removed at the next download from a cloud folder, or now with
+							Trim Now. Only copies go; they are fetched again when needed.
+							<button class="btn small" disabled={trimming} onclick={trimOriginals}>{trimming ? 'Trimming…' : 'Trim Now'}</button>
+						</div>
+					{/if}
 				</div>
 				<label class="gb"
 					><input type="number" min="1" max="10000" step="1" value={settings.originalsCacheGB}
@@ -1621,5 +1639,10 @@
 		border-radius: 6px;
 		padding: 4px 6px;
 		text-align: right;
+	}
+	.over .btn.small {
+		margin-left: 6px;
+		padding: 2px 10px;
+		font-size: 13px;
 	}
 </style>

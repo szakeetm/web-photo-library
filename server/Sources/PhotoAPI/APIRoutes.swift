@@ -280,6 +280,15 @@ struct APIRoutes {
 
         // Restarts the server in place (Settings → Restart server): it re-executes itself, so running
         // jobs are interrupted and resumed, and rclone downloads in progress stop.
+        // Trims the originals kept from cloud folders to their limit now (otherwise done at the next
+        // download): least recently used first. Only copies go; they are fetched again when needed.
+        api.post("originals-cache/trim") { _, _ in
+            let dataDir = services.paths.dataDir
+            let budget = try RemoteSources.cacheBytes(services.settings)
+            try await blocking { OriginalsCache.evict(dataDir: dataDir, budget: budget, force: true) }
+            return try settingsResponse()
+        }
+
         api.post("server/restart") { _, _ in
             let restart = services.restart
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { restart() }

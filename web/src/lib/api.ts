@@ -704,6 +704,8 @@ export const api = {
 		call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 	moveData: (path: string) =>
 		call<{ dataDir: string; restarting: boolean }>('/api/data/move', { method: 'POST', body: JSON.stringify({ path }) }),
+	/** Trims the originals kept from cloud folders to their limit now; answers with the settings. */
+	trimOriginals: () => call<Settings>('/api/originals-cache/trim', { method: 'POST' }),
 	/** Restarts the server (it re-executes itself); answers at once, the server is back a few seconds later. */
 	restartServer: () => call<void>('/api/server/restart', { method: 'POST' }),
 	resetDataLocation: () => call<{ dataDir: string; restarting: boolean }>('/api/data/reset', { method: 'POST' }),
