@@ -211,13 +211,7 @@
 		<a href="/trash" class:active={exact('/trash')}
 			><Icon name="trash" size={20} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
 		>
-		<div class="group">Filters</div>
-		{#each filterLinks as l (l.f)}
-			<a href="/" class:active={libraryFilter === l.f} onclick={(e) => showLibrary(l.f, e)}
-				><Icon name={l.icon} size={20} /> {l.label}</a
-			>
-		{/each}
-		{#snippet groupHead(group: 'albums' | 'folders', href: string, label: string)}
+		{#snippet groupHead(group: 'filters' | 'albums' | 'folders', href: string | null, label: string)}
 			<div class="group">
 				<button
 					class="twisty"
@@ -226,9 +220,21 @@
 					aria-expanded={sidebarTree[group]}
 					onclick={() => sidebarTree.toggleGroup(group)}><Icon name="chevron" size={11} /></button
 				>
-				<a class="grouplink" {href} class:active={exact(href)}>{label}</a>
+				{#if href}
+					<a class="grouplink" {href} class:active={exact(href)}>{label}</a>
+				{:else}
+					<button class="grouplink" aria-expanded={sidebarTree[group]} onclick={() => sidebarTree.toggleGroup(group)}>{label}</button>
+				{/if}
 			</div>
 		{/snippet}
+		{@render groupHead('filters', null, 'Filters')}
+		{#if sidebarTree.filters}
+			{#each filterLinks as l (l.f)}
+				<a href="/" class:active={libraryFilter === l.f} onclick={(e) => showLibrary(l.f, e)}
+					><Icon name={l.icon} size={20} /> {l.label}</a
+				>
+			{/each}
+		{/if}
 		{@render groupHead('albums', '/albums', 'Albums')}
 		{#if sidebarTree.albums}
 			<div class="albumlist">
@@ -582,6 +588,12 @@
 		.sidebar .grouplink {
 			padding: 0;
 			color: inherit;
+		}
+		button.grouplink {
+			border: 0;
+			background: none;
+			font: inherit;
+			cursor: pointer;
 		}
 		.sidebar .grouplink.active {
 			background: none;

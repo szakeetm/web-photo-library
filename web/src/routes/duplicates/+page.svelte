@@ -6,7 +6,7 @@
 	import { onMount } from 'svelte';
 	import { api, previewUrl, thumbUrl, type DuplicateGroup, type DuplicateItem } from '#lib/api.ts';
 	import { app, deletePhotos } from '#lib/state.svelte.ts';
-	import { captureLabel } from '#lib/dates.ts';
+	import { captureLabel, isoLabelSeconds } from '#lib/dates.ts';
 	import { formatBytes } from '#lib/video.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { LOCAL_FOLDERS } from '#lib/sources.ts';
@@ -150,6 +150,7 @@
 						</button>
 						<div class="meta">
 							<div><b>{it.w}×{it.h}</b> · {formatBytes(it.bytes)}</div>
+							<div class="muted">{isoLabelSeconds(it.t, it.tz)}</div>
 							<div class="muted">
 								{format(it.mime)} · <span class="root">{sourceName(it.root)}</span>{#if it.albums}{` · ${it.albums} ${it.albums === 1 ? 'album' : 'albums'}`}{/if}
 							</div>
@@ -196,7 +197,7 @@
 		{/if}
 		<div class="cinfo">
 			<div><b>{details(it)}</b>{#if it.fav} · ♥{/if}</div>
-			<div class="muted">{captureLabel(it.t, it.tz)}</div>
+			<div class="muted">{isoLabelSeconds(it.t, it.tz)}</div>
 			<div class="muted cpath"><span class="root">{sourceName(it.root)}</span> {it.path}</div>
 			{#if it.albums}<div class="muted">In {it.albums} {it.albums === 1 ? 'album' : 'albums'}</div>{/if}
 			<button class="btn primary keep" disabled={keep[g.key] === it.id} onclick={() => (keep[g.key] = it.id)}>

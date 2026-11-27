@@ -1,14 +1,16 @@
-// What's open in the desktop sidebar: the Albums and Folders groups, and the folders expanded in the
+// What's open in the desktop sidebar: the Filters, Albums and Folders groups, and the folders expanded in the
 // Folders tree. Remembered on this device.
 const KEY = 'sidebarTree';
 
 interface Saved {
+	filters: boolean;
 	albums: boolean;
 	folders: boolean;
 	open: number[];
 }
 
 class SidebarTree {
+	filters = $state(true);
 	albums = $state(true);
 	folders = $state(true);
 	private open = $state(new Set<number>());
@@ -18,6 +20,7 @@ class SidebarTree {
 		try {
 			const s = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Saved | null;
 			if (s) {
+				this.filters = s.filters ?? true;
 				this.albums = s.albums ?? true;
 				this.folders = s.folders ?? true;
 				this.open = new Set(s.open ?? []);
@@ -28,7 +31,7 @@ class SidebarTree {
 	}
 
 	private save() {
-		const s: Saved = { albums: this.albums, folders: this.folders, open: [...this.open] };
+		const s: Saved = { filters: this.filters, albums: this.albums, folders: this.folders, open: [...this.open] };
 		localStorage.setItem(KEY, JSON.stringify(s));
 	}
 
@@ -44,7 +47,7 @@ class SidebarTree {
 		this.save();
 	}
 
-	toggleGroup(group: 'albums' | 'folders') {
+	toggleGroup(group: 'filters' | 'albums' | 'folders') {
 		this[group] = !this[group];
 		this.save();
 	}

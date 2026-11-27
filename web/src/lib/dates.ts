@@ -74,6 +74,12 @@ export function isoLabel(t: string, tz: number | null): string {
 	return d.toISOString().slice(0, 16).replace('T', ' ');
 }
 
+/** "2026-02-15 14:32:07": like isoLabel, with seconds (comparing copies of a photo). */
+export function isoLabelSeconds(t: string, tz: number | null): string {
+	const d = new Date(Date.parse(t) + (tz ?? 0) * 1000);
+	return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 export function offsetLabel(tz: number | null): string {
 	if (tz == null) return '';
 	const sign = tz < 0 ? '−' : '+';
