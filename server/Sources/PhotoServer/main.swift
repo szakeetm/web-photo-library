@@ -17,6 +17,12 @@ let services = try Services(paths: .resolve(), restart: {
     exit(75)
 })
 print("PhotoServer \(serverVersion) [\(BuildInfo.current.label)] on http://127.0.0.1:\(port) — data \(services.paths.dataDir.path), web \(webRoot.path)")
+if !services.dataLocationMissing {
+    // photos indexed before archiving existed get their Takeout "archived" flag (once; reads sidecars only)
+    Task.detached(priority: .utility) {
+        do { try services.albums.applyTakeoutArchiveOnce() } catch { print("Takeout archive flags: \(error)") }
+    }
+}
 let app = buildApplication(services: services, webRoot: webRoot, port: port)
 try await app.runService()
 // shut down (e.g. by a deploy): a scan's rclone download must not carry on without us

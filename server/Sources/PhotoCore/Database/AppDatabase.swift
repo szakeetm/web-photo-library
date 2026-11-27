@@ -333,6 +333,13 @@ public final class AppDatabase: Sendable {
             // a job for one source only (Refresh of a source, its auto-refresh); null = every source
             try db.execute(sql: "ALTER TABLE job ADD COLUMN target TEXT")
         }
+        m.registerMigration("v21-archive") { db in
+            // Archived photos (Google Photos' Archive): kept out of the Library view only.
+            try db.execute(sql: """
+                ALTER TABLE asset ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0;
+                ALTER TABLE asset ADD COLUMN archivedUserSet BOOLEAN NOT NULL DEFAULT 0;
+                """)
+        }
         return m
     }
 }

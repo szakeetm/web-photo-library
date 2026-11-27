@@ -32,6 +32,7 @@
 		upload: 'M12 20V8 M7 13l5-5 5 5 M5 4h14',
 		select: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12l3 3 5-6',
 		more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+		archive: 'M3 4h18v4H3z M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8 M10 12h4',
 		heart: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z',
 		star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
 		// album, folder, person, place in a 2×2 grid (the Collections tab)

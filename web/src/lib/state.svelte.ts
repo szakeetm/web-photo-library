@@ -268,6 +268,19 @@ export async function setFavorite(ids: string[], favorite: boolean) {
 	app.reload(); // persist to the device copy
 }
 
+/** Archive / unarchive (out of the Library view only): shown at once, saved in turn. */
+export async function setArchived(ids: string[], archived: boolean) {
+	const was = new Map(ids.map((i) => [i, app.byId.get(i)?.arc ?? false]));
+	patchAssets(ids, { arc: archived || undefined });
+	try {
+		await queued(ids, () => api.setArchived(ids, archived));
+	} catch (e) {
+		for (const [i, f] of was) if ((app.byId.get(i)?.arc ?? false) === archived) patchAssets([i], { arc: f || undefined });
+		throw e;
+	}
+	app.reload();
+}
+
 /** Quarter turns (clockwise +) shown on screen ahead of the server: the thumbnail and the viewer
  *  turn the picture they have at once, and the turn is dropped when the new rendition is loaded. */
 export const pendingTurns = new SvelteMap<string, number>();

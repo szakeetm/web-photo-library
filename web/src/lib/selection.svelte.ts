@@ -27,6 +27,9 @@ export function nextFavoriteValue(current: boolean[]): boolean {
 	return current.length === 0 || !current.every(Boolean);
 }
 
+/** Archive the selection unless all of it already is (then unarchive). */
+export const nextArchiveValue = nextFavoriteValue;
+
 /**
  * The selected photos. Selecting is "active" (the action bar shows, clicks and taps add and remove)
  * when the user asked for it (Select, a long press, select all, a drag) or when two or more photos are

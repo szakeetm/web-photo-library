@@ -431,6 +431,7 @@ public final class LibraryScanner: @unchecked Sendable {
         var a = Asset.placeholder(id: id)
         a.addedAt = Date()
         a.favorite = meta.favorited ?? false
+        a.archived = meta.archived == true
         a.description = meta.description
         try a.insert(d)
         try applyMetadata(d, id: id, probe: probe, meta: meta)
@@ -464,6 +465,8 @@ public final class LibraryScanner: @unchecked Sendable {
         try MetadataService.applyOverride(d, to: &a)
         a.lat = meta.lat; a.lon = meta.lon; a.locationSource = meta.locationSource
         if !a.favoriteUserSet, let f = meta.favorited { a.favorite = f }
+        // A Takeout export lists a photo in several folders, not all of whose sidecars say "archived": any one archives it.
+        if !a.archivedUserSet, meta.archived == true { a.archived = true }
         if a.description == nil { a.description = meta.description }
         try a.update(d)
     }
@@ -474,6 +477,12 @@ public final class LibraryScanner: @unchecked Sendable {
         if old.favoriteUserSet || old.favorite {
             new.favorite = new.favorite || old.favorite
             new.favoriteUserSet = new.favoriteUserSet || old.favoriteUserSet
+        }
+        if old.archivedUserSet {
+            new.archived = old.archived
+            new.archivedUserSet = true
+        } else if old.archived && !new.archivedUserSet {
+            new.archived = true
         }
         if new.description == nil { new.description = old.description }
         try new.update(d)

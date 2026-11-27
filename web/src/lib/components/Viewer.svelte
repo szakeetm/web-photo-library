@@ -10,8 +10,9 @@
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset } from '#lib/api.ts';
 	import { captureLabel, isoLabel, offsetLabel, isoDateTime } from '#lib/dates.ts';
-	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever, mayChange, pendingOps, queued, reportError } from '#lib/state.svelte.ts';
+	import { app, setFavorite, setArchived, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever, mayChange, pendingOps, queued, reportError } from '#lib/state.svelte.ts';
 	import { hint } from '#lib/hint.svelte.ts';
+	import { page } from '$app/state';
 	import { deleteFlow, deleteKey } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
@@ -355,6 +356,18 @@
 			.catch((e) => reportError(e, "Couldn't rotate the photo: "));
 	}
 
+	/** Archive / unarchive. When that takes the photo out of this view (archiving in the Library,
+	 *  unarchiving in the Archive), the next photo shows, as for a deletion. */
+	function toggleArchive() {
+		if (!asset || !mayChange([asset.id])) return;
+		const next = !asset.arc;
+		const path = page.url.pathname;
+		if ((next && path === '/') || (!next && path === '/archive')) {
+			void leave((x) => setArchived([x], next));
+			if (next) hint.show('Archived: it is no longer in the Library. Find it in Collections → Archive.');
+		} else setArchived([asset.id], next).catch((e) => reportError(e));
+	}
+
 	function toggleFavorite() {
 		if (asset && mayChange([asset.id])) setFavorite([asset.id], !asset.fav).catch((e) => reportError(e));
 	}
@@ -525,6 +538,7 @@
 				close();
 			} else if (e.key === 'i') infoOpen = !infoOpen;
 			else if (e.key === 'f' && !trash) toggleFavorite();
+			else if (e.key === 'a' && !trash && !e.metaKey && !e.ctrlKey && !e.altKey) toggleArchive();
 			else if (deleteKey(e) && !trash && !document.querySelector('[role=alertdialog]')) {
 				e.preventDefault();
 				removeUpload(deleteKey(e) === 'now');
@@ -955,6 +969,8 @@
 			><Icon name="info" /></button
 		>
 		{#if net.online}
+			<button class="icon-btn" class:on={asset?.arc} onclick={toggleArchive} title={asset?.arc ? 'Unarchive (A)' : 'Archive (A)'}
+				aria-label={asset?.arc ? 'Unarchive' : 'Archive'} aria-pressed={asset?.arc ?? false}><Icon name="archive" /></button>
 			{#if isVideo && !asset?.live}
 				<button class="icon-btn" class:on={trimming} onclick={() => (trimming ? (trimming = false) : openTrim())} title="Trim"
 					aria-label="Trim"><Icon name="trim" /></button>

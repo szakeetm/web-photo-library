@@ -44,6 +44,10 @@ public struct Asset: Codable, Sendable, Equatable, FetchableRecord, PersistableR
     public var mediaFlags: Int = 0
     /// When the file was first indexed (date added).
     public var addedAt: Date? = nil
+    /// Archived (Google Photos): left out of the Library, still in albums, folders, search and the other collections.
+    public var archived: Bool = false
+    /// The user archived or unarchived it here: Takeout sidecars no longer change it.
+    public var archivedUserSet: Bool = false
 
     /// The date isn't the file's: the user's, or Apple Photos' (which the file lacks or has otherwise).
     /// Exports with edits write it into the file.

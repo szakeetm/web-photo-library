@@ -140,6 +140,7 @@ struct APIRoutes {
     struct AlbumPatch: Decodable { var title: String?; var coverAssetId: String? }
     struct AlbumMembers: Decodable { var add: [String]?; var remove: [String]?; var order: [String]? }
     struct FavoriteBody: Decodable { let ids: [String]; let favorite: Bool }
+    struct ArchiveBody: Decodable { let ids: [String]; let archived: Bool }
     struct DateChangeBody: Decodable { let ids: [String]; let change: DateChange }
     struct DismissBody: Decodable { let key: String }
     struct KeepDuplicateBody: Decodable { let keep: String; let others: [String] }
@@ -404,6 +405,14 @@ struct APIRoutes {
             return Response(status: .noContent)
         }
         @Sendable func validIds(_ ids: [String]) -> Bool { ids.allSatisfy { $0.count == 64 && $0.allSatisfy(\.isHexDigit) } }
+        // Archive / unarchive (batch): out of the Library view, still everywhere else
+        api.patch("assets/archive") { req, ctx in
+            guard let body = try? await req.decode(as: ArchiveBody.self, context: ctx), validIds(body.ids) else {
+                return Response(status: .badRequest)
+            }
+            try services.albums.setArchived(ids: body.ids, archived: body.archived)
+            return Response(status: .noContent)
+        }
         // Dates the user set (database only; exports write them into the copy)
         api.patch("assets/meta") { req, ctx in
             guard let body = try? await req.decode(as: DateChangeBody.self, context: ctx), validIds(body.ids) else {

@@ -3,6 +3,9 @@
 import type { CatalogAsset } from './api';
 
 export interface AssetIndex {
+	/** The Library view: every photo but the archived ones. */
+	library: CatalogAsset[];
+	archived: CatalogAsset[];
 	favorites: CatalogAsset[];
 	edited: CatalogAsset[];
 	videos: CatalogAsset[];
@@ -27,6 +30,8 @@ function push<K>(map: Map<K, CatalogAsset[]>, key: K, a: CatalogAsset) {
 
 export function buildIndex(assets: CatalogAsset[]): AssetIndex {
 	const ix: AssetIndex = {
+		library: [],
+		archived: [],
 		favorites: [],
 		edited: [],
 		videos: [],
@@ -42,6 +47,8 @@ export function buildIndex(assets: CatalogAsset[]): AssetIndex {
 	};
 	for (const a of assets) {
 		ix.pos.set(a.id, ix.pos.size);
+		if (a.arc) ix.archived.push(a);
+		else ix.library.push(a);
 		if (a.fav) ix.favorites.push(a);
 		if (a.ev > 0 || a.md || a.tr) ix.edited.push(a);
 		if (a.mf) {

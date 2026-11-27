@@ -155,6 +155,65 @@ public final class AlbumService: Sendable {
         }
     }
 
+    // MARK: Archive
+
+    public func setArchived(ids: [String], archived: Bool) throws {
+        try db.writer.write { d in
+            for id in ids {
+                try d.execute(sql: "UPDATE asset SET archived = ?, archivedUserSet = 1 WHERE id = ?", arguments: [archived, id])
+                try ChangeLog.record(d, entity: "asset", id: id, op: "upsert")
+            }
+        }
+    }
+
+    /// Archives the photos whose Google Takeout sidecar says "archived": true (unless the user archived or
+    /// unarchived them here). Reads only the sidecars, which are on this Mac for every source (a remote
+    /// source keeps them with its fetched files), so nothing is downloaded. Returns how many it archived.
+    @discardableResult
+    public func applyTakeoutArchive() throws -> Int {
+        var bases = try LocalOriginalStore.rootURLs(settings)
+        if let dataDir {
+            for r in try RemoteSources.all(settings) { bases[r.root] = RemoteSources.mirror(r.root, dataDir: dataDir) }
+        }
+        let rows = try db.writer.read { d in
+            try Row.fetchAll(d, sql: """
+                SELECT f.root, f.sidecarRelPath, f.assetId FROM file f JOIN asset a ON a.id = f.assetId
+                WHERE f.sidecarRelPath IS NOT NULL AND a.archived = 0 AND a.archivedUserSet = 0
+                """)
+        }
+        var archive = Set<String>()
+        var parsed: [String: Bool] = [:]   // a sidecar can serve several files
+        for r in rows {
+            let root: String = r["root"], rel: String = r["sidecarRelPath"], id: String = r["assetId"]
+            guard !archive.contains(id), let base = bases[root] else { continue }
+            let key = root + ":" + rel
+            let yes = parsed[key] ?? {
+                let v = (try? Data(contentsOf: base.appendingPathComponent(rel))).flatMap(SidecarParser.parse)?.archived == true
+                parsed[key] = v
+                return v
+            }()
+            if yes { archive.insert(id) }
+        }
+        guard !archive.isEmpty else { return 0 }
+        try db.writer.write { d in
+            for id in archive {
+                try d.execute(sql: "UPDATE asset SET archived = 1 WHERE id = ? AND archivedUserSet = 0", arguments: [id])
+                try ChangeLog.record(d, entity: "asset", id: id, op: "upsert")
+            }
+        }
+        return archive.count
+    }
+
+    static let takeoutArchiveKey = SettingKey<Int>("takeoutArchiveApplied", default: 0)
+
+    /// Applies the Takeout "archived" flags to photos indexed before archiving existed, once.
+    public func applyTakeoutArchiveOnce() throws {
+        guard try settings.get(Self.takeoutArchiveKey) < 1 else { return }
+        let n = try applyTakeoutArchive()
+        try settings.set(Self.takeoutArchiveKey, 1)
+        if n > 0 { print("Archived \(n) photos that Google Takeout lists as archived") }
+    }
+
     // MARK: Google Takeout album folders
 
     struct TakeoutFolder { let root: String; let relPath: String; let folderId: Int64; let title: String }

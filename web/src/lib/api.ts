@@ -61,6 +61,8 @@ export interface CatalogAsset {
 	ad?: number;
 	/** video trim [start, end] in seconds (applied when playing and exporting) */
 	tr?: [number, number];
+	/** archived: left out of the Library view (still in albums, folders, search and the other collections) */
+	arc?: boolean;
 }
 
 /** A date change for several photos: the instant moves by `shift` seconds; with `tzOffset` they get
@@ -745,6 +747,8 @@ export const api = {
 		call<CatalogAsset[]>('/api/assets/meta/revert', { method: 'POST', body: JSON.stringify({ ids }) }),
 	setFavorite: (ids: string[], favorite: boolean) =>
 		call<void>('/api/assets', { method: 'PATCH', body: JSON.stringify({ ids, favorite }) }),
+	setArchived: (ids: string[], archived: boolean) =>
+		call<void>('/api/assets/archive', { method: 'PATCH', body: JSON.stringify({ ids, archived }) }),
 	/** Puts photos in the Trash: uploads are moved there, every other photo is only hidden (its files are never touched). */
 	deletePhotos: (ids: string[]) =>
 		call<{ deleted: string[] }>('/api/assets/delete', { method: 'POST', body: JSON.stringify({ ids }) }),

@@ -38,6 +38,7 @@
 				[['L', 'R'], 'Rotate left / right'],
 				[['[', ']'], 'Rotate left / right'],
 				[['F'], 'Favourite'],
+				[['A'], 'Archive / unarchive'],
 				[['I'], 'Info'],
 				[['E', 'Return'], 'Edit'],
 				[del, 'Delete (asks first)'],

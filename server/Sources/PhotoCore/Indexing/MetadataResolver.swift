@@ -9,6 +9,7 @@ public struct ResolvedMetadata: Sendable, Equatable {
     public var locationSource: String? // sidecar | exif
     public var description: String?
     public var favorited: Bool?
+    public var archived: Bool? = nil
 }
 
 /// Applies the precedence sidecar → EXIF → file date, per field.
@@ -74,7 +75,8 @@ public enum MetadataResolver {
             (lat, lon, locSource) = (la, lo, "exif")
         }
         return ResolvedMetadata(takenAt: takenAt, tzOffset: tz, dateSource: source, lat: lat, lon: lon,
-                                locationSource: locSource, description: sidecar?.description, favorited: sidecar?.favorited)
+                                locationSource: locSource, description: sidecar?.description, favorited: sidecar?.favorited,
+                                archived: sidecar?.archived)
     }
 
     /// Offset implied by a camera wall-clock time and a known UTC instant, rounded to 15 minutes.

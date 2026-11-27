@@ -191,6 +191,7 @@
 <div class="cards">
 	{@render card('/favorites', 'Favourites', app.index.favorites.length, favCover, 'heart')}
 	{@render card('/edited', 'Edited', app.index.edited.length, editedCover, 'edit')}
+	{#if app.index.archived.length}{@render card('/archive', 'Archive', app.index.archived.length, app.index.archived.at(-1)?.id ?? null, 'archive')}{/if}
 	{#each albums as al (al.id)}
 		{@const p = present(al)}
 		{@render card(`/albums/${al.id}`, al.title, p.length, al.coverId && app.byId.has(al.coverId) ? al.coverId : (p[0] ?? null), 'albums', null, pins.records[al.id], al.id)}

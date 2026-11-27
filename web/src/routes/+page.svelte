@@ -8,6 +8,7 @@
 	import MultiExportSheet from '#lib/components/MultiExportSheet.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import { net } from '#lib/net.svelte.ts';
+	import { gridView } from '#lib/gridView.svelte.ts';
 
 	/** Exporting the whole library (desktop only: a phone can't hold it). */
 	let exporting = $state(false);
@@ -15,12 +16,14 @@
 
 	const selection = new Selection();
 	// Newest first: the latest month on top, newest photo first within each month.
+	// Archived photos aren't in the Library; a filter (Favourites, Videos…) still finds them.
+	const shown = $derived(gridView.enabled && gridView.filter !== 'all' ? app.assets : app.index.library);
 	const sections = $derived(
-		groupByMonth(app.assets.toReversed()).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
+		groupByMonth(shown.toReversed()).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
 	);
 </script>
 
-<TitleBar title="Library" subtitle={app.loaded ? `${app.assets.length.toLocaleString()} photos` : undefined}>
+<TitleBar title="Library" subtitle={app.loaded ? `${app.index.library.length.toLocaleString()} photos` : undefined}>
 	{#snippet actions()}
 		{#if app.local}
 			<a class="local-pill" href="/settings" title="This browser runs on the Mac with the library: photos and videos come straight from its disk.">Local mode</a>

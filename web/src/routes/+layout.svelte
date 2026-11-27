@@ -32,7 +32,7 @@
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
 	// Albums, favourites, folders, uploads, people and places all live under Collections on the phone.
-	const albumsSection = ['/albums', '/favorites', '/edited', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash'];
+	const albumsSection = ['/albums', '/favorites', '/edited', '/archive', '/videos', '/live', '/folders', '/uploads', '/people', '/places', '/trash'];
 	const active = (href: string) =>
 		href === '/'
 			? page.url.pathname === '/'
@@ -41,7 +41,7 @@
 				: page.url.pathname.startsWith(href);
 	// On the phone, Collections has its own tabs (a second bar above the main one).
 	const collectionTabs = [
-		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/favorites', '/edited', '/videos', '/live', '/media'] },
+		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/favorites', '/edited', '/archive', '/videos', '/live', '/media'] },
 		{ href: '/folders', label: 'Folders', icon: 'folder', also: ['/uploads', '/sources'] },
 		{ href: '/people', label: 'People', icon: 'people', also: [] },
 		{ href: '/places', label: 'Places', icon: 'map', also: [] },
@@ -190,6 +190,9 @@
 		<a href="/places" class:active={exact('/places')}><Icon name="map" size={20} /> Places</a>
 		<a href="/duplicates" class:active={exact('/duplicates')}><Icon name="duplicate" size={20} /> Duplicates</a>
 		<a href="/search" class:active={exact('/search')}><Icon name="search" size={20} /> Search</a>
+		{#if app.index.archived.length}
+			<a href="/archive" class:active={exact('/archive')}><Icon name="archive" size={20} /> Archive</a>
+		{/if}
 		<a href="/trash" class:active={exact('/trash')}
 			><Icon name="trash" size={20} /> Trash{#if app.trash.length}<span class="badge">{app.trash.length}</span>{/if}</a
 		>

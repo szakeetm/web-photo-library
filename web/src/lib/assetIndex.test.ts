@@ -24,4 +24,12 @@ describe('asset index', () => {
 		expect(inFolders(ix, [10]).map((x) => x.id)).toEqual(['1', '3']);
 		expect(inFolders(ix, [99])).toEqual([]);
 	});
+
+	it('keeps archived photos out of the Library, not out of the other lists', () => {
+		const ix = buildIndex([a('1'), a('2', { arc: true, fav: true, folders: [10] }), a('3')]);
+		expect(ix.library.map((x) => x.id)).toEqual(['1', '3']);
+		expect(ix.archived.map((x) => x.id)).toEqual(['2']);
+		expect(ix.favorites.map((x) => x.id)).toEqual(['2']);
+		expect(inFolders(ix, [10]).map((x) => x.id)).toEqual(['2']);
+	});
 });

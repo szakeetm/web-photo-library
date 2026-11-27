@@ -34,10 +34,12 @@ public struct CatalogAsset: Codable, Sendable, Equatable {
     public var ad: Int? = nil
     /// Video trim [start, end] in seconds (kept in the database, applied when playing and exporting).
     public var tr: [Double]? = nil
+    /// True when archived (left out of the Library view); absent otherwise.
+    public var arc: Bool? = nil
 }
 
 /// Version of the catalog payload. Clients keeping an offline replica discard it when this changes.
-public let catalogFormat = 9
+public let catalogFormat = 10
 
 public struct CatalogSnapshot: Codable, Sendable {
     public var format = catalogFormat
@@ -146,7 +148,7 @@ public final class CatalogService: Sendable {
             args = [String(decoding: try JSONEncoder().encode(ids), as: UTF8.self)]
         }
         let rows = try Row.fetchAll(d, sql: """
-            SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.blurhash, a.editVersion, a.mediaFlags, a.addedAt,
+            SELECT a.id, a.width, a.height, a.takenAt, a.tzOffset, a.favorite, a.archived, a.blurhash, a.editVersion, a.mediaFlags, a.addedAt,
                    a.lat, a.lon, a.placeId, a.kind, a.duration, a.dateSource = 'photos' AS pd,
                    EXISTS (SELECT 1 FROM motion m WHERE m.assetId = a.id) AS live,
                    EXISTS (SELECT 1 FROM meta_edit me WHERE me.assetId = a.id) AS md,
@@ -175,7 +177,8 @@ public final class CatalogService: Sendable {
                                     md: (r["md"] as Bool) ? true : nil, pd: (r["pd"] as Bool) ? true : nil,
                                     mf: (r["mediaFlags"] as Int) == 0 ? nil : r["mediaFlags"],
                                     ad: (r["addedAt"] as Date?).map { Int($0.timeIntervalSince1970) },
-                                    tr: (r["trim"] as String?).map { $0.split(separator: ",").compactMap { Double($0) }.map { ($0 * 100).rounded() / 100 } })
+                                    tr: (r["trim"] as String?).map { $0.split(separator: ",").compactMap { Double($0) }.map { ($0 * 100).rounded() / 100 } },
+                                    arc: (r["archived"] as Bool) ? true : nil)
         }
     }
 

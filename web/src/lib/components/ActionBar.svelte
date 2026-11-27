@@ -1,9 +1,9 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
-	import { app, setFavorite, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever, mayChange, reportError } from '#lib/state.svelte.ts';
+	import { app, setFavorite, setArchived, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever, mayChange, reportError } from '#lib/state.svelte.ts';
 	import { deleteFlow, deleteKey, deleteQuestion } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
-	import { nextFavoriteValue, SELECT_ALL_MAX, selectAllRefused, type Selection } from '#lib/selection.svelte.ts';
+	import { nextFavoriteValue, nextArchiveValue, SELECT_ALL_MAX, selectAllRefused, type Selection } from '#lib/selection.svelte.ts';
 	import { hint } from '#lib/hint.svelte.ts';
 	import AlbumPicker from './AlbumPicker.svelte';
 	import MultiExportSheet from './MultiExportSheet.svelte';
@@ -34,6 +34,19 @@
 	/** Videos can't be rotated here (only photos). */
 	const hasPhotos = $derived(ids.some((i) => app.byId.get(i)?.dur == null));
 	const favNext = $derived(nextFavoriteValue(ids.map((i) => app.byId.get(i)?.fav ?? false)));
+	const arcNext = $derived(nextArchiveValue(ids.map((i) => app.byId.get(i)?.arc ?? false)));
+
+	function archive() {
+		if (!okForMany(arcNext ? 'Archive' : 'Unarchive')) return;
+		const chosen = [...ids];
+		const next = arcNext;
+		run(async () => {
+			await setArchived(chosen, next);
+			const n = chosen.length === 1 ? 'photo' : `${chosen.length.toLocaleString()} photos`;
+			hint.show(next ? `Archived ${n}: out of the Library, still in albums, search and Collections → Archive.` : `Unarchived ${n}: back in the Library.`);
+			selection.clear();
+		});
+	}
 
 	/** Above this many photos, a batch action that changes them asks first (a select all, then rotate or
 	 *  delete by mistake). Adding to an album asks from ALBUM_MANY on. Downloads and the date sheet (which
@@ -145,6 +158,8 @@
 			onclick={() => okForMany(favNext ? 'Favourite' : 'Unfavourite') && run(() => setFavorite(ids, favNext))}>
 			<span class="heart" class:filled={!favNext}><Icon name="heart" /></span>
 		</button>
+		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title={arcNext ? 'Archive' : 'Unarchive'}
+			aria-label={arcNext ? 'Archive' : 'Unarchive'} onclick={archive}><span class:on={!arcNext}><Icon name="archive" /></span></button>
 		<button class="icon-btn" disabled={!selection.count || busy || !net.online} title="Add to album" aria-label="Add to album"
 			onclick={() => (picking = true)}><Icon name="albumAdd" /></button>
 		<button class="icon-btn" disabled={!hasPhotos || busy || !net.online} title="Rotate left (L)" aria-label="Rotate left"
@@ -248,5 +263,10 @@
 	}
 	.heart.filled :global(path) {
 		fill: currentColor;
+	}
+	/* all of the selection is archived: the button unarchives */
+	.on {
+		display: inline-flex;
+		color: var(--accent);
 	}
 </style>

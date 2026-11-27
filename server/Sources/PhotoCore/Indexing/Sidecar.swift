@@ -6,6 +6,8 @@ public struct SidecarData: Sendable, Equatable {
     public var lon: Double?
     public var description: String?
     public var favorited: Bool?
+    /// Google Photos "archived": true (absent when not archived).
+    public var archived: Bool?
 }
 
 /// Finds the Google Takeout JSON sidecar for an image among the entries of its directory.
@@ -97,6 +99,7 @@ public enum SidecarParser {
         let geoDataExif: Geo?
         let description: String?
         let favorited: Bool?
+        let archived: Bool?
     }
 
     public static func parse(_ data: Data) -> SidecarData? {
@@ -113,6 +116,7 @@ public enum SidecarParser {
         }
         if let d = raw.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty { out.description = d }
         out.favorited = raw.favorited
+        out.archived = raw.archived
         return out
     }
 }
