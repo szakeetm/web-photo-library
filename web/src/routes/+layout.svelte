@@ -45,9 +45,10 @@
 	const collectionTabs: SubTab[] = [
 		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/edited', '/live', '/media'] },
 		{ href: '/folders', label: 'Folders', icon: 'folder', also: ['/uploads', '/sources'] },
-		{ href: '/archive', label: 'Archive', icon: 'archive', also: [] },
-		{ href: '/trash', label: 'Trash', icon: 'trash', also: [] }
+		{ href: '/archive', label: 'Archive', icon: 'archive', also: [] }
 	];
+	/** last, after More */
+	const trashTab: SubTab = { href: '/trash', label: 'Trash', icon: 'trash', also: [] };
 	const moreTabs: SubTab[] = [
 		{ href: '/people', label: 'People', icon: 'people', also: [] },
 		{ href: '/places', label: 'Places', icon: 'map', also: [] },
@@ -56,7 +57,7 @@
 		{ href: '/videos', label: 'Videos', icon: 'video', also: [] }
 	];
 	const under = (p: string) => page.url.pathname === p || page.url.pathname.startsWith(p + '/');
-	const collectionTab = $derived([...collectionTabs, ...moreTabs].find((t) => [t.href, ...t.also].some(under)));
+	const collectionTab = $derived([...collectionTabs, trashTab, ...moreTabs].find((t) => [t.href, ...t.also].some(under)));
 	/** the open page when it is one under More (the More tab then shows it) */
 	const moreTab = $derived(collectionTab && moreTabs.includes(collectionTab) ? collectionTab : null);
 	let moreOpen = $state(false);
@@ -265,14 +266,18 @@
 	</main>
 	{#if collectionTab}
 		<nav class="subtabs" aria-label="Collections">
-			{#each collectionTabs as t (t.href)}
+			{#snippet subtab(t: SubTab)}
 				<a href={t.href} class:active={collectionTab === t} aria-current={collectionTab === t ? 'page' : undefined}
 					><Icon name={t.icon} size={20} /><span>{t.label}</span></a
 				>
-			{/each}
+			{/snippet}
+			{#each collectionTabs as t (t.href)}{@render subtab(t)}{/each}
 			<button class="more" class:active={moreTab != null} aria-haspopup="menu" aria-expanded={moreOpen}
-				onclick={() => (moreOpen = !moreOpen)}><Icon name={moreTab?.icon ?? 'more'} size={20} /><span>{moreTab?.label ?? 'More'}</span></button
+				onclick={() => (moreOpen = !moreOpen)}><Icon name={moreTab?.icon ?? 'more'} size={20} /><span
+					>{moreTab?.label ?? 'More'}{#if moreTab}<span class="switch" class:open={moreOpen}><Icon name="chevron" size={10} /></span>{/if}</span
+				></button
 			>
+			{@render subtab(trashTab)}
 		</nav>
 		{#if moreOpen}
 			<button class="more-backdrop" aria-label="Close" onclick={() => (moreOpen = false)}></button>
@@ -336,6 +341,17 @@
 		background: none;
 		font: inherit;
 		font-size: 10px;
+	}
+	/* one of More's pages is open: the arrow says the tab opens the menu to switch */
+	.subtabs .more .switch {
+		display: inline-flex;
+		margin-left: 2px;
+		vertical-align: -1px;
+		transform: rotate(-90deg);
+		transition: transform 0.15s;
+	}
+	.subtabs .more .switch.open {
+		transform: rotate(90deg);
 	}
 	.more-backdrop {
 		position: fixed;
