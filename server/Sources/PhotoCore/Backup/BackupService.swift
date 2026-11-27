@@ -53,6 +53,14 @@ public struct BackupManifest: Codable, Sendable, Equatable {
     public var uploadsPath: String?
     public var uploadsFiles: Int
     public var uploadsBytes: Int64
+    /// The database's file in the backup (format 2: "library.sqlite.lzfse", compressed); nil in format 1,
+    /// whose database is a plain "library.sqlite".
+    public var databaseFile: String? = nil
+    /// The database file's size in the backup (compressed); `databaseBytes` is its size once restored.
+    public var databaseStoredBytes: Int64? = nil
+
+    /// The database's file name in a backup with this manifest.
+    public var databaseName: String { databaseFile ?? BackupService.plainDatabase }
 }
 
 /// Versions of the backup format, and the changes that broke restoring older backups. Documented in
@@ -61,8 +69,8 @@ public struct BackupManifest: Codable, Sendable, Equatable {
 /// (Database changes don't need either: restored databases are migrated forward, and one from a
 /// newer server is refused by its migrations.)
 public enum BackupFormat {
-    /// written by this server
-    public static let current = 1
+    /// written by this server (2: the database is compressed, library.sqlite.lzfse)
+    public static let current = 2
     /// the oldest this server restores
     public static let oldestRestorable = 1
     /// why backups older than a format can't be restored: format → explanation
@@ -97,6 +105,8 @@ public struct BackupReport: Codable, Sendable, Equatable {
     public var uploadsCopied: Int
     /// uploads removed from the backup this time (deleted here since the previous backup)
     public var uploadsDeleted: Int = 0
+    /// the database's size in the backup (compressed; nil before format 2)
+    public var databaseStoredBytes: Int64? = nil
 
     public init(startedAt: Date, finishedAt: Date, ok: Bool, error: String? = nil, destination: String, databaseBytes: Int64,
                 assets: Int, albums: Int, uploadsFiles: Int, uploadsBytes: Int64, uploadsCopied: Int, uploadsDeleted: Int = 0) {
@@ -107,6 +117,7 @@ public struct BackupReport: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case startedAt, finishedAt, ok, error, destination, databaseBytes, assets, albums, uploadsFiles, uploadsBytes, uploadsCopied, uploadsDeleted
+        case databaseStoredBytes
     }
 
     /// Reports saved by earlier versions lack the newer fields.
@@ -124,6 +135,7 @@ public struct BackupReport: Codable, Sendable, Equatable {
         uploadsBytes = try c.decodeIfPresent(Int64.self, forKey: .uploadsBytes) ?? 0
         uploadsCopied = try c.decodeIfPresent(Int.self, forKey: .uploadsCopied) ?? 0
         uploadsDeleted = try c.decodeIfPresent(Int.self, forKey: .uploadsDeleted) ?? 0
+        databaseStoredBytes = try c.decodeIfPresent(Int64.self, forKey: .databaseStoredBytes)
     }
 }
 
@@ -336,8 +348,16 @@ public final class BackupService: @unchecked Sendable {
             report.assets = assets
             report.albums = albums
 
+            // about half the size to upload and to keep (photos are compressed already: uploads aren't)
+            phase("Compressing the database")
+            let packed = work.appendingPathComponent(Self.compressedDatabase)
+            try FileCompression.compress(snapshot, to: packed)
+            try? FileManager.default.removeItem(at: snapshot)
+            let storedBytes = ((try FileManager.default.attributesOfItem(atPath: packed.path)[.size]) as? NSNumber)?.int64Value ?? 0
+            report.databaseStoredBytes = storedBytes
+
             phase("Uploading the database")
-            try rclone.copyFile(snapshot.path, to: Rclone.join(dest, "library.sqlite"))
+            try rclone.copyFile(packed.path, to: Rclone.join(dest, Self.compressedDatabase))
 
             let uploadsPath = try settings.get(.uploadsPath)
             if let uploadsPath {
@@ -359,10 +379,16 @@ public final class BackupService: @unchecked Sendable {
             phase("Finishing")
             let manifest = BackupManifest(createdAt: started, serverVersion: serverVersion, migrations: migrations, databaseBytes: dbBytes,
                                           assets: assets, albums: albums, sources: sources, uploadsPath: uploadsPath,
-                                          uploadsFiles: report.uploadsFiles, uploadsBytes: report.uploadsBytes)
+                                          uploadsFiles: report.uploadsFiles, uploadsBytes: report.uploadsBytes,
+                                          databaseFile: Self.compressedDatabase, databaseStoredBytes: storedBytes)
             let mf = work.appendingPathComponent("manifest.json")
             try Self.encoder.encode(manifest).write(to: mf)
             try rclone.copyFile(mf.path, to: Rclone.join(dest, "manifest.json"))
+            // a plain database left by a format 1 backup is out of date now (a destination that keeps
+            // versions keeps it for a while)
+            if try rclone.stat(Rclone.join(dest, Self.plainDatabase)) != nil {
+                _ = try? rclone.run(["deletefile"] + Rclone.netFlags + [Rclone.join(dest, Self.plainDatabase)])
+            }
             report.ok = true
         } catch {
             report.error = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
@@ -401,9 +427,12 @@ public final class BackupService: @unchecked Sendable {
         } catch is DecodingError {
             checks.append(.init(title: "Backup", ok: false, detail: "manifest.json can't be read."))
         }
-        let dbEntry = try rclone.stat(Rclone.join(location, "library.sqlite"))
-        checks.append(dbEntry.map { .init(title: "Database", ok: true, detail: Self.bytes($0.Size)) }
-                      ?? .init(title: "Database", ok: false, detail: "library.sqlite is missing."))
+        let dbName = manifest?.databaseName ?? Self.plainDatabase
+        let dbEntry = try rclone.stat(Rclone.join(location, dbName))
+        checks.append(dbEntry.map { e in
+            .init(title: "Database", ok: true, detail: dbName.hasSuffix(FileCompression.suffix)
+                  ? "\(Self.bytes(manifest?.databaseBytes ?? e.Size)) (\(Self.bytes(e.Size)) compressed)" : Self.bytes(e.Size))
+        } ?? .init(title: "Database", ok: false, detail: "\(dbName) is missing."))
         let uploads = try rclone.size(Rclone.join(location, "uploads"))
         let uploadsTarget = try settings.get(.uploadsPath) ?? manifest?.uploadsPath
 
@@ -471,7 +500,19 @@ public final class BackupService: @unchecked Sendable {
         let download = staged.appendingPathExtension("download")
         try? FileManager.default.removeItem(at: download)
         phase("Downloading the database")
-        try rclone.copyFile(Rclone.join(location, "library.sqlite"), to: download.path)
+        let dbName = inspection.manifest?.databaseName ?? Self.plainDatabase
+        if dbName.hasSuffix(FileCompression.suffix) {
+            let packed = staged.appendingPathExtension("download" + FileCompression.suffix)
+            defer { try? FileManager.default.removeItem(at: packed) }
+            try rclone.copyFile(Rclone.join(location, dbName), to: packed.path)
+            phase("Unpacking the database")
+            do { try FileCompression.decompress(packed, to: download) } catch {
+                try? FileManager.default.removeItem(at: download)
+                throw BackupError.notADatabase
+            }
+        } else {
+            try rclone.copyFile(Rclone.join(location, dbName), to: download.path)
+        }
         // the database must open and be one this server knows
         do {
             let q = try DatabaseQueue(path: download.path, configuration: { var c = Configuration(); c.readonly = true; return c }())
@@ -508,6 +549,10 @@ public final class BackupService: @unchecked Sendable {
         var location: String
         var uploadsPath: String?
     }
+
+    /// The database's name in a backup: compressed since format 2, plain in format 1.
+    static let compressedDatabase = "library.sqlite" + FileCompression.suffix
+    static let plainDatabase = "library.sqlite"
 
     static func stagedURL(_ p: AppPaths) -> URL { p.dataDir.appendingPathComponent("library.sqlite.restore") }
     static func pendingURL(_ p: AppPaths) -> URL { p.dataDir.appendingPathComponent("restore.json") }

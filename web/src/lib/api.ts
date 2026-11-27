@@ -410,6 +410,8 @@ export interface BackupReport {
 	uploadsCopied: number;
 	/** uploads removed from the backup this time (deleted here) */
 	uploadsDeleted: number;
+	/** the database's size in the backup, compressed (backups before format 2: absent) */
+	databaseStoredBytes?: number | null;
 }
 
 export interface BackupActivity {

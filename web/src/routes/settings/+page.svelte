@@ -1230,7 +1230,7 @@
 						</div>
 						{#if l.ok}
 							<div class="muted small">
-								Database {fmtBytes(l.databaseBytes)} ({l.assets.toLocaleString()} photos and videos, {l.albums.toLocaleString()}
+								Database {fmtBytes(l.databaseBytes)}{#if l.databaseStoredBytes}{`, ${fmtBytes(l.databaseStoredBytes)} compressed`}{/if} ({l.assets.toLocaleString()} photos and videos, {l.albums.toLocaleString()}
 								{l.albums === 1 ? 'album' : 'albums'}) · uploads {fmtBytes(l.uploadsBytes)} ({l.uploadsFiles.toLocaleString()}
 								{l.uploadsFiles === 1 ? 'file' : 'files'}, {l.uploadsCopied.toLocaleString()} new{#if l.uploadsDeleted}, {l.uploadsDeleted.toLocaleString()} removed{/if} this time)
 							</div>

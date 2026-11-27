@@ -9,7 +9,7 @@ At the backup destination (any rclone path, e.g. `pcloud:Photos/webLibrary_backu
 
 | Path | What |
 |---|---|
-| `library.sqlite` | A consistent copy of the database (`VACUUM INTO`): catalog, albums, edits, adjusted dates, trims, people and faces, places, settings |
+| `library.sqlite.lzfse` | A consistent copy of the database (`VACUUM INTO`), compressed with LZFSE (built into macOS; about half the size): catalog, albums, edits, adjusted dates, trims, people and faces, places, settings. Unpack by hand with `compression_tool -decode -a lzfse -i library.sqlite.lzfse -o library.sqlite`. Format 1 had a plain `library.sqlite` instead (removed by the next format 2 backup). |
 | `uploads/…` | The uploads folder, kept the same (`rclone sync`; hidden files and folders left out) |
 | `manifest.json` | Written last: a backup with a manifest is complete |
 
@@ -23,7 +23,8 @@ S3 versioning…) keeps the earlier backups.
 | `version` | The backup format (below) |
 | `createdAt`, `serverVersion` | When, and by which server version |
 | `migrations` | The database's applied migrations (its schema) |
-| `databaseBytes`, `assets`, `albums` | What the database holds |
+| `databaseBytes`, `assets`, `albums` | What the database holds (`databaseBytes`: its size unpacked) |
+| `databaseFile`, `databaseStoredBytes` | The database's file in the backup and its compressed size (format 2; absent in format 1, whose file is `library.sqlite`) |
 | `sources` | The library sources the photos come from (`root`, `kind`: `local` or `rclone`, `path`, file count, 20 sample files with their sizes) |
 | `uploadsPath`, `uploadsFiles`, `uploadsBytes` | The uploads backed up |
 
@@ -59,5 +60,6 @@ paths with the same sizes), so a restored catalog doesn't point at folders that 
 | Format | Server | Change | Breaking |
 |---|---|---|---|
 | 1 | 0.1.0 (2026-11-26) | First format: `library.sqlite`, `uploads/` (synced), `manifest.json` with sources and samples | — |
+| 2 | 0.1.0 (2026-11-27) | The database is compressed: `library.sqlite.lzfse`, named in the manifest's `databaseFile` | — (format 1 backups still restore) |
 
 No breaking changes so far: every backup can be restored by the current server.

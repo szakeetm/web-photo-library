@@ -43,14 +43,23 @@ struct BackupTests {
         #expect(r.ok && r.assets == 2 && r.albums == 1)
         #expect(r.uploadsFiles == 1 && r.uploadsCopied == 1)
         let fm = FileManager.default
-        #expect(fm.fileExists(atPath: e.remote + "/library.sqlite"))
+        // the database is compressed (about half the size); photos aren't
+        #expect(fm.fileExists(atPath: e.remote + "/library.sqlite.lzfse"))
+        #expect(!fm.fileExists(atPath: e.remote + "/library.sqlite"))
         #expect(fm.fileExists(atPath: e.remote + "/uploads/one.jpg"))
         #expect(!fm.fileExists(atPath: e.remote + "/uploads/.incoming"))   // hidden folders stay out
         #expect(!fm.fileExists(atPath: e.remote + "/cache"))
         let m = try BackupService.decoder.decode(BackupManifest.self, from: Data(contentsOf: URL(fileURLWithPath: e.remote + "/manifest.json")))
         #expect(m.assets == 2 && m.sources.first?.path == e.library.path && m.sources.first?.samples.count == 2)
-        // the backup's database opens and holds the album
-        let q = try DatabaseQueue(path: e.remote + "/library.sqlite")
+        #expect(m.databaseFile == "library.sqlite.lzfse" && (m.databaseStoredBytes ?? 0) > 0 && m.databaseStoredBytes! < m.databaseBytes)
+        // the backup's database unpacks with macOS' own tool, opens and holds the album
+        let unpacked = Fixtures.tempDir().appendingPathComponent("library.sqlite")
+        let tool = Process()
+        tool.executableURL = URL(fileURLWithPath: "/usr/bin/compression_tool")
+        tool.arguments = ["-decode", "-a", "lzfse", "-i", e.remote + "/library.sqlite.lzfse", "-o", unpacked.path]
+        try tool.run(); tool.waitUntilExit()
+        #expect(tool.terminationStatus == 0)
+        let q = try DatabaseQueue(path: unpacked.path)
         #expect(try q.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM album") } == 1)
         // the next backup only copies what's new
         try Data("two".utf8).write(to: e.uploads.appendingPathComponent("two.jpg"))
@@ -113,6 +122,31 @@ struct BackupTests {
         #expect(try SettingsStore(db: db).get(.uploadsPath) == e.uploads.path)
         // nothing staged any more
         #expect(try !BackupService.applyStagedRestore(e.paths))
+    }
+
+    @Test func aFormat1BackupWithAPlainDatabaseStillRestoresAndIsReplacedByTheNext() throws {
+        let e = try env()
+        try e.settings.set(.backupDestination, e.remote)
+        try e.service.backup()
+        // turn it into what a format 1 server wrote: library.sqlite, no databaseFile in the manifest
+        let packed = URL(fileURLWithPath: e.remote + "/library.sqlite.lzfse")
+        try FileCompression.decompress(packed, to: URL(fileURLWithPath: e.remote + "/library.sqlite"))
+        try FileManager.default.removeItem(at: packed)
+        let url = URL(fileURLWithPath: e.remote + "/manifest.json")
+        var m = try BackupService.decoder.decode(BackupManifest.self, from: Data(contentsOf: url))
+        m.version = 1; m.databaseFile = nil; m.databaseStoredBytes = nil
+        try BackupService.encoder.encode(m).write(to: url)
+        #expect(try e.service.inspect(e.remote).canRestore)
+        try e.service.restore(e.remote)
+        try e.db.writer.close()
+        #expect(try BackupService.applyStagedRestore(e.paths))
+        let db = try AppDatabase(path: e.paths.databaseURL.path)
+        #expect(try db.writer.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM album") } == 1)
+        // the next backup is compressed, and the old plain copy goes
+        let again = BackupService(db: db, settings: SettingsStore(db: db), paths: e.paths, serverVersion: "test")
+        try again.backup()
+        #expect(FileManager.default.fileExists(atPath: packed.path))
+        #expect(!FileManager.default.fileExists(atPath: e.remote + "/library.sqlite"))
     }
 
     @Test func aBackupFromANewerServerIsRefused() throws {
