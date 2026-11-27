@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { page, updated } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import { app } from '#lib/state.svelte.ts';
@@ -21,7 +21,7 @@
 	import type { FolderNode } from '#lib/api.ts';
 	import { isFlat, kindIcon, sources } from '#lib/sources.ts';
 	import { sidebarTree } from '#lib/sidebarTree.svelte.ts';
-	import { innerScroll, scroller } from '#lib/scroller.ts';
+	import { tapNav } from '#lib/tapNav.ts';
 	import SidebarFolder from '#lib/components/SidebarFolder.svelte';
 
 	let { children }: LayoutProps = $props();
@@ -81,16 +81,6 @@
 		}
 		goto('/');
 	}
-	// Touch devices scroll <main> (lib/scroller.ts), which the router doesn't know about: a new page
-	// starts at the top, Back returns to where that page was.
-	const scrollAt = new Map<string, number>();
-	const key = (u: URL) => u.pathname + u.search;
-	beforeNavigate(({ from }) => {
-		if (innerScroll && from) scrollAt.set(key(from.url), scroller.top);
-	});
-	afterNavigate(({ to, type }) => {
-		if (innerScroll && to && type !== 'enter') scroller.to(type === 'popstate' ? (scrollAt.get(key(to.url)) ?? 0) : 0);
-	});
 	const sidebarAlbums = $derived(app.albums.slice().sort((a, b) => a.title.localeCompare(b.title)));
 
 	let updating = $state(false);
@@ -261,7 +251,7 @@
 		{@render children()}
 	</main>
 	{#if collectionTab}
-		<nav class="subtabs" aria-label="Collections">
+		<nav class="subtabs" aria-label="Collections" use:tapNav>
 			{#each collectionTabs as t (t.href)}
 				<a href={t.href} class:active={collectionTab === t} aria-current={collectionTab === t ? 'page' : undefined}
 					><Icon name={t.icon} size={20} /><span>{t.label}</span></a
@@ -269,7 +259,7 @@
 			{/each}
 		</nav>
 	{/if}
-	<nav class="tabbar" aria-label="Sections">
+	<nav class="tabbar" aria-label="Sections" use:tapNav>
 		{#each tabs as t (t.href)}
 			<a href={t.href} class:active={active(t.href)}><Icon name={t.icon} size={24} /><span>{t.label}</span></a>
 		{/each}
@@ -385,15 +375,6 @@
 		border-bottom: 0.5px solid var(--separator);
 		padding-top: calc(8px + env(safe-area-inset-top));
 	}
-	/* touch devices: the content scrolls in <main>, so the bars take a tap while it still coasts (lib/scroller.ts) */
-	@media (hover: none) and (pointer: coarse) {
-		main {
-			position: fixed;
-			inset: 0;
-			min-height: 0;
-			overflow-y: auto;
-		}
-	}
 	@media (min-width: 768px) {
 		.tabbar,
 		.subtabs {
@@ -405,12 +386,6 @@
 		main {
 			margin-left: var(--sidebar-w);
 			padding-bottom: 0;
-		}
-		@media (hover: none) and (pointer: coarse) {
-			main {
-				margin-left: 0;
-				left: var(--sidebar-w);
-			}
 		}
 		.sidebar {
 			display: flex;
