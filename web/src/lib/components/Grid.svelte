@@ -1,7 +1,12 @@
+<script lang="ts" module>
+	/** The grid's last width, so a grid that opens again lays out at once at its real size. */
+	let lastWidth = 0;
+</script>
+
 <script lang="ts">
 	// Virtualised photo grid using window scrolling. Pinch (touch/trackpad) and ctrl+wheel change density.
 	import { onMount, tick } from 'svelte';
-	import { layoutGrid, visibleRange, columnsFor, idAt, neighbour, type Section } from '#lib/gridLayout.ts';
+	import { layoutGrid, visibleRange, columnsFor, idAt, neighbour, type GridLayout, type Section } from '#lib/gridLayout.ts';
 	import Thumb from './Thumb.svelte';
 	import MonthJump from './MonthJump.svelte';
 	import { markAt, monthMarks, type MonthMark } from '#lib/timeline.ts';
@@ -33,14 +38,31 @@
 	const TOP_BAR = 56;
 
 	let container: HTMLDivElement;
-	let width = $state(0);
+	// Until the grid knows its width it lays out nothing: a guess (one photo per row) would mount
+	// hundreds of thumbnails, and build a row per photo, for a frame nobody sees.
+	let width = $state(lastWidth);
 	let scrollTop = $state(0);
 	let viewport = $state(800);
 	let containerTop = $state(0);
-	let density = $state(-1);
+	let density = $state(storedDensity());
+	$effect(() => {
+		if (width > 0) lastWidth = width;
+	});
 
-	const columns = $derived(columnsFor(width || 1, targets[Math.max(0, density)]));
-	const layout = $derived(layoutGrid(sections, { width: width || 1, columns, gap: GAP, headerHeight: HEADER }));
+	function storedDensity(): number {
+		try {
+			const v = localStorage.getItem('gridDensity');
+			const n = Number(v);
+			if (v !== null && Number.isInteger(n) && n >= 0 && n < targets.length) return n;
+		} catch {
+			/* storage unavailable */
+		}
+		return typeof window !== 'undefined' && window.innerWidth < 600 ? 1 : 2;
+	}
+
+	const columns = $derived(columnsFor(width || 1, targets[density]));
+	const EMPTY: GridLayout = { blocks: [], height: 0, tile: 1, columns: 1, gap: GAP, indexOf: new Map() };
+	const layout = $derived(width > 0 ? layoutGrid(sections, { width, columns, gap: GAP, headerHeight: HEADER }) : EMPTY);
 	const range = $derived(visibleRange(layout.blocks, scrollTop - containerTop, viewport, viewport));
 	const visible = $derived(layout.blocks.slice(range[0], range[1] + 1));
 	/** Label of the section at the top of the viewport (floating date pill). */
@@ -177,15 +199,6 @@
 	}
 
 	onMount(() => {
-		let stored = NaN;
-		try {
-			stored = Number(localStorage.getItem('gridDensity'));
-		} catch {
-			/* ignore */
-		}
-		density = Number.isFinite(stored) && stored >= 0 && stored < targets.length && localStorage.getItem('gridDensity') !== null
-			? stored
-			: window.innerWidth < 600 ? 1 : 2;
 		measure();
 
 		// Gestures belong to the viewer while it is open.

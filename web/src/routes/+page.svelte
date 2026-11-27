@@ -1,3 +1,11 @@
+<script lang="ts" module>
+	import type { CatalogAsset } from '#lib/api.ts';
+	import type { Section } from '#lib/gridLayout.ts';
+
+	/** The months of each photo list shown (until it changes): coming back to the page doesn't group every photo again. */
+	const cached = new WeakMap<CatalogAsset[], Section[]>();
+</script>
+
 <script lang="ts">
 	import { app } from '#lib/state.svelte.ts';
 	import { groupByMonth, monthLabel } from '#lib/dates.ts';
@@ -18,9 +26,14 @@
 	// Newest first: the latest month on top, newest photo first within each month.
 	// Archived photos aren't in the Library; a filter (Favourites, Videos…) still finds them.
 	const shown = $derived(gridView.enabled && gridView.filter !== 'all' ? app.assets : app.index.library);
-	const sections = $derived(
-		groupByMonth(shown.toReversed()).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }))
-	);
+	const sections = $derived.by(() => {
+		let sections = cached.get(shown);
+		if (!sections) {
+			sections = groupByMonth(shown.toReversed()).map((g) => ({ key: g.key, label: monthLabel(g.key), items: g.items.map((a) => a.id) }));
+			cached.set(shown, sections);
+		}
+		return sections;
+	});
 </script>
 
 <TitleBar title="Library" subtitle={app.loaded ? `${app.index.library.length.toLocaleString()} photos` : undefined}>
