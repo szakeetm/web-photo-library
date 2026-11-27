@@ -87,6 +87,11 @@ class AppState {
 	/** The server has a newer web app than this one (found by the sync check, so it is noticed when
 	 *  the app comes back on screen instead of only by SvelteKit's 5-minute check). */
 	newWebVersion = $state(false);
+	/** A sync the user should see (launch, back on screen, every half minute, back online): 'reaching'
+	 *  while the server is asked whether it is there, 'updating' while the changes are fetched. */
+	sync = $state<'reaching' | 'updating' | null>(null);
+	/** What such a sync brought from the server (shown briefly at the top). */
+	synced = $state<{ added: number; removed: number; changed: number; at: number } | null>(null);
 
 	constructor() {
 		onServerApiVersion((serverApi, refused) => {
@@ -97,6 +102,7 @@ class AppState {
 	private meta: CatalogMeta | null = null;
 	private syncing: Promise<void> | null = null;
 	private again = false;
+	private announce = false;
 
 	async init() {
 		if (this.started) return;
@@ -106,7 +112,7 @@ class AppState {
 		// Chrome decide on their own; Firefox would ask the user, unprompted, so there it waits for a
 		// download for offline use or Settings → Keep on this device.
 		if (!isFirefox) navigator.storage?.persist?.()?.catch(() => {});
-		net.onReconnect(() => this.reload());
+		net.onReconnect(() => this.reload(true));
 		// Changes made on another device: the server is asked for what changed (a small delta) when
 		// the app comes back to the screen (iOS resumes a Home Screen app instead of restarting it)
 		// and every half minute while it is on screen.
@@ -114,33 +120,34 @@ class AppState {
 		const refresh = (minAge: number) => {
 			if (document.visibilityState !== 'visible' || !net.online || Date.now() - lastSync < minAge) return;
 			lastSync = Date.now();
-			this.reload();
+			this.reload(true);
 		};
 		document.addEventListener('visibilitychange', () => refresh(2_000));
 		window.addEventListener('focus', () => refresh(2_000));
 		window.addEventListener('pageshow', () => refresh(2_000));
 		setInterval(() => refresh(25_000), 30_000);
-		this.fmt = (await supportsHeic()) ? 'heic' : 'jpeg';
 		// Show the device copy immediately (works offline), then bring it up to date.
-		try {
-			const replica = await loadReplica(CATALOG_FORMAT);
-			if (replica) {
-				this.meta = replica.meta;
-				this.assets = sortByLocalTime(replica.assets);
-				this.folders = replica.folders;
-				this.albums = replica.albums;
-				this.people = replica.people;
-				this.places = replica.places;
-				this.loaded = true;
-			}
-		} catch {
-			/* no IndexedDB (private mode): online only */
+		const [heic, replica] = await Promise.all([
+			supportsHeic(),
+			loadReplica(CATALOG_FORMAT).catch(() => null) // no IndexedDB (private mode): online only
+		]);
+		this.fmt = heic ? 'heic' : 'jpeg';
+		if (replica) {
+			this.meta = replica.meta;
+			this.assets = sortByLocalTime(replica.assets);
+			this.folders = replica.folders;
+			this.albums = replica.albums;
+			this.people = replica.people;
+			this.places = replica.places;
+			this.loaded = true;
 		}
-		await this.reload();
+		await this.reload(true);
 	}
 
-	/** Brings the catalog up to date with the server (delta when possible). Concurrent calls coalesce. */
-	reload(): Promise<void> {
+	/** Brings the catalog up to date with the server (delta when possible). Concurrent calls coalesce.
+	 *  `announce`: show it at the top (a sync the user didn't cause; after their own changes it stays quiet). */
+	reload(announce = false): Promise<void> {
+		if (announce) this.announce = true;
 		if (this.syncing) {
 			this.again = true;
 			return this.syncing;
@@ -148,14 +155,17 @@ class AppState {
 		this.syncing = (async () => {
 			do {
 				this.again = false;
-				await this.syncOnce();
+				const shown = this.announce;
+				this.announce = false;
+				await this.syncOnce(shown);
 			} while (this.again);
 		})().finally(() => (this.syncing = null));
 		return this.syncing;
 	}
 
-	private async syncOnce() {
+	private async syncOnce(shown: boolean) {
 		try {
+			if (shown) this.sync = 'reaching';
 			const health = await net.check();
 			if (!health) {
 				// Offline: keep showing the device copy.
@@ -174,6 +184,7 @@ class AppState {
 				this.updateRequired = true;
 				return;
 			}
+			if (shown) this.sync = 'updating';
 			const delta = this.meta ? await api.changes(this.meta.seq, this.meta.catalogId, this.meta.hashes) : null;
 			if (delta && !delta.reset) {
 				if (delta.format !== CATALOG_FORMAT) {
@@ -181,6 +192,16 @@ class AppState {
 					return;
 				}
 				if (delta.seq !== this.meta!.seq || delta.assets.length || delta.deleted.length) {
+					if (shown) {
+						const had = this.byId;
+						const n = { added: 0, removed: 0, changed: 0, at: Date.now() };
+						for (const a of delta.assets) {
+							if (had.has(a.id)) n.changed++;
+							else n.added++;
+						}
+						for (const id of delta.deleted) if (had.has(id)) n.removed++;
+						if (n.added || n.removed || n.changed) this.synced = n;
+					}
 					if (delta.assets.length || delta.deleted.length) this.assets = sortByLocalTime(mergeAssets(this.assets, delta));
 					if (delta.folders) this.folders = delta.folders;
 					const albums = mergeAlbums(this.albums, delta);
@@ -216,6 +237,7 @@ class AppState {
 		} catch (e) {
 			if (net.online) this.error = e instanceof Error ? e.message : String(e);
 		} finally {
+			if (shown) this.sync = null;
 			this.loaded = true;
 		}
 	}

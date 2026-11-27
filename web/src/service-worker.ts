@@ -15,7 +15,6 @@ const sw = self as unknown as ServiceWorkerGlobalScope;
 const SHELL = `shell-${version}`;
 const SHELL_FILES = ['/', ...immutable.map((f) => `/${f.path}`), ...assets.map((f) => `/${f.path}`)];
 const shellSet = new Set(SHELL_FILES);
-const NAV_TIMEOUT_MS = 2500;
 /** Map tiles/styles/fonts already seen stay available offline (capped). */
 const TILES = 'tiles-v1';
 // the map styles offered in Settings → Map (a custom style's tiles aren't kept offline)
@@ -102,21 +101,12 @@ async function image(request: Request): Promise<Response> {
 	}
 }
 
-/** Pages: the network first (so a reload picks up a new build), the cached shell when it is slow or down. */
+/** Pages: the cached shell at once (the app opens without waiting for the server; a new build is
+ *  noticed by the app's sync check and installed by "Update now"), the network only when none is cached. */
 async function navigate(request: Request): Promise<Response> {
-	const shell = await caches.open(SHELL);
-	try {
-		const res = await Promise.race([
-			fetch(request),
-			new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), NAV_TIMEOUT_MS))
-		]);
-		if (res.ok) return res;
-		return (await shell.match('/')) ?? res;
-	} catch {
-		const cached = await shell.match('/');
-		if (cached) return cached;
-		throw new Error('offline and no cached app');
-	}
+	const cached = await (await caches.open(SHELL)).match('/');
+	if (cached) return cached;
+	return fetch(request);
 }
 
 let tileWrites = 0;

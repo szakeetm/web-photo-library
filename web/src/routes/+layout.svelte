@@ -14,6 +14,7 @@
 	import UploadSheet from '#lib/components/UploadSheet.svelte';
 	import DeleteFlow from '#lib/components/DeleteFlow.svelte';
 	import LibraryDownload from '#lib/components/LibraryDownload.svelte';
+	import SyncStatus from '#lib/components/SyncStatus.svelte';
 	import ShortcutsSheet from '#lib/components/ShortcutsSheet.svelte';
 	import Hint from '#lib/components/Hint.svelte';
 	import type { LayoutProps } from './$types';
@@ -167,6 +168,7 @@
 <DeleteFlow />
 <Hint />
 <LibraryDownload />
+<SyncStatus />
 
 <div class="shell" class:with-subtabs={collectionTab != null}>
 	<nav class="sidebar" aria-label="Sections">
