@@ -21,7 +21,6 @@
 	import type { FolderNode } from '#lib/api.ts';
 	import { isFlat, kindIcon, sources } from '#lib/sources.ts';
 	import { sidebarTree } from '#lib/sidebarTree.svelte.ts';
-	import { tapNav } from '#lib/tapNav.ts';
 	import SidebarFolder from '#lib/components/SidebarFolder.svelte';
 
 	let { children }: LayoutProps = $props();
@@ -251,7 +250,7 @@
 		{@render children()}
 	</main>
 	{#if collectionTab}
-		<nav class="subtabs" aria-label="Collections" use:tapNav>
+		<nav class="subtabs" aria-label="Collections">
 			{#each collectionTabs as t (t.href)}
 				<a href={t.href} class:active={collectionTab === t} aria-current={collectionTab === t ? 'page' : undefined}
 					><Icon name={t.icon} size={20} /><span>{t.label}</span></a
@@ -259,7 +258,7 @@
 			{/each}
 		</nav>
 	{/if}
-	<nav class="tabbar" aria-label="Sections" use:tapNav>
+	<nav class="tabbar" aria-label="Sections">
 		{#each tabs as t (t.href)}
 			<a href={t.href} class:active={active(t.href)}><Icon name={t.icon} size={24} /><span>{t.label}</span></a>
 		{/each}
