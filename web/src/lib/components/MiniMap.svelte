@@ -68,9 +68,7 @@
 
 <style>
 	.minimap {
-		margin-top: 14px;
-		padding-top: 12px;
-		border-top: 0.5px solid var(--separator);
+		margin-top: 8px;
 	}
 	.map {
 		display: block;

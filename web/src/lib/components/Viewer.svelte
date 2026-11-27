@@ -1096,17 +1096,6 @@
 							>{/if}
 					</dd>
 				{/if}
-				{#if detail?.asset.lat != null && detail?.asset.lon != null}
-					<dt>Location</dt>
-					<dd>
-						{#if detail.place}
-							<a href="/places/{detail.place.id}">{detail.place.name}</a>
-							<span class="muted">{[detail.place.region, detail.place.country].filter((x) => x && x !== detail?.place?.name).join(', ')}</span>
-							<br />
-						{/if}
-						<span class="muted">{detail.asset.lat.toFixed(5)}, {detail.asset.lon.toFixed(5)}</span>
-					</dd>
-				{/if}
 				{#if faces.length}
 					<dt>People</dt>
 					<dd class="faces">
@@ -1174,8 +1163,21 @@
 				</details>
 			{/if}
 			{#if detail?.asset.lat != null && detail?.asset.lon != null}
-				<!-- where it was taken, last: a small map, and the Places map or Google Maps for more -->
-				<MiniMap lat={detail.asset.lat} lon={detail.asset.lon} />
+				<!-- where it was taken, last: the place, a small map, and the Places map or Google Maps for more -->
+				<div class="where">
+					<dl>
+						<dt>Location</dt>
+						<dd>
+							{#if detail.place}
+								<a href="/places/{detail.place.id}">{detail.place.name}</a>
+								<span class="muted">{[detail.place.region, detail.place.country].filter((x) => x && x !== detail?.place?.name).join(', ')}</span>
+								<br />
+							{/if}
+							<span class="muted">{detail.asset.lat.toFixed(5)}, {detail.asset.lon.toFixed(5)}</span>
+						</dd>
+					</dl>
+					<MiniMap lat={detail.asset.lat} lon={detail.asset.lon} />
+				</div>
 			{/if}
 		</aside>
 	{/if}
@@ -1572,5 +1574,10 @@
 		max-height: 200px;
 		overflow: auto;
 		user-select: text;
+	}
+	.where {
+		margin-top: 14px;
+		padding-top: 12px;
+		border-top: 0.5px solid var(--separator);
 	}
 </style>
