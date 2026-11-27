@@ -403,7 +403,10 @@
 	const pointers = new Map<number, { x: number; y: number }>();
 	let pinch: { d: number; z: number; ux: number; uy: number } | null = null;
 	let drag: { x: number; y: number; px: number; py: number } | null = null;
-	let lastTap = 0;
+	/** The finger down now, while it may still be a tap (short, not moved, alone). */
+	let tap: { id: number; x: number; y: number; t: number } | null = null;
+	/** The last tap, for double-taps. */
+	let lastTap: { x: number; y: number; t: number } | null = null;
 	const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 	/** The stage's centre: the unzoomed photo's centre (it is centred in the stage). */
 	function centre() {
@@ -438,6 +441,7 @@
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 		if (pointers.size === 2) {
 			holdEnd();
+			tap = null; // a pinch, not a tap
 			const [a, b] = twoPoints();
 			const c = centre();
 			const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
@@ -446,14 +450,7 @@
 			return true;
 		}
 		if (pointers.size !== 1) return true;
-		const now = Date.now();
-		if (now - lastTap < 300) {
-			lastTap = 0;
-			if (zoom > 1) setZoom(1, 0, 0);
-			else zoomAround(2.5, e.clientX, e.clientY);
-			return true;
-		}
-		lastTap = now;
+		tap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
 		if (zoom > 1) {
 			// zoomed: one finger moves the photo (no hold-to-compare)
 			drag = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
@@ -464,6 +461,7 @@
 	function zoomMove(e: PointerEvent): boolean {
 		if (!pointers.has(e.pointerId)) return false;
 		pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+		if (tap?.id === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10) tap = null;
 		if (pinch && pointers.size >= 2) {
 			const [a, b] = twoPoints();
 			const c = centre();
@@ -479,7 +477,19 @@
 		return false;
 	}
 	function zoomUp(e: PointerEvent) {
+		if (!pointers.has(e.pointerId)) return;
 		pointers.delete(e.pointerId);
+		const now = Date.now();
+		if (tap?.id === e.pointerId && now - tap.t < 250) {
+			// a second tap close to the first, soon after it: zoom in there, or back to the whole photo
+			if (lastTap && now - lastTap.t < 350 && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < 30) {
+				lastTap = null;
+				holdEnd();
+				if (zoom > 1) setZoom(1, 0, 0);
+				else zoomAround(2.5, tap.x, tap.y);
+			} else lastTap = { x: tap.x, y: tap.y, t: now };
+		}
+		tap = null;
 		if (pointers.size < 2) pinch = null;
 		if (pointers.size === 1 && zoom > 1) {
 			// one finger left after a pinch: it carries on moving the photo
