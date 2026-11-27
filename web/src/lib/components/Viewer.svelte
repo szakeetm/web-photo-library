@@ -22,6 +22,7 @@
 	import VideoPlayer from './VideoPlayer.svelte';
 	import LiveOverlay from './LiveOverlay.svelte';
 	import { codecLabel, contentRangeTotal, formatBytes, formatDuration } from '#lib/video.ts';
+	import MiniMap from './MiniMap.svelte';
 
 	let {
 		ids,
@@ -1103,12 +1104,7 @@
 							<span class="muted">{[detail.place.region, detail.place.country].filter((x) => x && x !== detail?.place?.name).join(', ')}</span>
 							<br />
 						{/if}
-						<a class="muted"
-							href="https://www.openstreetmap.org/?mlat={detail.asset.lat}&mlon={detail.asset.lon}#map=14/{detail.asset
-								.lat}/{detail.asset.lon}"
-							target="_blank"
-							rel="noreferrer">{detail.asset.lat.toFixed(5)}, {detail.asset.lon.toFixed(5)}</a
-						>
+						<span class="muted">{detail.asset.lat.toFixed(5)}, {detail.asset.lon.toFixed(5)}</span>
 					</dd>
 				{/if}
 				{#if faces.length}
@@ -1176,6 +1172,10 @@
 					<pre>{detail.text}</pre>
 					<button class="link adjust" onclick={() => navigator.clipboard?.writeText(detail?.text ?? '')}>Copy</button>
 				</details>
+			{/if}
+			{#if detail?.asset.lat != null && detail?.asset.lon != null}
+				<!-- where it was taken, last: a small map, and the Places map or Google Maps for more -->
+				<MiniMap lat={detail.asset.lat} lon={detail.asset.lon} />
 			{/if}
 		</aside>
 	{/if}

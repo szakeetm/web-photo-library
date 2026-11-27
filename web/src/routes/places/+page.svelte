@@ -1,12 +1,21 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { thumbUrl } from '#lib/api.ts';
 	import { app } from '#lib/state.svelte.ts';
 	import { groupPlaces, mapPick } from '#lib/places.svelte.ts';
-	import PhotoMap from '#lib/components/PhotoMap.svelte';
+	import PhotoMap, { parseFocus } from '#lib/components/PhotoMap.svelte';
 	import TitleBar from '#lib/components/TitleBar.svelte';
 
-	let view = $state<'map' | 'list'>(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('placesView') === 'list' ? 'list' : 'map');
+	// `/places?at=LAT,LON&z=ZOOM` (Open in Places on a photo): the map centred on that spot, marked.
+	const focus = $derived(parseFocus(page.url.searchParams.get('at'), page.url.searchParams.get('z')));
+	// A link to a spot always shows the map, even if the list was last used.
+	const linked = parseFocus(page.url.searchParams.get('at'), page.url.searchParams.get('z')) != null;
+	let view = $state<'map' | 'list'>(!linked && typeof sessionStorage !== 'undefined' && sessionStorage.getItem('placesView') === 'list' ? 'list' : 'map');
+	// …also when such a link is followed while Places is already open.
+	$effect.pre(() => {
+		if (focus) view = 'map';
+	});
 	$effect(() => {
 		try {
 			sessionStorage.setItem('placesView', view);
@@ -40,7 +49,7 @@
 {#if app.loaded && located.length === 0}
 	<p class="empty muted">None of your photos has a location yet. Photos taken with location services on appear here.</p>
 {:else if view === 'map'}
-	<div class="mapwrap"><PhotoMap assets={app.assets} onOpen={open} /></div>
+	<div class="mapwrap"><PhotoMap assets={app.assets} onOpen={open} {focus} /></div>
 {:else}
 	{#each groups as g (g.cc)}
 		<section>
