@@ -72,6 +72,8 @@ public final class EditService: Sendable {
     public func save(id: String, recipe: EditRecipe) throws -> CatalogAsset {
         let r = try recipe.validated().normalized()
         if r.isIdentity { return try revert(id: id) }
+        // a photo in the Trash (or gone) isn't changed: refused before anything is written
+        guard try catalog.catalogAsset(id: id) != nil else { throw EditError.notFound }
         guard let source = try catalog.originals.original(id: id) else { throw EditError.sourceUnavailable }
         let version = try db.writer.write { d -> Int in
             guard try Asset.fetchOne(d, key: id) != nil else { throw EditError.notFound }
@@ -88,6 +90,7 @@ public final class EditService: Sendable {
     }
 
     public func revert(id: String) throws -> CatalogAsset {
+        guard try catalog.catalogAsset(id: id) != nil else { throw EditError.notFound }
         try setCurrent(id: id, version: 0)
         guard let asset = try catalog.catalogAsset(id: id) else { throw EditError.notFound }
         return asset

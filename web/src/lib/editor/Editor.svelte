@@ -5,7 +5,7 @@
 	// same recipe for the saved previews and full-resolution exports.
 	import { onMount, untrack } from 'svelte';
 	import { api, previewUrl, type CatalogAsset, type EditHistory } from '#lib/api.ts';
-	import { app } from '#lib/state.svelte.ts';
+	import { app, queued, reportError } from '#lib/state.svelte.ts';
 	import { shortcut } from '#lib/platform.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import { EditRenderer } from './renderer';
@@ -326,17 +326,19 @@
 	}
 
 	async function done() {
+		if (saving) return; // a second Done (or its key) while saving
 		if (!session.dirty) return onClose(false);
 		saving = true;
 		try {
 			const result = session.result();
-			const { asset: updated } = isIdentity(result) ? await api.revertEdit(asset.id) : await api.saveEdit(asset.id, result);
+			const id = asset.id;
+			const { asset: updated } = await queued([id], () => (isIdentity(result) ? api.revertEdit(id) : api.saveEdit(id, result)));
 			app.patchAsset(updated);
 			app.reload();
 			onClose(true);
 		} catch (e) {
 			saving = false;
-			alert(`Couldn't save the edit: ${(e as Error).message}`);
+			reportError(e, "Couldn't save the edit: ");
 		}
 	}
 

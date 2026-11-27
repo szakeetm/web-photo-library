@@ -525,8 +525,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 	return handle<T>(res);
 }
 
+/** A request that changes something gives up after this long (unless it has its own signal): a
+ *  connection lost mid-request never answers, and changes to a photo wait for each other. */
+const CHANGE_TIMEOUT_MS = 5 * 60_000;
+
 function send(path: string, init?: RequestInit) {
+	const changes = !!init?.method && init.method !== 'GET' && init.method !== 'HEAD';
 	return fetch(path, {
+		...(changes && !init?.signal ? { signal: AbortSignal.timeout(CHANGE_TIMEOUT_MS) } : {}),
 		...init,
 		headers: {
 			'X-Client-API-Version': String(CLIENT_API_VERSION),

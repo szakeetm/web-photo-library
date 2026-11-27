@@ -1,7 +1,8 @@
 // Deleting photos (to the Trash): a confirmation with "Don't ask again" (remembered on this device),
 // and, once it isn't asked any more, an Undo overlay after each deletion. Deleting for good (uploads,
 // from the Trash) always asks: it can't be undone.
-import { deletePhotos, restoreFromTrash } from './state.svelte.ts';
+import { deletePhotos, restoreFromTrash, reportError } from './state.svelte.ts';
+import { hint } from './hint.svelte.ts';
 
 const SKIP_KEY = 'skipDeleteConfirm';
 const UNDO_MS = 8000;
@@ -64,14 +65,15 @@ class DeleteFlow {
 
 	async undoLast() {
 		const u = this.undo;
-		if (!u || this.undoing) return;
+		if (!u) return;
+		if (this.undoing) return hint.show('Still undoing…');
 		clearTimeout(this.timer);
 		this.undoing = true;
 		try {
 			await restoreFromTrash(u.ids);
 			this.undo = null;
 		} catch (e) {
-			alert((e as Error).message);
+			reportError(e, "Couldn't undo: ");
 		} finally {
 			this.undoing = false;
 		}

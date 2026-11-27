@@ -6,6 +6,8 @@ import { isFirefox } from './platform';
 import { sortByLocalTime } from './dates';
 import { buildIndex } from './assetIndex';
 import { net } from './net.svelte';
+import { queued } from './changeQueue.svelte';
+export { mayChange, isChanging, queued, changesSettled, reportError, pendingOps, OfflineError } from './changeQueue.svelte';
 import { loadReplica, mergeAlbums, mergeAssets, saveDelta, saveSnapshot } from './replica';
 import { db, type CatalogMeta } from './db';
 import { emptyRecipe, isIdentity, normalize } from './editor/recipe';
@@ -224,31 +226,24 @@ class AppState {
 	}
 }
 
-/** Favourite / unfavourite with an optimistic update. */
-export async function setFavorite(ids: string[], favorite: boolean) {
+/** Sets a field of some photos in memory (an optimistic update or its undoing). */
+function patchAssets(ids: string[], patch: Partial<CatalogAsset>) {
 	const set = new Set(ids);
-	const before = app.assets;
-	app.assets = app.assets.map((a) => (set.has(a.id) ? { ...a, fav: favorite } : a));
+	app.assets = app.assets.map((a) => (set.has(a.id) ? { ...a, ...patch } : a));
+}
+
+/** Favourite / unfavourite: shown at once, saved in turn. */
+export async function setFavorite(ids: string[], favorite: boolean) {
+	const was = new Map(ids.map((i) => [i, app.byId.get(i)?.fav ?? false]));
+	patchAssets(ids, { fav: favorite });
 	try {
-		await api.setFavorite(ids, favorite);
+		await queued(ids, () => api.setFavorite(ids, favorite));
 	} catch (e) {
-		app.assets = before;
+		// only these photos go back (other changes made meanwhile stay)
+		for (const [i, f] of was) if (app.byId.get(i)?.fav === favorite) patchAssets([i], { fav: f });
 		throw e;
 	}
 	app.reload(); // persist to the device copy
-}
-
-/** Rotations of one photo run one after another (a second click waits for the first save). */
-const rotating = new Map<string, Promise<unknown>>();
-
-/** Waits until the rotations of these photos still being saved are done (failed ones too), so a
- *  delete, restore or edit never reaches the server between two of them. */
-export async function rotationsSettled(ids: string[]) {
-	for (;;) {
-		const busy = ids.map((i) => rotating.get(i)).filter((p): p is Promise<unknown> => !!p);
-		if (!busy.length) return;
-		await Promise.allSettled(busy);
-	}
 }
 
 /** Quarter turns (clockwise +) shown on screen ahead of the server: the thumbnail and the viewer
@@ -288,10 +283,7 @@ export async function rotatePhotos(
 	for (const id of photos) addTurn(id, d);
 	let failed: unknown = null;
 	const one = (id: string) => {
-		const prev = rotating.get(id) ?? Promise.resolve();
-		const next = prev
-			.catch(() => {})
-			.then(async () => {
+		const next = queued([id], async () => {
 				const h = await api.edits(id);
 				const current = h.versions.find((v) => v.version === h.current)?.recipe ?? emptyRecipe();
 				const turned = normalize(clockwise ? rotateClockwise(current) : rotateCounterClockwise(current));
@@ -310,13 +302,10 @@ export async function rotatePhotos(
 				}
 				app.patchAsset(asset);
 				addTurn(id, -d);
-			})
-			.catch((e) => {
+			}).catch((e) => {
 				addTurn(id, -d);
 				throw e;
 			});
-		rotating.set(id, next);
-		next.finally(() => rotating.get(id) === next && rotating.delete(id)).catch(() => {});
 		return next.catch((e) => (failed ??= e));
 	};
 	const queue = [...photos];
@@ -330,12 +319,12 @@ export async function rotatePhotos(
 
 /** Changes the dates of photos (database only; exports write them into the copies). */
 export async function changeDates(ids: string[], change: DateChange) {
-	applyAssets(await api.changeDates(ids, change));
+	applyAssets(await queued(ids, () => api.changeDates(ids, change)));
 }
 
 /** Back to the dates read from the files. */
 export async function revertDates(ids: string[]) {
-	applyAssets(await api.revertDates(ids));
+	applyAssets(await queued(ids, () => api.revertDates(ids)));
 }
 
 function applyAssets(list: CatalogAsset[]) {
@@ -347,28 +336,33 @@ function applyAssets(list: CatalogAsset[]) {
 /** The Trash: deleted uploads (deleted from disk only by hand) and hidden photos (restorable). */
 /** Puts photos in the Trash: uploads are moved there, the others only hidden (their files stay). */
 export async function deletePhotos(ids: string[]) {
-	await rotationsSettled(ids);
 	const set = new Set(ids);
-	const before = app.assets;
+	const removed = app.assets.filter((a) => set.has(a.id));
 	app.assets = app.assets.filter((a) => !set.has(a.id));
 	try {
-		await api.deletePhotos(ids);
+		// the queued change's own app.reload() (a rotation's) may bring them back meanwhile: hide again
+		await queued(ids, () => {
+			app.assets = app.assets.filter((a) => !set.has(a.id));
+			return api.deletePhotos(ids);
+		});
 	} catch (e) {
-		app.assets = before;
+		// only these photos come back (other changes made meanwhile stay)
+		const have = new Set(app.assets.map((a) => a.id));
+		app.assets = sortByLocalTime([...app.assets, ...removed.filter((a) => !have.has(a.id))]);
 		throw e;
 	}
 	await app.reload();
 }
 
 export async function restoreFromTrash(ids: string[]) {
-	await rotationsSettled(ids);
 	const set = new Set(ids);
-	const before = app.trash;
+	const removed = app.trash.filter((t) => set.has(t.asset.id));
 	app.trash = app.trash.filter((t) => !set.has(t.asset.id));
 	try {
-		await api.restoreTrash(ids);
+		await queued(ids, () => api.restoreTrash(ids));
 	} catch (e) {
-		app.trash = before;
+		const have = new Set(app.trash.map((t) => t.asset.id));
+		app.trash = [...app.trash, ...removed.filter((t) => !have.has(t.asset.id))].sort((a, b) => b.trashedAt.localeCompare(a.trashedAt));
 		throw e;
 	}
 	await app.reload();
@@ -376,29 +370,37 @@ export async function restoreFromTrash(ids: string[]) {
 
 /** Deletes Trash uploads for good (all of them without ids); hidden photos stay in the Trash. */
 export async function deleteForever(ids?: string[]) {
-	await rotationsSettled(ids ?? [...rotating.keys()]);
 	const set = ids && new Set(ids);
-	const before = app.trash;
 	// only uploads are deleted for good; hidden photos stay in the Trash
-	app.trash = app.trash.filter((t) => t.virtual || (set ? !set.has(t.asset.id) : false));
+	const gone = app.trash.filter((t) => !t.virtual && (set ? set.has(t.asset.id) : true));
+	const goneIds = new Set(gone.map((t) => t.asset.id));
+	app.trash = app.trash.filter((t) => !goneIds.has(t.asset.id));
 	try {
-		await api.deleteForever(ids);
+		// all of them: after every change given so far to any photo in the Trash
+		await queued(ids ?? gone.map((t) => t.asset.id), () => api.deleteForever(ids));
 	} catch (e) {
-		app.trash = before;
+		const have = new Set(app.trash.map((t) => t.asset.id));
+		app.trash = [...app.trash, ...gone.filter((t) => !have.has(t.asset.id))].sort((a, b) => b.trashedAt.localeCompare(a.trashedAt));
 		throw e;
 	}
 	await app.reload();
 }
 
 export async function addToAlbum(albumId: number, ids: string[]) {
-	await api.albumAssets(albumId, { add: ids });
+	await queued(ids, () => api.albumAssets(albumId, { add: ids }));
 	await app.reload();
 }
 
 export async function removeFromAlbum(albumId: number, ids: string[]) {
 	const set = new Set(ids);
+	const was = app.albums.find((al) => al.id === albumId)?.assetIds.filter((i) => set.has(i)) ?? [];
 	app.albums = app.albums.map((al) => (al.id === albumId ? { ...al, assetIds: al.assetIds.filter((i) => !set.has(i)) } : al));
-	await api.albumAssets(albumId, { remove: ids });
+	try {
+		await queued(ids, () => api.albumAssets(albumId, { remove: ids }));
+	} catch (e) {
+		app.albums = app.albums.map((al) => (al.id === albumId ? { ...al, assetIds: [...new Set([...al.assetIds, ...was])] } : al));
+		throw e;
+	}
 	await app.reload();
 }
 

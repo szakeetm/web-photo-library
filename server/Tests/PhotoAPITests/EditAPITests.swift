@@ -55,6 +55,25 @@ import ImageIO
         }
     }
 
+    @Test func photoInTheTrashIsNotEdited() async throws {
+        let e = try base.env()
+        let id = base.indexed(e)
+        _ = try PhotoTrash.trash(ids: [id], db: e.services.db, uploadsRoot: nil)
+        try await e.app.test(.router) { client in
+            try await client.execute(uri: "/api/assets/\(id)/edits", method: .post,
+                                     body: body(#"{"recipe":{"schema":1,"exposure":0.5}}"#)) { res in
+                #expect(res.status == .notFound)
+            }
+            try await client.execute(uri: "/api/assets/\(id)/revert", method: .post) { res in
+                #expect(res.status == .notFound)
+            }
+        }
+        // nothing was written: no version, the photo comes back from the Trash unchanged
+        #expect(try e.services.edits.history(id: id)?.versions.isEmpty ?? true)
+        _ = try PhotoTrash.restore(ids: [id], db: e.services.db, uploadsRoot: nil)
+        #expect(try e.services.catalog.catalogAsset(id: id)?.ev == 0)
+    }
+
     @Test func olderSaveNeverReplacesNewerAndVersionsAreNotReused() throws {
         let e = try base.env()
         let id = base.indexed(e)

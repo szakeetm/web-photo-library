@@ -10,7 +10,8 @@
 	import { folderHref, LOCAL_FOLDERS } from '#lib/sources.ts';
 	import { api, isPhotosRoot, originalUrl, previewUrl, thumbUrl, type AssetDetail, type CatalogAsset } from '#lib/api.ts';
 	import { captureLabel, isoLabel, offsetLabel, isoDateTime } from '#lib/dates.ts';
-	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, rotatePhotos, pendingTurns, deletePhotos, restoreFromTrash, deleteForever, mayChange, pendingOps, queued, reportError } from '#lib/state.svelte.ts';
+	import { hint } from '#lib/hint.svelte.ts';
 	import { deleteFlow, deleteKey } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import Icon from './Icon.svelte';
@@ -124,15 +125,16 @@
 	}
 
 	async function trimCall(work: () => Promise<{ asset: CatalogAsset }>, after?: (a: CatalogAsset) => void) {
+		if (!asset || trimBusy || !mayChange([asset.id])) return;
 		trimBusy = true;
 		try {
-			const r = await work();
+			const r = await queued([asset.id], work);
 			if (after) after(r.asset);
 			else app.patchAsset(r.asset);
 			trimming = false;
 			app.reload();
 		} catch (e) {
-			alert((e as Error).message);
+			reportError(e, "Couldn't trim the video: ");
 		} finally {
 			trimBusy = false;
 		}
@@ -327,18 +329,18 @@
 	}
 
 	function openEditor() {
-		if (!asset || !net.online || !canEdit || isVideo || rotations > 0) return;
+		if (!asset || !net.online || !canEdit || isVideo) return;
+		if (changing) return hint.show('Waiting for the changes to this photo to be saved…');
 		resetZoom();
 		editing = true;
 	}
 
-	/** Rotations of the shown photos still being saved (the picture turns when its save is done). */
-	let rotations = $state(0);
+	/** The shown photo has changes still being saved (rotations, a favourite, a trim…). */
+	const changing = $derived(!!asset && pendingOps.has(asset.id));
 	/** One click instead of edit → rotate → done: the current edit turns with the photo. */
 	function rotate(clockwise: boolean) {
-		if (!asset || !net.online || isVideo) return;
+		if (!asset || isVideo || !mayChange([asset.id])) return;
 		resetZoom();
-		rotations++;
 		rotatePhotos([asset.id], clockwise, {
 			preview: true,
 			beforeSwap: (pid) => {
@@ -349,17 +351,16 @@
 				setTimeout(() => ghost?.src === src && (ghost = null), 4000); // never stuck
 			}
 		})
-			.catch((e) => alert(`Couldn't rotate the photo: ${(e as Error).message}`))
-			.finally(() => rotations--);
+			.catch((e) => reportError(e, "Couldn't rotate the photo: "));
 	}
 
 	function toggleFavorite() {
-		if (asset && net.online) setFavorite([asset.id], !asset.fav).catch((e) => alert(e.message));
+		if (asset && mayChange([asset.id])) setFavorite([asset.id], !asset.fav).catch((e) => reportError(e));
 	}
 
 	/** Takes the shown photo out of this list (delete, restore…), then shows its neighbour or closes. */
 	async function leave(work: (id: string) => Promise<unknown>) {
-		if (!asset || !net.online) return;
+		if (!asset || !mayChange([asset.id])) return;
 		const gone = asset.id;
 		const neighbour = ids[index + 1] ?? ids[index - 1];
 		try {
@@ -369,21 +370,22 @@
 			await work(gone);
 			if (!neighbour) onClose();
 		} catch (e) {
-			if (neighbour) onChange(gone);
-			alert((e as Error).message);
+			// back to it, unless another photo was opened meanwhile
+			if (neighbour && id === neighbour) onChange(gone);
+			reportError(e);
 		}
 	}
 
 	/** `immediate` (⌘⌫ / Ctrl+Delete): no question, Undo instead. */
 	function removeUpload(immediate = false) {
-		if (!asset || !net.online) return;
+		if (!asset || !mayChange([asset.id])) return;
 		const id = asset.id;
 		const msg = app.isUpload(id)
 			? "It stays in the Trash until you delete it there (then it's deleted from disk)."
 			: 'Its file stays where it is (it is never deleted): it is only hidden here. Restore it from the Trash any time.';
 		deleteFlow
 			.remove([id], app.isUpload(id) ? 'Delete this uploaded photo?' : 'Hide this photo?', msg, () => leave((x) => deletePhotos([x])), immediate)
-			.catch((e) => alert((e as Error).message));
+			.catch((e) => reportError(e));
 	}
 
 	function deletePermanently() {
@@ -950,11 +952,11 @@
 					aria-label="Trim"><Icon name="trim" /></button>
 			{/if}
 			{#if !isVideo}
-				<button class="icon-btn rot" class:busy={rotations > 0} onclick={() => rotate(false)} title="Rotate left (L)"
+				<button class="icon-btn rot" class:busy={changing} onclick={() => rotate(false)} title="Rotate left (L)"
 					aria-label="Rotate left"><Icon name="rotate" /></button>
-				<button class="icon-btn rot right" class:busy={rotations > 0} onclick={() => rotate(true)} title="Rotate right (R)"
+				<button class="icon-btn rot right" class:busy={changing} onclick={() => rotate(true)} title="Rotate right (R)"
 					aria-label="Rotate right"><span class="mirror"><Icon name="rotate" /></span></button>
-				<button class="icon-btn" onclick={openEditor} disabled={!canEdit || rotations > 0}
+				<button class="icon-btn" onclick={openEditor} disabled={!canEdit}
 					title={canEdit ? 'Edit (E)' : "Editing needs WebGPU, which this browser doesn't offer"}
 					aria-label="Edit"><Icon name="edit" /></button>
 			{/if}

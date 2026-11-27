@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Bottom bar for a multi-photo selection.
-	import { app, setFavorite, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever } from '#lib/state.svelte.ts';
+	import { app, setFavorite, rotatePhotos, addToAlbum, createAlbum, removeFromAlbum, restoreFromTrash, deleteForever, mayChange, reportError } from '#lib/state.svelte.ts';
 	import { deleteFlow, deleteKey, deleteQuestion } from '#lib/deleteFlow.svelte.ts';
 	import { net } from '#lib/net.svelte.ts';
 	import { nextFavoriteValue, SELECT_ALL_MAX, selectAllRefused, type Selection } from '#lib/selection.svelte.ts';
@@ -48,16 +48,17 @@
 	}
 
 	function rotate(clockwise: boolean) {
-		if (!okForMany(clockwise ? 'Rotate right' : 'Rotate left')) return;
+		if (!mayChange(ids) || !okForMany(clockwise ? 'Rotate right' : 'Rotate left')) return;
 		run(() => rotatePhotos(ids, clockwise));
 	}
 
 	async function run(work: () => Promise<unknown>) {
+		if (busy || !mayChange(ids)) return;
 		busy = true;
 		try {
 			await work();
 		} catch (e) {
-			alert((e as Error).message);
+			reportError(e);
 		} finally {
 			busy = false;
 		}
@@ -69,17 +70,19 @@
 			// Backspace/Delete: delete the selected photos (asking first); with ⌘ or Ctrl at once, with Undo
 			const del = deleteKey(e);
 			if (del) {
-				if (trash || page.state.viewer || picking || dating || downloading || busy || !selection.count || !net.online) return;
+				if (trash || page.state.viewer || picking || dating || downloading || !selection.count) return;
 				if (document.querySelector('[role=dialog], [role=alertdialog]')) return;
 				e.preventDefault();
+				if (busy) return hint.show('Still saving the previous change… try again in a moment.');
 				remove(del === 'now');
 				return;
 			}
 			const k = e.key.toLowerCase();
 			if ((k !== 'l' && k !== 'r') || e.metaKey || e.ctrlKey || e.altKey || trash) return;
 			if ((e.target as HTMLElement).closest?.('input, select, textarea') || document.querySelector('[role=dialog]')) return;
-			if (page.state.viewer || picking || dating || downloading || busy || !hasPhotos || !net.online) return;
+			if (page.state.viewer || picking || dating || downloading || !hasPhotos) return;
 			e.preventDefault();
+			if (busy) return hint.show('Still saving the previous change… try again in a moment.');
 			rotate(k === 'r');
 		};
 		window.addEventListener('keydown', onKey);
@@ -93,7 +96,7 @@
 	}
 
 	function remove(immediate = false) {
-		if (!okForMany('Delete')) return;
+		if (!mayChange(ids) || !okForMany('Delete')) return;
 		const chosen = [...ids];
 		const q = deleteQuestion(chosen, (i) => app.isUpload(i));
 		run(async () => {
