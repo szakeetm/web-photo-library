@@ -230,22 +230,6 @@
 						1,
 						'rgb(255, 235, 80)'
 					],
-						['heatmap-density'],
-						0,
-						'rgba(70, 40, 160, 0)',
-						0.08,
-						'rgba(80, 60, 200, 0.55)',
-						0.25,
-						'rgb(120, 70, 230)',
-						0.45,
-						'rgb(200, 60, 200)',
-						0.65,
-						'rgb(240, 80, 120)',
-						0.82,
-						'rgb(255, 150, 50)',
-						1,
-						'rgb(255, 235, 80)'
-					],
 					// Big, soft blobs that grow with the zoom so single photos stay visible up close.
 					'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 6, 12, 12, 20, 18, 36],
 					'heatmap-opacity': 0.8
