@@ -87,7 +87,7 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
   (playback and exports use it); Save as New writes a trimmed copy, without re-encoding, into the
   uploads folder.
 - **Analyse photos.** Text in photos (for search) and duplicate fingerprints are made on the Mac
-  after each scan, in one pass; Settings → Analyse photos runs it by hand.
+  after each scan, in one pass; Settings → Server → Photo analysis runs it by hand.
 - **Export.** One photo, a selection, an album, several albums (Collections → Select) or the whole
   library (Library → ↓). On desktop: originals, with edits, or both (the originals of edited items in
   an `Originals/` folder); Live Photo videos; Google Photos JSON or XMP sidecars (date with time zone,
@@ -149,10 +149,11 @@ Safari tab), with Local mode off; the phone editor shot is older (the Simulator 
   Map tiles come from [OpenFreeMap](https://openfreemap.org) (style changeable in Settings);
   tiles you have seen keep working offline.
 - **Installable** to the iPhone Home Screen (Share → Add to Home Screen) or the Dock / app list.
-- **Everything configured in the browser:** library folder (server-side folder picker), refresh
-  jobs (Detect changes, Re-index, Rebuild caches, Purge missing), data location with “Move…”.
-  Settings is split into About, This device (only this browser) and Server (shared by every
-  device).
+- **Everything configured in the browser:** Settings is split into About, This device (only this
+  browser), Photo sources (each source with Refresh and auto-refresh, and Refresh All) and Server
+  (activity, albums, analysis, videos, storage with “Move…”, backup, access & map, and maintenance:
+  re-read dates and places, rebuild thumbnails, purge missing, restart). Photo sources and Server are
+  shared by every device.
 - **Versioned API.** Every response carries the API version; if the app and server don't match,
   the app asks you to update (a reload — the server serves the app).
 
@@ -204,7 +205,7 @@ It converts [facenet-pytorch](https://github.com/timesler/facenet-pytorch)'s Fac
 (Inception-ResNet-v1 trained on VGGFace2, MIT-licensed weights) to Core ML and installs it in the
 data location (`<data location>/models/FaceNet.mlpackage`, 45 MB; by default
 `~/Library/Application Support/PhotoServer`). Then
-choose **Settings → Find faces**; later scans pick up new photos on their own. To remove it again:
+choose **Settings → Server → Photo analysis → Find faces**; later scans pick up new photos on their own. To remove it again:
 delete that `.mlpackage`, `tools/face-model/.venv` (Python environment, ~0.5 GB), and the
 download caches `~/.cache/uv` and `~/.cache/torch`.
 
@@ -218,7 +219,7 @@ tailscale serve --bg 8787
 ```
 
 Then open `https://<your-mac>.<your-tailnet>.ts.net` on the phone and use Share → **Add to Home
-Screen**. Optionally set your Tailscale login under Settings → Access so only you get in.
+Screen**. Optionally set your Tailscale login under Settings → Server → Access & map so only you get in.
 
 ## Develop
 

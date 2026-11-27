@@ -43,7 +43,7 @@
 			<p>No photos yet: add a folder or choose an uploads folder.</p>
 			<a class="btn primary" href="/settings">Open Settings</a>
 		{:else}
-			<p class="muted">No photos yet. Run “Detect changes” in Settings.</p>
+			<p class="muted">No photos yet. Press “Refresh All” in Settings → Photo sources.</p>
 		{/if}
 	</div>
 {:else}

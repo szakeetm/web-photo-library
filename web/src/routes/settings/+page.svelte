@@ -25,22 +25,35 @@
 	let moving = $state(false);
 
 	const jobNames: Record<string, string> = {
-		'detect-changes': 'Detect changes',
-		reindex: 'Re-index',
-		'rebuild-caches': 'Rebuild caches',
+		'detect-changes': 'Refresh all sources',
+		reindex: 'Re-read dates and places',
+		'rebuild-caches': 'Rebuild thumbnails and previews',
 		'purge-missing': 'Purge missing',
 		'import-takeout-albums': 'Import Takeout albums',
 		faces: 'Find faces',
 		recluster: 'Regroup faces',
 		objects: 'Analyse photos'
 	};
+	/** A source's name by its root, for "Refresh <source>". */
+	function sourceTitle(root: string): string {
+		if (root === 'uploads') return 'Uploads';
+		if (root === 'library') return settings?.libraryPath?.split('/').filter(Boolean).pop() ?? 'library folder';
+		return (
+			settings?.localFolders.find((f) => f.root === root)?.title ??
+			settings?.photosLibraries.find((l) => l.root === root)?.title ??
+			settings?.remoteSources.find((r) => r.root === root)?.title ??
+			root
+		);
+	}
+	/** A job's name: a Refresh says which source. */
+	const jobName = (j: Job) => (j.kind === 'detect-changes' && j.target ? `Refresh ${sourceTitle(j.target)}` : (jobNames[j.kind] ?? j.kind));
 	/** Why removing or relocating a source has to wait. */
 	const busyTitle = $derived(
 		!current
 			? undefined
 			: current.kind === 'faces' || current.kind === 'objects'
-				? `Wait for ${jobNames[current.kind] ?? current.kind} to finish, or turn it off in Photo analysis.`
-				: `Wait for ${jobNames[current.kind] ?? current.kind} to finish (see Library below).`
+				? `Wait for ${jobName(current)} to finish, or turn it off in Photo analysis.`
+				: `Wait for ${jobName(current)} to finish (see Server → Activity).`
 	);
 	const phaseNames: Record<string, string> = {
 		scan: 'Scanning library',
@@ -706,11 +719,6 @@
 		</div>
 	</section>
 
-	<div class="part">
-		<h2><Icon name="server" size={20} /> Server</h2>
-		<p class="muted">Settings of the Mac that hosts the library. They apply to every device using it.</p>
-	</div>
-
 	{#if !net.online}
 		<p class="msg">The server can't be reached, so its settings are hidden. This device's settings are above.</p>
 	{:else}
@@ -735,24 +743,32 @@
 		{/each}
 	{/snippet}
 
+	<div class="part">
+		<h2><Icon name="folder" size={20} /> Photo sources</h2>
+		<p class="muted">
+			Where the photos come from, on the Mac that hosts the library (these settings apply to every device). Each source is
+			read where it is and never changed. Refresh one to pick up what changed in it, or turn on its auto-refresh.
+		</p>
+	</div>
+
 	<section>
-		<h3>Local folders</h3>
+		<h3>All sources</h3>
 		<div class="row">
 			<div class="label">
-				<div>Uploads</div>
-				<div class="muted path">{settings?.uploadsPath ?? 'Not set: uploading is off'}</div>
-				{#if settings?.uploadsPath}
-					<div class="muted small">{settings.uploadsFiles.toLocaleString()} photo and video files · {fmtBytes(settings.uploadsBytes)}</div>
-					{@render status('uploads', settings.uploadsLastScan)}
-					{@render refresh('uploads')}
-				{/if}
+				<div>Refresh all sources</div>
 				<div class="muted small">
-					Photos uploaded from your devices go here (phone-uploads/, desktop-uploads/), never into the other folders. It is
-					always a source: what is in it shows under Folders, even with no other folder set.
+					Looks for new, changed and removed photos in every source below, one after the other: the same as pressing
+					each one's Refresh. Photos already in are skipped, so it is quick when little changed.
 				</div>
 			</div>
-			<button class="btn" onclick={() => (picker = 'uploads')}>{settings?.uploadsPath ? 'Change…' : 'Choose…'}</button>
+			<button class="btn" disabled={!hasSources || scanQueued('*')} onclick={() => start('detect-changes')}
+				>{scanQueued('*') ? 'Refreshing…' : 'Refresh All'}</button
+			>
 		</div>
+	</section>
+
+	<section>
+		<h3>Folders on this Mac</h3>
 		{#if settings?.libraryPath}
 			<div class="row">
 				<div class="label">
@@ -796,6 +812,26 @@
 	</section>
 
 	<section>
+		<h3>Uploads</h3>
+		<div class="row">
+			<div class="label">
+				<div>Uploads</div>
+				<div class="muted path">{settings?.uploadsPath ?? 'Not set: uploading is off'}</div>
+				{#if settings?.uploadsPath}
+					<div class="muted small">{settings.uploadsFiles.toLocaleString()} photo and video files · {fmtBytes(settings.uploadsBytes)}</div>
+					{@render status('uploads', settings.uploadsLastScan)}
+					{@render refresh('uploads')}
+				{/if}
+				<div class="muted small">
+					Photos uploaded from your devices go here (phone-uploads/, desktop-uploads/), never into the other folders. It is
+					always a source: what is in it shows under Folders, even with no other folder set.
+				</div>
+			</div>
+			<button class="btn" onclick={() => (picker = 'uploads')}>{settings?.uploadsPath ? 'Change…' : 'Choose…'}</button>
+		</div>
+	</section>
+
+	<section>
 		<h3>Apple Photos libraries</h3>
 		{#each settings?.photosLibraries ?? [] as lib (lib.id)}
 			<div class="row">
@@ -827,7 +863,19 @@
 	</section>
 
 	<section>
-		<h3>Folders on rclone remotes</h3>
+		<h3>Cloud folders (rclone)</h3>
+		<div class="row">
+			<div class="label">
+				<div>rclone</div>
+				{#if settings?.rclone}
+					<div class="muted small">{settings.rclone.version} · {settings.rclone.path}</div>
+				{:else if settings}
+					<div class="muted small warn">
+						Not found. On the Mac run <code>brew install rclone</code>, then set up your cloud storage with <code>rclone config</code>.
+					</div>
+				{/if}
+			</div>
+		</div>
 		{#each settings?.remoteSources ?? [] as src (src.id)}
 			{@const scanningThis = current?.state === 'running' && !!current.phase?.endsWith(':' + src.root)}
 			<div class="row">
@@ -853,35 +901,55 @@
 				<div class="muted small">
 					Folders on pCloud or any other rclone remote, read-only. Scans list them in one go and fetch new photos (many at a
 					time) to make their thumbnails and previews; originals are fetched again when needed — to zoom, edit, play or
-					export. Moved one? Locate… points the app at its new place, keeping everything.{#if !settings?.rclone} Needs rclone on the Mac (see Backup).{/if}
+					export. Moved one? Locate… points the app at its new place, keeping everything.{#if !settings?.rclone} Needs rclone on the Mac (above).{/if}
 				</div>
 			</div>
 			<button class="btn" disabled={!settings?.rclone} onclick={() => (pickingSource = true)}>Add rclone Folder…</button>
 		</div>
-		{#if settings?.remoteSources.length}
-			<div class="row">
-				<div class="label">
-					<div>Originals kept on the Mac</div>
-					<div class="muted small">
-						The most recently used originals from rclone folders stay on the Mac, up to this size: {fmtBytes(settings.originalsCacheBytes)} now.
-					</div>
-				</div>
-				<select value={settings.originalsCacheGB} onchange={(e) => setCacheGB(Number((e.target as HTMLSelectElement).value))}>
-					{#each cacheSizes as gb (gb)}<option value={gb}>{gb} GB</option>{/each}
-					{#if !cacheSizes.includes(settings.originalsCacheGB)}<option value={settings.originalsCacheGB}>{settings.originalsCacheGB} GB</option>{/if}
-				</select>
-			</div>
-		{/if}
 	</section>
 
+	<div class="part">
+		<h2><Icon name="server" size={20} /> Server</h2>
+		<p class="muted">What the Mac does with the photos, where it keeps its data, and its upkeep.</p>
+	</div>
+
+	{#if current || recent.length}
+		<section>
+			<h3>Activity</h3>
+			{#if current}
+				<div class="job">
+					<div class="jobhead">
+						<strong>{jobName(current)}</strong>
+						<span class="muted"
+							>{current.state === 'queued' ? 'Waiting…' : phaseLabel(current.phase)}
+							{#if current.total}· {current.progress} / {current.total}{/if}</span
+						>
+						<button class="btn" onclick={() => current && api.cancelJob(current.id)}>Cancel</button>
+					</div>
+					<div class="bar"><div style="width: {pct(current)}%"></div></div>
+				</div>
+			{/if}
+			{#if recent.length}
+				<details>
+					<summary class="muted">Recent jobs</summary>
+					<ul class="jobs">
+						{#each recent as j (j.id)}
+							<li>
+								<span class="state {j.state}">{j.state}</span>
+								<strong>{jobName(j)}</strong>
+								<span class="muted">{when(j.endedAt ?? j.startedAt)}</span>
+								{#if j.error}<pre class="error">{j.error}</pre>{/if}
+								{#if j.message}<pre>{j.message}</pre>{/if}
+							</li>
+						{/each}
+					</ul>
+				</details>
+			{/if}
+		</section>
+	{/if}
+
 	<section>
-		<h3>Library</h3>
-		<div class="row actions">
-			<button class="btn" disabled={!hasSources} onclick={() => start('detect-changes')}>Detect changes</button>
-			<button class="btn" disabled={!hasSources} onclick={() => start('reindex')}>Re-index</button>
-			<button class="btn" disabled={!hasSources} onclick={() => start('rebuild-caches')}>Rebuild caches</button>
-			<button class="btn danger" onclick={() => start('purge-missing')}>Purge missing</button>
-		</div>
+		<h3>Albums</h3>
 		<div class="row actions">
 			<button class="btn" disabled={!hasSources} onclick={() => (takeoutOpen = true)}>Import Takeout albums…</button>
 			<span class="muted small"
@@ -890,39 +958,59 @@
 			>
 			{#if takeoutOpen}<TakeoutImportSheet onClose={() => (takeoutOpen = false)} />{/if}
 		</div>
-		<p class="hint muted">
-			Detect changes picks up new, changed and removed files. Re-index re-reads dates and locations of every photo.
-			Rebuild caches regenerates thumbnails and previews. Purge missing permanently forgets photos whose files are gone.
-		</p>
-		{#if current}
-			<div class="job">
-				<div class="jobhead">
-					<strong>{jobNames[current.kind] ?? current.kind}</strong>
-					<span class="muted"
-						>{current.state === 'queued' ? 'Waiting…' : phaseLabel(current.phase)}
-						{#if current.total}· {current.progress} / {current.total}{/if}</span
-					>
-					<button class="btn" onclick={() => current && api.cancelJob(current.id)}>Cancel</button>
+	</section>
+
+	<section>
+		<h3>Photo analysis</h3>
+		<div class="row">
+			<div class="label">
+				<div class="muted small">
+					Done on this Mac (Apple Vision and the Neural Engine) after each scan; nothing leaves the Mac. Turning one off
+					stops it right away (what it found stays), so sources can be removed or located without waiting for it.
 				</div>
-				<div class="bar"><div style="width: {pct(current)}%"></div></div>
 			</div>
-		{/if}
-		{#if recent.length}
-			<details>
-				<summary class="muted">Recent jobs</summary>
-				<ul class="jobs">
-					{#each recent as j (j.id)}
-						<li>
-							<span class="state {j.state}">{j.state}</span>
-							<strong>{jobNames[j.kind] ?? j.kind}</strong>
-							<span class="muted">{when(j.endedAt ?? j.startedAt)}</span>
-							{#if j.error}<pre class="error">{j.error}</pre>{/if}
-							{#if j.message}<pre>{j.message}</pre>{/if}
-						</li>
-					{/each}
-				</ul>
-			</details>
-		{/if}
+		</div>
+		<div class="row">
+			<div class="label">
+				<div>Faces</div>
+				<div class="muted small">Finds faces and groups them into people.</div>
+				{#if settings && !settings.faceModelInstalled}
+					<div class="muted small warn">
+						The recognition model isn't installed. On the Mac run <code>tools/face-model/make.sh</code> (once), then Find faces.
+					</div>
+				{/if}
+			</div>
+			<label class="switch">
+				<input type="checkbox" checked={settings?.facesEnabled ?? true} onchange={(e) => setAnalysis({ facesEnabled: (e.target as HTMLInputElement).checked })} />
+				<span>On</span>
+			</label>
+		</div>
+		<div class="row actions">
+			<button class="btn" disabled={!settings?.faceModelInstalled || !settings?.facesEnabled} onclick={() => start('faces')}>Find faces</button>
+			<button class="btn" disabled={!settings?.faceModelInstalled} onclick={() => start('recluster')}>Regroup faces</button>
+			<span class="muted small">Regroup rebuilds unnamed groups; names and your corrections stay.</span>
+		</div>
+		<div class="row">
+			<div class="label">
+				<div>Text and duplicates</div>
+				<div class="muted small">
+					Reads text in photos for search, and fingerprints photos to find duplicates. Browse them in Collections
+					(Duplicates), or search for text.
+				</div>
+			</div>
+			<label class="switch">
+				<input type="checkbox" checked={settings?.objectsEnabled ?? true} onchange={(e) => setAnalysis({ objectsEnabled: (e.target as HTMLInputElement).checked })} />
+				<span>On</span>
+			</label>
+		</div>
+		<div class="row actions">
+			<button
+				class="btn"
+				disabled={!hasSources || !settings?.objectsEnabled || !!analysisJob || settings?.analysisPending === 0}
+				onclick={() => start('objects')}>Analyse photos</button
+			>
+			<span class="small" class:muted={!analysisJob}>{analysisStatus}</span>
+		</div>
 	</section>
 
 	<section>
@@ -995,22 +1083,27 @@
 				>{moving ? 'Moving…' : 'Move…'}</button
 			>
 		</div>
+		{#if settings?.remoteSources.length}
+			<div class="row">
+				<div class="label">
+					<div>Originals kept on the Mac</div>
+					<div class="muted small">
+						The most recently used originals from rclone folders stay on the Mac, up to this size: {fmtBytes(settings.originalsCacheBytes)} now.
+					</div>
+				</div>
+				<select value={settings.originalsCacheGB} onchange={(e) => setCacheGB(Number((e.target as HTMLSelectElement).value))}>
+					{#each cacheSizes as gb (gb)}<option value={gb}>{gb} GB</option>{/each}
+					{#if !cacheSizes.includes(settings.originalsCacheGB)}<option value={settings.originalsCacheGB}>{settings.originalsCacheGB} GB</option>{/if}
+				</select>
+			</div>
+		{/if}
 	</section>
 
 	<section>
 		<h3>Backup</h3>
-		<div class="row">
-			<div class="label">
-				<div>rclone</div>
-				{#if settings?.rclone}
-					<div class="muted small">{settings.rclone.version} · {settings.rclone.path}</div>
-				{:else if settings}
-					<div class="muted small warn">
-						Not found. On the Mac run <code>brew install rclone</code>, then set up your cloud storage with <code>rclone config</code>.
-					</div>
-				{/if}
-			</div>
-		</div>
+		{#if settings && !settings.rclone}
+			<div class="row"><div class="label"><div class="small warn">Backups use rclone, which isn't installed: see Photo sources → Cloud folders.</div></div></div>
+		{/if}
 		<div class="row">
 			<div class="label">
 				<div>Back up the database and uploads</div>
@@ -1113,60 +1206,25 @@
 	</section>
 
 	<section>
-		<h3>Photo analysis</h3>
+		<h3>Access &amp; map</h3>
 		<div class="row">
 			<div class="label">
+				<div>Owner Tailscale login</div>
 				<div class="muted small">
-					Done on this Mac (Apple Vision and the Neural Engine) after each scan; nothing leaves the Mac. Turning one off
-					stops it right away (what it found stays), so sources can be removed or located without waiting for it.
+					If set, other Tailscale users are refused. Leave empty to allow everyone on your tailnet.
 				</div>
 			</div>
 		</div>
-		<div class="row">
-			<div class="label">
-				<div>Faces</div>
-				<div class="muted small">Finds faces and groups them into people.</div>
-				{#if settings && !settings.faceModelInstalled}
-					<div class="muted small warn">
-						The recognition model isn't installed. On the Mac run <code>tools/face-model/make.sh</code> (once), then Find faces.
-					</div>
-				{/if}
-			</div>
-			<label class="switch">
-				<input type="checkbox" checked={settings?.facesEnabled ?? true} onchange={(e) => setAnalysis({ facesEnabled: (e.target as HTMLInputElement).checked })} />
-				<span>On</span>
-			</label>
-		</div>
-		<div class="row actions">
-			<button class="btn" disabled={!settings?.faceModelInstalled || !settings?.facesEnabled} onclick={() => start('faces')}>Find faces</button>
-			<button class="btn" disabled={!settings?.faceModelInstalled} onclick={() => start('recluster')}>Regroup faces</button>
-			<span class="muted small">Regroup rebuilds unnamed groups; names and your corrections stay.</span>
-		</div>
-		<div class="row">
-			<div class="label">
-				<div>Text and duplicates</div>
-				<div class="muted small">
-					Reads text in photos for search, and fingerprints photos to find duplicates. Browse them in Collections
-					(Duplicates), or search for text.
-				</div>
-			</div>
-			<label class="switch">
-				<input type="checkbox" checked={settings?.objectsEnabled ?? true} onchange={(e) => setAnalysis({ objectsEnabled: (e.target as HTMLInputElement).checked })} />
-				<span>On</span>
-			</label>
-		</div>
-		<div class="row actions">
-			<button
-				class="btn"
-				disabled={!hasSources || !settings?.objectsEnabled || !!analysisJob || settings?.analysisPending === 0}
-				onclick={() => start('objects')}>Analyse photos</button
-			>
-			<span class="small" class:muted={!analysisJob}>{analysisStatus}</span>
-		</div>
-	</section>
-
-	<section>
-		<h3>Places</h3>
+		<form
+			class="row"
+			onsubmit={(e) => {
+				e.preventDefault();
+				saveOwner();
+			}}
+		>
+			<input class="text" placeholder="you@example.com" bind:value={owner} autocapitalize="off" spellcheck="false" />
+			<button class="btn">Save</button>
+		</form>
 		<div class="row">
 			<div class="label">
 				<div>Map style</div>
@@ -1189,29 +1247,28 @@
 	</section>
 
 	<section>
-		<h3>Access</h3>
+		<h3>Maintenance</h3>
 		<div class="row">
 			<div class="label">
-				<div>Owner Tailscale login</div>
-				<div class="muted small">
-					If set, other Tailscale users are refused. Leave empty to allow everyone on your tailnet.
-				</div>
+				<div>Re-read dates and places</div>
+				<div class="muted small">Reads the dates, places and other details of every photo in every source again (after a fix in how they are read). Takes a while; files aren't fetched again.</div>
 			</div>
+			<button class="btn" disabled={!hasSources} onclick={() => start('reindex')}>Re-read</button>
 		</div>
-		<form
-			class="row"
-			onsubmit={(e) => {
-				e.preventDefault();
-				saveOwner();
-			}}
-		>
-			<input class="text" placeholder="you@example.com" bind:value={owner} autocapitalize="off" spellcheck="false" />
-			<button class="btn">Save</button>
-		</form>
-	</section>
-
-	<section>
-		<h3>Restart</h3>
+		<div class="row">
+			<div class="label">
+				<div>Rebuild thumbnails and previews</div>
+				<div class="muted small">Makes every thumbnail and preview again, e.g. after they were damaged. Missing ones are made by Refresh anyway.</div>
+			</div>
+			<button class="btn" disabled={!hasSources} onclick={() => start('rebuild-caches')}>Rebuild</button>
+		</div>
+		<div class="row">
+			<div class="label">
+				<div>Purge missing</div>
+				<div class="muted small">Permanently forgets photos whose files are gone (they are hidden everywhere already), with their thumbnails. Cannot be undone.</div>
+			</div>
+			<button class="btn danger" onclick={() => start('purge-missing')}>Purge</button>
+		</div>
 		<div class="row">
 			<div class="label">
 				<div>Restart server</div>
@@ -1224,6 +1281,16 @@
 			>
 		</div>
 	</section>
+
+
+
+
+
+
+
+
+
+
 	{/if}
 </div>
 
