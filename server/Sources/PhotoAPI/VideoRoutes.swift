@@ -198,7 +198,7 @@ extension APIRoutes {
         struct CacheBody: Decodable { let keepDays: Int? }
         api.put("videos/cache") { req, ctx in
             guard let body = try? await req.decode(as: CacheBody.self, context: ctx),
-                  body.keepDays.map({ [1, 7, 30].contains($0) }) ?? true
+                  body.keepDays.map({ [1, 7, 30, 90].contains($0) }) ?? true
             else { throw HTTPError(.badRequest) }
             return try json(try await blocking {
                 try services.settings.set(.videoCacheDays, body.keepDays)
