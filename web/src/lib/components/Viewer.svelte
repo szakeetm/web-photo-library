@@ -923,7 +923,7 @@
 			{/if}
 		</div>
 		{#if trash}
-			<button class="icon-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
+			<button class="icon-btn info-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
 				><Icon name="info" /></button
 			>
 			{#if net.online}
@@ -940,7 +940,7 @@
 		{:else}
 		<button class="icon-btn heart" class:filled={asset?.fav} onclick={toggleFavorite} disabled={!net.online}
 			aria-label={asset?.fav ? 'Unfavourite' : 'Favourite'} aria-pressed={asset?.fav ?? false}><Icon name="heart" /></button>
-		<button class="icon-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
+		<button class="icon-btn info-btn" class:on={infoOpen} onclick={() => (infoOpen = !infoOpen)} aria-label="Info"
 			><Icon name="info" /></button
 		>
 		{#if net.online}
@@ -1289,9 +1289,9 @@
 	.rot.busy {
 		opacity: 0.5;
 	}
-	/* a phone keeps room for the date: only rotate left there, like Photos on the iPhone */
+	/* a phone: rotate left and right instead of Info (swiping the photo up shows its info there) */
 	@media (max-width: 480px) {
-		.rot.right {
+		.info-btn {
 			display: none;
 		}
 	}
