@@ -345,10 +345,12 @@ export interface Settings {
 	/** remote originals kept on the Mac: the limit (GB), and what they take now */
 	originalsCacheGB: number;
 	originalsCacheBytes: number;
-	/** Each source's auto-refresh: root → minutes between scans (not listed = off). */
+	/** Each source's auto-refresh: root → minutes between scans, 0 = Immediate (not listed = off). */
 	sourceRefreshMinutes?: Record<string, number>;
 	/** The auto-refresh intervals offered, in minutes. */
 	refreshChoices?: number[];
+	/** The sources that can be set to Immediate (watched for changes): all but remote ones. */
+	watchableSources?: string[];
 }
 
 export interface PhotosLibraryInfo {

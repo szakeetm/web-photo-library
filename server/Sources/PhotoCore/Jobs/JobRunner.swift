@@ -32,11 +32,15 @@ public final class JobRunner: @unchecked Sendable {
     private let group = DispatchGroup()
     private let lock = NSLock()
     private var cancelled = Set<Int64>()
+    /// Scans queued by the watcher (new files still being written wait for the next scan).
+    private var watcherScans = Set<Int64>()
     private let gate = DispatchSemaphore(value: 1)
     /// Called with the ids of purged assets (Purge missing), e.g. to delete their video previews.
     public var onPurge: (([String]) -> Void)?
     /// Called by Rebuild caches after thumbnails and previews are cleared, e.g. to delete video previews.
     public var onClearCaches: (() throws -> Void)?
+    /// Watches the sources set to Immediate.
+    public private(set) lazy var watcher = SourceWatcher(jobs: self)
 
     public init(db: AppDatabase, settings: SettingsStore, derivatives: @escaping () -> DerivativeStore,
                 serverTZ: TimeZone = .current, excluding: [URL] = [], dataDir: URL? = nil, ffmpeg: URL? = FFmpeg.locate()) {
@@ -71,13 +75,14 @@ public final class JobRunner: @unchecked Sendable {
         for k in kinds { enqueue(k) }
     }
 
-    /// `target`: a Detect changes of that one source (root) only.
+    /// `target`: a Detect changes of that one source (root) only. `watched`: queued by the watcher.
     @discardableResult
-    public func enqueue(_ kind: JobKind, target: String? = nil) -> Int64 {
+    public func enqueue(_ kind: JobKind, target: String? = nil, watched: Bool = false) -> Int64 {
         var row = JobRow(id: nil, kind: kind.rawValue, state: "queued", phase: nil, progress: 0, total: 0,
                          message: nil, error: nil, startedAt: nil, endedAt: nil, target: kind == .detectChanges ? target : nil)
         try? db.writer.write { try row.insert($0) }
         let id = row.id ?? 0
+        if watched { lock.lock(); watcherScans.insert(id); lock.unlock() }
         group.enter()
         queue.async { [self] in
             gate.wait(); gate.signal()
@@ -243,6 +248,7 @@ public final class JobRunner: @unchecked Sendable {
                     continue
                 }
                 let scanner = LibraryScanner(db: db, root: url, rootName: name, serverTZ: serverTZ, excluding: excluding)
+                lock.lock(); scanner.waitForSettling = watcherScans.contains(id); lock.unlock()
                 // folders that are sources report their progress and result as their own
                 let isSource = name == Roots.library || name == Roots.uploads || LocalFolders.isLocalFolder(name)
                 do {
@@ -251,6 +257,7 @@ public final class JobRunner: @unchecked Sendable {
                         : try scanner.detectChanges(progress: progressReporter(id, phase: isSource ? "scan:\(name)" : "scan"), isCancelled: cancelled)
                     total.merge(r)
                     if isSource { try? settings.recordScan(SourceScan(root: name, report: r, note: r.errors.first)) }
+                    if r.deferred > 0 { scanAgainSoon(name) }
                     if let f = try LocalFolders.source(root: name, settings) { try scanner.nameRootFolder(f.title) }
                     if name == Roots.library { try scanner.nameRootFolder(url.lastPathComponent) }
                 } catch ScanError.rootUnreadable(let path) where name == Roots.uploads {
@@ -298,6 +305,14 @@ public final class JobRunner: @unchecked Sendable {
         case .importTakeoutAlbums:
             let r = try AlbumService(db: db, settings: settings, dataDir: dataDir).importTakeoutAlbums()
             return "\(r.created) albums created, \(r.updated) updated"
+        }
+    }
+
+    /// Files still being written were left for later: look again once they are done.
+    private func scanAgainSoon(_ root: String) {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + LibraryScanner.settleTime + 5) { [weak self] in
+            guard let self, self.scanState(root) == .none else { return }
+            self.enqueue(.detectChanges, target: root, watched: true)
         }
     }
 
@@ -453,6 +468,7 @@ public final class JobRunner: @unchecked Sendable {
         if r.skipped > 0 { s += ", \(r.skipped) skipped" }
         if r.skippedOther > 0 { s += ", \(r.skippedOther) other file\(r.skippedOther == 1 ? "" : "s") skipped" }
         if r.liveMotion > 0 { s += ", \(r.liveMotion) Live Photo video\(r.liveMotion == 1 ? "" : "s") attached" }
+        if r.deferred > 0 { s += ", \(r.deferred) still being written (next scan)" }
         if !renderFailures.isEmpty { s += "\n" + renderFailureText(renderFailures) }
         if !r.errors.isEmpty { s += "\n" + r.errors.prefix(50).joined(separator: "\n") }
         return s

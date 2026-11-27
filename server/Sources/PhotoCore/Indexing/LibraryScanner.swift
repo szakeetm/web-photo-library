@@ -11,11 +11,13 @@ public struct ScanReport: Codable, Sendable, Equatable {
     public var skippedOther = 0
     /// Live Photo motion clips attached (or re-attached) to their still in this run.
     public var liveMotion = 0
+    /// New files changed moments ago (probably still being copied in): left for the next scan.
+    public var deferred = 0
     public var errors: [String] = []
 
     mutating func merge(_ o: ScanReport) {
         added += o.added; updated += o.updated; removed += o.removed; unchanged += o.unchanged
-        skipped += o.skipped; skippedOther += o.skippedOther; liveMotion += o.liveMotion; errors += o.errors
+        skipped += o.skipped; skippedOther += o.skippedOther; liveMotion += o.liveMotion; deferred += o.deferred; errors += o.errors
     }
 }
 
@@ -88,13 +90,26 @@ public final class LibraryScanner: @unchecked Sendable {
 
     // MARK: - Detect changes
 
-    public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool) throws -> ScanReport {
-        let (dirs, images, videos, failedDirs, others) = try listing ?? walk(isCancelled: isCancelled)
+    /// In scans started by the watcher (while files may still be arriving): a new file changed less
+    /// than this long ago is probably still being copied in, so it waits for the next scan (which the
+    /// job queues) instead of being indexed half-written. A scan asked for by hand takes everything.
+    static let settleTime: TimeInterval = 10
+    var waitForSettling = false
+
+    public func detectChanges(progress: (Int, Int) -> Void, isCancelled: () -> Bool, now: Date = Date()) throws -> ScanReport {
+        let (dirs, allImages, allVideos, failedDirs, others) = try listing ?? walk(isCancelled: isCancelled)
         var report = ScanReport()
         report.skippedOther = others
         let folderIds = try ensureFolders(dirs)
         var existing: [String: FileRow] = [:]
         for row in try db.writer.read({ try FileRow.filter(Column("root") == rootName).fetchAll($0) }) { existing[row.relPath] = row }
+        // only files found by walking a folder here (a remote source's mirror is written by its own scan)
+        let settling = { (c: Candidate) in
+            self.waitForSettling && self.listing == nil && existing[c.relPath] == nil && now.timeIntervalSince1970 - c.mtime < Self.settleTime
+        }
+        let images = allImages.filter { !settling($0) }
+        let videos = allVideos.filter { !settling($0) }
+        report.deferred = allImages.count - images.count + allVideos.count - videos.count
         let probeVersions = try db.writer.read { d in
             Dictionary(try Row.fetchAll(d, sql: "SELECT id, probeVersion FROM asset").map { ($0["id"] as String, $0["probeVersion"] as Int) },
                        uniquingKeysWith: { a, _ in a })
@@ -135,8 +150,8 @@ public final class LibraryScanner: @unchecked Sendable {
         // 2. Files that disappeared — but never those under folders we failed to read.
         for d in failedDirs { report.errors.append("Could not read folder \(d.isEmpty ? "(\(rootName) root)" : d); its photos were left untouched.") }
         if !batch {
-            report.removed += try removeAbsent(present: Set(images.map(\.relPath)).union(videos.map(\.relPath)),
-                                               videos: Set(videos.map(\.relPath)), failedDirs: failedDirs, existing: existing)
+            report.removed += try removeAbsent(present: Set(allImages.map(\.relPath)).union(allVideos.map(\.relPath)),
+                                               videos: Set(allVideos.map(\.relPath)), failedDirs: failedDirs, existing: existing)
         }
 
         // 3. Videos: Live Photo motion clips attach to their still; the rest become video assets.

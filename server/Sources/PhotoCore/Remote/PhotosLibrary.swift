@@ -424,3 +424,48 @@ public enum PhotosLibraryReader {
         }
     }
 }
+
+extension PhotosLibraryReader {
+    /// A summary of what a scan imports from the library's database: its own photos (which ones,
+    /// their dates, places, time zones and edit state) and its albums with their members. Read from the
+    /// live database, read-only, in milliseconds (a scan copies the whole database first, which takes
+    /// seconds): the watcher uses it to tell Photos' own background writes from real changes.
+    public static func fingerprint(_ library: URL) throws -> String {
+        var config = Configuration()
+        config.readonly = true
+        config.busyMode = .timeout(2)
+        let q = try DatabaseQueue(path: library.appendingPathComponent("database/Photos.sqlite").path, configuration: config)
+        defer { try? q.close() }
+        return try q.read { d in
+            let cols = Set(try Row.fetchAll(d, sql: "PRAGMA table_info(ZASSET)").map { $0["name"] as String })
+            let xcols = Set(try Row.fetchAll(d, sql: "PRAGMA table_info(ZADDITIONALASSETATTRIBUTES)").map { $0["name"] as String })
+            let edited = cols.contains("ZADJUSTMENTSSTATE") ? "COALESCE(a.ZADJUSTMENTSSTATE, 0)" : "0"
+            let place = cols.contains("ZLATITUDE") && cols.contains("ZLONGITUDE") ? "TOTAL(a.ZLATITUDE) || ':' || TOTAL(a.ZLONGITUDE)" : "''"
+            let tz = xcols.contains("ZTIMEZONEOFFSET") ? "TOTAL(x.ZTIMEZONEOFFSET)" : "0"
+            let assets = try Row.fetchOne(d, sql: """
+                SELECT COUNT(*) || ':' || TOTAL(a.Z_PK) || ':' || TOTAL(a.ZDATECREATED) || ':' || TOTAL(\(edited)) || ':'
+                       || \(place) || ':' || \(tz) || ':' || TOTAL(LENGTH(a.ZFILENAME)) || ':' || TOTAL(LENGTH(x.ZORIGINALFILENAME)) AS f
+                FROM ZASSET a LEFT JOIN ZADDITIONALASSETATTRIBUTES x ON x.ZASSET = a.Z_PK
+                WHERE a.ZTRASHEDSTATE = 0 AND COALESCE(a.ZHIDDEN, 0) = 0 AND a.ZDIRECTORY IS NOT NULL AND a.ZFILENAME IS NOT NULL
+                  AND COALESCE(a.ZVISIBILITYSTATE, 0) = 0
+                """)?["f"] as String? ?? ""
+            let albums = try Row.fetchOne(d, sql: """
+                SELECT COUNT(*) || ':' || TOTAL(Z_PK) || ':' || GROUP_CONCAT(ZTITLE, '|') AS f
+                FROM ZGENERICALBUM WHERE ZKIND = 2 AND ZTRASHEDSTATE = 0 AND ZTITLE IS NOT NULL
+                """)?["f"] as String? ?? ""
+            // album members: the join table's name depends on the Photos version (as in read())
+            var members = ""
+            for t in try String.fetchAll(d, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'Z\\_%ASSETS' ESCAPE '\\'") {
+                let tcols = try Row.fetchAll(d, sql: "PRAGMA table_info(\(t))").map { $0["name"] as String }
+                guard let al = tcols.first(where: { $0.hasSuffix("ALBUMS") && !$0.hasPrefix("Z_FOK") }),
+                      let asset = tcols.first(where: { $0.hasSuffix("ASSETS") && !$0.hasPrefix("Z_FOK") }) else { continue }
+                members = try String.fetchOne(d, sql: """
+                    SELECT COUNT(*) || ':' || TOTAL(j.\(asset)) || ':' || TOTAL(j.\(al) * j.\(asset)) FROM \(t) j
+                    JOIN ZGENERICALBUM g ON g.Z_PK = j.\(al) WHERE g.ZKIND = 2
+                    """) ?? ""
+                break
+            }
+            return [assets, albums, members].joined(separator: "#")
+        }
+    }
+}

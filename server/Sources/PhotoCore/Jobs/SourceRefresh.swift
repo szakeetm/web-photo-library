@@ -1,8 +1,8 @@
 import Foundation
 
 extension SettingKey where T == [String: Int] {
-    /// Auto-refresh of each source: root → minutes between Detect changes runs. A source not listed
-    /// (the default) is only scanned when asked.
+    /// Auto-refresh of each source: root → minutes between Detect changes runs, or 0 for Immediate
+    /// (watched for changes). A source not listed (the default, Never) is only scanned when asked.
     public static let sourceRefreshMinutes = SettingKey("sourceRefreshMinutes", default: [:])
 }
 
@@ -11,13 +11,18 @@ extension SettingKey where T == [String: Int] {
 public enum SourceRefresh {
     /// The intervals offered, in minutes: 5 min, 15 min, 1 hour, 6 hours, 1 day, 1 week.
     public static let choices = [5, 15, 60, 360, 1440, 10080]
+    /// Immediate: the source is watched (SourceWatcher) and scanned once its changes settle.
+    public static let immediate = 0
+    /// A watched source is still scanned this often, in case a change was missed.
+    public static let immediateSafetyMinutes = 1440
 
     /// The sources due for a refresh, most overdue first: their interval has passed since their last
     /// scan (or they were never scanned).
     public static func due(intervals: [String: Int], scans: [SourceScan], now: Date = Date()) -> [String] {
         let last = Dictionary(scans.map { ($0.root, $0.at) }, uniquingKeysWith: max)
         return intervals
-            .compactMap { root, minutes -> (String, TimeInterval)? in
+            .compactMap { root, setting -> (String, TimeInterval)? in
+                let minutes = setting == immediate ? immediateSafetyMinutes : setting
                 guard minutes > 0 else { return nil }
                 let since = last[root].map { now.timeIntervalSince($0) } ?? .infinity
                 let over = since - TimeInterval(minutes) * 60
@@ -33,12 +38,19 @@ extension JobRunner {
     public func sourceRoots() throws -> [String] { try roots().map(\.0) }
 
     /// Whether a scan of `root` (or of every source) is waiting or running.
-    func scanPending(_ root: String) -> Bool {
-        recent(limit: 20).contains { j in
+    func scanPending(_ root: String) -> Bool { scanState(root) != .none }
+
+    enum ScanState { case none, queued, running }
+
+    /// A scan of `root` (or of every source) running, else one waiting.
+    func scanState(_ root: String) -> ScanState {
+        let scans = recent(limit: 20).filter { j in
             ["queued", "running"].contains(j.state)
                 && (j.kind == JobKind.reindex.rawValue || j.kind == JobKind.rebuildCaches.rawValue
                     || (j.kind == JobKind.detectChanges.rawValue && (j.target == nil || j.target == root)))
         }
+        if scans.contains(where: { $0.state == "running" }) { return .running }
+        return scans.isEmpty ? .none : .queued
     }
 
     /// Queues the sources whose auto-refresh is due. Sources that are gone are forgotten.
@@ -56,11 +68,14 @@ extension JobRunner {
         }
     }
 
-    /// Checks every minute for sources due for their auto-refresh.
+    /// Checks every minute for sources due for their auto-refresh, and starts watching the sources set
+    /// to Immediate (and again when a watched folder's drive comes back).
     public func startRefreshScheduler(every: TimeInterval = 60) {
+        watcher.sync()
         Thread.detachNewThread { [weak self] in
             Thread.sleep(forTimeInterval: 30)  // let the server settle first
             while let self {
+                self.watcher.sync()
                 self.refreshDueSources()
                 Thread.sleep(forTimeInterval: every)
             }

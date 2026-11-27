@@ -66,7 +66,8 @@ struct APIRoutes {
         var libraryPath: String?; var uploadsPath: String?; var ownerLogin: String?
         var facesEnabled: Bool?; var objectsEnabled: Bool?; var mapStyleURL: String?
         var originalsCacheGB: Int?
-        /// A source's auto-refresh: minutes between scans (one of SourceRefresh.choices), or nil for off.
+        /// A source's auto-refresh: minutes between scans (one of SourceRefresh.choices), 0 for Immediate
+        /// (watched; not remote sources), or nil for off.
         var sourceRefresh: SourceRefreshBody?
     }
     struct SourceRefreshBody: Codable { var root: String; var minutes: Int? }
@@ -124,6 +125,8 @@ struct APIRoutes {
         /// each source's auto-refresh (root → minutes; not listed = off), and the intervals offered
         let sourceRefreshMinutes: [String: Int]
         let refreshChoices: [Int]
+        /// the sources that can be set to Immediate (0): all but remote ones
+        let watchableSources: [String]
     }
     static let defaultMapStyle = "https://tiles.openfreemap.org/styles/liberty"
     struct PersonPatch: Decodable { var name: String??; var hidden: Bool?; var coverFaceId: Int64? }
@@ -236,10 +239,16 @@ struct APIRoutes {
             }
             if let r = body.sourceRefresh {
                 guard try services.jobs.sourceRoots().contains(r.root) else { return errorResponse(.badRequest, "Unknown source") }
-                if let m = r.minutes, !SourceRefresh.choices.contains(m) { return errorResponse(.badRequest, "Unsupported interval") }
+                if let m = r.minutes, !SourceRefresh.choices.contains(m) {
+                    guard m == SourceRefresh.immediate else { return errorResponse(.badRequest, "Unsupported interval") }
+                    guard SourceWatcher.canWatch(r.root) else {
+                        return errorResponse(.badRequest, "A remote source can't be watched: changes made there don't reach this Mac.")
+                    }
+                }
                 var all = try services.settings.get(.sourceRefreshMinutes)
                 all[r.root] = r.minutes
                 try services.settings.set(.sourceRefreshMinutes, all)
+                services.jobs.watcher.sync()
             }
             if let g = body.originalsCacheGB {
                 guard (1...10_000).contains(g) else { return errorResponse(.badRequest, "Keep between 1 GB and 10 TB of originals.") }
@@ -851,7 +860,8 @@ struct APIRoutes {
                                          uploadsLastScan: try s.get(.sourceScans).first { $0.root == Roots.uploads },
                                          originalsCacheGB: try s.get(.originalsCacheGB) ?? RemoteSources.defaultCacheGB,
                                          originalsCacheBytes: OriginalsCache.size(dataDir: services.paths.dataDir),
-                                         sourceRefreshMinutes: try s.get(.sourceRefreshMinutes), refreshChoices: SourceRefresh.choices))
+                                         sourceRefreshMinutes: try s.get(.sourceRefreshMinutes), refreshChoices: SourceRefresh.choices,
+                                         watchableSources: ((try? services.jobs.sourceRoots()) ?? []).filter(SourceWatcher.canWatch)))
     }
 
     func localFolderInfos() throws -> [LocalFolderInfo] {

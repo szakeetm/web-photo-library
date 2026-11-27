@@ -762,9 +762,12 @@
 			<button class="btn small" disabled={scanQueued(root)} onclick={() => refreshSource(root)}
 				title="Look for new and changed photos in this source now">{scanQueued(root) ? 'Refreshing…' : 'Refresh'}</button>
 			<label class="small muted"
-				>Auto-refresh
+				title={settings?.sourceRefreshMinutes?.[root] === 0
+					? 'Changes are picked up about 20 seconds after they stop (at most 2 minutes while they keep coming), with a daily check in case one was missed.'
+					: undefined}>Auto-refresh
 				<select value={String(settings?.sourceRefreshMinutes?.[root] ?? '')} onchange={(e) => setRefresh(root, (e.target as HTMLSelectElement).value)}>
 					<option value="">Off</option>
+					{#if settings?.watchableSources?.includes(root)}<option value="0">Immediate</option>{/if}
 					{#each settings?.refreshChoices ?? [] as m (m)}<option value={String(m)}>{every(m)}</option>{/each}
 				</select></label
 			>
