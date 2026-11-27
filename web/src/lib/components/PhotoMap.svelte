@@ -202,9 +202,11 @@
 				source: 'photos-heat',
 				layout: { visibility: mode === 'heat' ? 'visible' : 'none' },
 				paint: {
-					// Zoomed out, many photos share a pixel: keep the intensity low so only the busiest
-					// places turn yellow; zoomed in, photos spread out, so each counts for more.
-					'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 9, 1.2, 16, 2.5],
+					// A library has tens of thousands of photos, many at the same few places: each counts for
+					// little, so only the places with very many photos turn yellow and the rest stay blue/purple
+					// (like Google Photos). Zoomed in, photos spread out, so each counts for more.
+					'heatmap-weight': 0.06,
+					'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.25, 9, 0.6, 14, 1.2, 18, 2.5],
 					// Purple/blue where there are a few photos, through magenta and orange to yellow.
 					'heatmap-color': [
 						'interpolate',
@@ -226,8 +228,8 @@
 						'rgb(255, 235, 80)'
 					],
 					// Big, soft blobs that grow with the zoom so single photos stay visible up close.
-					'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 10, 6, 18, 12, 28, 18, 45],
-					'heatmap-opacity': 0.85
+					'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 6, 12, 12, 20, 18, 36],
+					'heatmap-opacity': 0.8
 				}
 			});
 			if (!saved && !focus && located.length) {
