@@ -39,17 +39,31 @@
 			: href === '/albums'
 				? albumsSection.some((p) => page.url.pathname.startsWith(p)) || collectionTab != null
 				: page.url.pathname.startsWith(href);
-	// On the phone, Collections has its own tabs (a second bar above the main one).
-	const collectionTabs = [
-		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/favorites', '/edited', '/archive', '/videos', '/live', '/media'] },
+	// On the phone, Collections has its own tabs (a second bar above the main one); the ones that
+	// don't fit are under More, a menu that opens above it.
+	type SubTab = { href: string; label: string; icon: string; also: string[] };
+	const collectionTabs: SubTab[] = [
+		{ href: '/albums', label: 'Albums', icon: 'albums', also: ['/edited', '/live', '/media'] },
 		{ href: '/folders', label: 'Folders', icon: 'folder', also: ['/uploads', '/sources'] },
+		{ href: '/archive', label: 'Archive', icon: 'archive', also: [] },
+		{ href: '/trash', label: 'Trash', icon: 'trash', also: [] }
+	];
+	const moreTabs: SubTab[] = [
 		{ href: '/people', label: 'People', icon: 'people', also: [] },
 		{ href: '/places', label: 'Places', icon: 'map', also: [] },
 		{ href: '/duplicates', label: 'Duplicates', icon: 'duplicate', also: [] },
-		{ href: '/trash', label: 'Trash', icon: 'trash', also: [] }
+		{ href: '/favorites', label: 'Favourites', icon: 'heart', also: [] },
+		{ href: '/videos', label: 'Videos', icon: 'video', also: [] }
 	];
 	const under = (p: string) => page.url.pathname === p || page.url.pathname.startsWith(p + '/');
-	const collectionTab = $derived(collectionTabs.find((t) => [t.href, ...t.also].some(under)));
+	const collectionTab = $derived([...collectionTabs, ...moreTabs].find((t) => [t.href, ...t.also].some(under)));
+	/** the open page when it is one under More (the More tab then shows it) */
+	const moreTab = $derived(collectionTab && moreTabs.includes(collectionTab) ? collectionTab : null);
+	let moreOpen = $state(false);
+	$effect(() => {
+		void page.url.pathname;
+		moreOpen = false;
+	});
 	const exact = (href: string) => page.url.pathname === href || page.url.pathname.startsWith(href + '/');
 	/** Desktop sidebar filters: each shows the Library filtered (media types only when there are any). */
 	const filterLinks = $derived(
@@ -256,7 +270,20 @@
 					><Icon name={t.icon} size={20} /><span>{t.label}</span></a
 				>
 			{/each}
+			<button class="more" class:active={moreTab != null} aria-haspopup="menu" aria-expanded={moreOpen}
+				onclick={() => (moreOpen = !moreOpen)}><Icon name={moreTab?.icon ?? 'more'} size={20} /><span>{moreTab?.label ?? 'More'}</span></button
+			>
 		</nav>
+		{#if moreOpen}
+			<button class="more-backdrop" aria-label="Close" onclick={() => (moreOpen = false)}></button>
+			<div class="more-menu" role="menu">
+				{#each moreTabs as t (t.href)}
+					<a role="menuitem" href={t.href} class:active={collectionTab === t} aria-current={collectionTab === t ? 'page' : undefined}
+						onclick={() => (moreOpen = false)}><Icon name={t.icon} size={20} /><span>{t.label}</span></a
+					>
+				{/each}
+			</div>
+		{/if}
 	{/if}
 	<nav class="tabbar" aria-label="Sections">
 		{#each tabs as t (t.href)}
@@ -287,7 +314,8 @@
 		-webkit-backdrop-filter: saturate(180%) blur(20px);
 		border-top: 0.5px solid var(--separator);
 	}
-	.subtabs a {
+	.subtabs a,
+	.subtabs .more {
 		flex: 1;
 		min-width: 0;
 		display: flex;
@@ -298,7 +326,51 @@
 		font-size: 10px;
 		color: var(--fg-secondary);
 	}
-	.subtabs a.active {
+	.subtabs a.active,
+	.subtabs .more.active {
+		color: var(--accent);
+	}
+	.subtabs .more {
+		border: 0;
+		padding: 0;
+		background: none;
+		font: inherit;
+		font-size: 10px;
+	}
+	.more-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 29;
+		border: 0;
+		padding: 0;
+		background: transparent;
+	}
+	.more-menu {
+		position: fixed;
+		z-index: 30;
+		right: 8px;
+		bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 6px);
+		min-width: 190px;
+		padding: 6px 0;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg-elevated);
+		border-radius: 14px;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+		border: 0.5px solid var(--separator);
+	}
+	.more-menu a {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 11px 16px;
+		font-size: 16px;
+		color: var(--fg);
+	}
+	.more-menu a + a {
+		border-top: 0.5px solid var(--separator);
+	}
+	.more-menu a.active {
 		color: var(--accent);
 	}
 	main {
