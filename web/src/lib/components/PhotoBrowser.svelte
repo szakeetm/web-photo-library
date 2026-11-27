@@ -52,7 +52,7 @@
 	);
 	const open = $derived(page.state.viewer && ids.includes(page.state.viewer) ? page.state.viewer : null);
 
-	// Desktop (Photos on the Mac): a click selects just that photo, a double-click (or Space) opens it,
+	// Desktop: a click selects that photo and opens it (Space opens the selected one again),
 	// ⌘/Ctrl-click adds and removes, shift-click selects a range; the action bar shows from two photos on.
 	// Phones: a tap opens the photo; Select or a long press start selecting, and taps add and remove.
 	const desktop = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -69,9 +69,9 @@
 			// unselecting the last one ends selecting
 			if (selection.count === 0) selection.clear();
 		} else if (desktop && !selection.explicit) {
-			if (e.detail >= 2) pushState('', { viewer: id }); // double-click
-			else if (selection.count === 1 && selection.ids.has(id)) selection.clear(); // the only one: nothing selected
-			else selection.only(id);
+			// a click selects just that photo and opens it; closing the viewer leaves it selected
+			selection.only(id);
+			pushState('', { viewer: id });
 		} else if (selection.active) {
 			selection.toggle(id);
 		} else {

@@ -34,7 +34,7 @@ export const nextArchiveValue = nextFavoriteValue;
  * The selected photos. Selecting is "active" (the action bar shows, clicks and taps add and remove)
  * when the user asked for it (Select, a long press, select all, a drag) or when two or more photos are
  * selected. On a desktop a click selects just that photo (the blue frame, Photos on the Mac): one
- * selected photo is not selecting yet; it is opened (Space, double-click) to do something with it.
+ * selected photo is not selecting yet (a click also opens it; Space opens it again).
  */
 /** Views with more photos than this can't be selected all at once (⌘A, the All button). */
 export const SELECT_ALL_MAX = 500;

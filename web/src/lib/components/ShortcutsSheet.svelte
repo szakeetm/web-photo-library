@@ -17,7 +17,7 @@
 		{
 			title: 'Photos',
 			items: [
-				[['Click'], 'Select a photo (double-click opens it)'],
+				[['Click'], 'Open a photo (it stays selected after you close it)'],
 				[[`${mod}click`], 'Add or remove a photo (the action bar shows from two on)'],
 				[[`${shift}click`], 'Select every photo up to this one'],
 				[[shortcut('A')], 'Select all (up to 500 photos)'],

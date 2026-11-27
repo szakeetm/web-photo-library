@@ -579,6 +579,9 @@
 	let axis: 'x' | 'y' | 'pan' | 'pinch' | null = null;
 	let start = { x: 0, y: 0, t: 0, tx: 0, ty: 0, scale: 1, dist: 1, cx: 0, cy: 0 };
 	let lastTap = 0;
+	// The grid opens a photo on a single click (desktop): the second click of a habitual double-click
+	// lands here and is not a tap.
+	const openedAt = performance.now();
 	let tapTimer: ReturnType<typeof setTimeout> | undefined;
 
 	// Live Photo: a single press held 300 ms without moving (and not zoomed) plays the motion until
@@ -748,7 +751,9 @@
 			else animateTo(() => (dy = 0));
 		} else if (!axis && elapsed < 300) {
 			const now = performance.now();
-			if (isVideo) chrome = !chrome;
+			if (now - openedAt < 500) {
+				/* the rest of the double-click that opened the viewer */
+			} else if (isVideo) chrome = !chrome;
 			else if (now - lastTap < 300) {
 				clearTimeout(tapTimer);
 				lastTap = 0;
